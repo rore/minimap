@@ -315,3 +315,35 @@ test("server falls forward to the next free port when requested port is busy", a
     await new Promise((resolve) => blocker.close(resolve));
   }
 });
+
+test("portable minimap package includes app, skill, and starter templates", async () => {
+  const requiredPaths = [
+    ["package", "minimap", "package.json"],
+    ["package", "minimap", "server.js"],
+    ["package", "minimap", "src", "roadmap.js"],
+    ["package", "minimap", "ui", "index.html"],
+    ["package", "minimap", "ui", "app.js"],
+    ["package", "minimap", "ui", "styles.css"],
+    ["package", "minimap", "SKILL.md"],
+    ["package", "minimap", "CONTRACT.md"],
+    ["package", "minimap", "README.md"],
+    ["package", "minimap", "AGENTS_SNIPPET.md"],
+    ["package", "minimap", "templates", "roadmap", "board.md"],
+    ["package", "minimap", "templates", "roadmap", "scope.md"],
+    ["package", "minimap", "templates", "roadmap", "features", "example-feature.md"],
+    ["package", "minimap", "templates", "roadmap", "ideas", "example-idea.md"],
+    ["package", "minimap", "templates", "roadmap.config.json"],
+  ];
+
+  for (const segments of requiredPaths) {
+    await fs.access(path.join(projectRoot, ...segments));
+  }
+
+  const packageJson = JSON.parse(
+    await fs.readFile(path.join(projectRoot, "package", "minimap", "package.json"), "utf8"),
+  );
+
+  assert.equal(packageJson.type, "module");
+  assert.equal(packageJson.scripts.start, "node server.js");
+});
+
