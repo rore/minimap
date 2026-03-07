@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>__REPO_NAME__ Roadmap</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="title-wrap">
+          <p class="eyebrow">Repo-local roadmap workspace</p>
+          <h1><span id="repo-name">__REPO_NAME__</span> Roadmap</h1>
+        </div>
+        <div class="topbar-meta">
+          <span id="workspace-summary" class="chip chip-muted">Loading items...</span>
+          <span id="roadmap-path" class="chip">Loading...</span>
+          <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <div id="status-banner" class="status-banner" hidden></div>
+
+      <main class="layout" id="layout-shell" data-scope-collapsed="false">
+        <section class="panel board-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Board</h2>
+              <p class="muted">Collapse groups, then move them up or down.</p>
+            </div>
+          </div>
+          <div id="board-groups" class="board-groups"></div>
+        </section>
+
+        <section class="panel editor-panel">
+          <div class="panel-header">
+            <div>
+              <h2 id="editor-title">Item</h2>
+              <p id="editor-subtitle" class="muted">Choose an item from the board.</p>
+            </div>
+            <button id="save-button" class="primary-button" type="button" disabled>Save</button>
+          </div>
+
+          <form id="item-form" class="item-form">
+            <div class="metadata-grid">
+              <label>
+                <span>ID</span>
+                <input id="field-id" name="id" type="text" readonly />
+              </label>
+
+              <label>
+                <span>Title</span>
+                <input id="field-title" name="title" type="text" />
+              </label>
+
+              <label>
+                <span>Status</span>
+                <select id="field-status" name="status">
+                  <option value="queued">queued</option>
+                  <option value="in-progress">in-progress</option>
+                  <option value="blocked">blocked</option>
+                  <option value="done">done</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Priority</span>
+                <select id="field-priority" name="priority">
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Commitment</span>
+                <select id="field-commitment" name="commitment">
+                  <option value="committed">committed</option>
+                  <option value="uncommitted">uncommitted</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="section-stack">
+              <label>
+                <span>Summary</span>
+                <textarea id="section-summary" rows="5"></textarea>
+              </label>
+
+              <label>
+                <span>Why</span>
+                <textarea id="section-why" rows="5"></textarea>
+              </label>
+
+              <label>
+                <span>In Scope</span>
+                <textarea id="section-in-scope" rows="5"></textarea>
+              </label>
+
+              <label>
+                <span>Out of Scope</span>
+                <textarea id="section-out-of-scope" rows="5"></textarea>
+              </label>
+
+              <label>
+                <span>Done When</span>
+                <textarea id="section-done-when" rows="5"></textarea>
+              </label>
+
+              <label>
+                <span>Notes</span>
+                <textarea id="section-notes" rows="6"></textarea>
+              </label>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel scope-panel" id="scope-panel">
+          <div class="panel-header">
+            <div class="panel-header-main">
+              <h2>Scope</h2>
+              <span class="muted">Read-only for now</span>
+            </div>
+            <button id="scope-toggle" class="scope-toggle-button" type="button" aria-expanded="true">Collapse</button>
+          </div>
+          <pre id="scope-content" class="scope-content"></pre>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
