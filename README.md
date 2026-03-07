@@ -1,6 +1,28 @@
 # Repo-Local Roadmap UI
 
-A local roadmap workspace where canonical files live in the repo and the UI is only a structured lens/editor over those files.
+A tiny repo-local, file-based roadmap and feature planning workspace for humans and agents. Canonical files live in the repo, and the UI is only a structured lens/editor over those files.
+
+## Why This Exists
+
+Many repo roadmaps are readable by agents but awkward for humans, or pleasant for humans but disconnected from the repo.
+
+Minimap is meant to stay in the middle:
+- roadmap and feature planning live in normal repo files
+- humans get a simple local UI over those files
+- agents follow the same file contract and update the same state
+- git stays the history
+
+The goal is not to build a new planning platform. The goal is to make repo-local planning easier to read and edit without introducing a second system of record.
+
+## What Minimap Is For
+
+Use minimap when you want a repo to carry its own roadmap and feature planning in a way that works for both humans and agents.
+
+Typical use cases:
+- keep roadmap state close to the code and specs it refers to
+- let humans review and update roadmap items without hand-editing markdown every time
+- let agents read and update planning state deterministically
+- keep planning lightweight and git-native instead of moving it into a separate tool
 
 ## Portable Package
 

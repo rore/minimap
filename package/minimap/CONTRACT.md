@@ -1,12 +1,12 @@
 # Minimap Contract
 
-Minimap is a tiny repo-local roadmap workspace for humans and agents.
+Minimap is a tiny repo-local, file-based roadmap and feature planning workspace for humans and agents.
 
 The roadmap files in the repo are the only source of truth. Git is the history. The UI is only a structured lens and editor over those files.
 
 ## What Minimap Is
 
-- a local roadmap workspace stored in repo files
+- a local roadmap and feature planning workspace stored in repo files
 - a simple file convention that both humans and agents can follow
 - a local UI for reading and editing those files
 - a skill/instruction set for agents working with the same files
@@ -184,3 +184,4 @@ A copy-in minimap package should include:
 - `SKILL.md`
 - starter roadmap templates
 - host-repo adoption notes
+

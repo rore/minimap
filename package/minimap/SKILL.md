@@ -7,7 +7,7 @@ description: Use when reading, updating, or reorganizing roadmap state in a repo
 
 ## Intent
 
-Use the minimap roadmap files as the canonical source of planning truth for the repo.
+Use the minimap roadmap files as the canonical source of roadmap and feature planning truth for the repo.
 
 The UI is only a human-friendly lens over those files. Agents and humans must operate on the same file state.
 
@@ -104,3 +104,4 @@ When a roadmap task is requested:
 4. If focus narrative changes, update `scope.md`.
 5. If item state changes, update the item file frontmatter and relevant sections.
 6. Keep wording concrete and easy for both humans and agents to follow.
+
