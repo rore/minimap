@@ -4,34 +4,49 @@ Planning that lives with the repo.
 
 Minimap is a tiny repo-local, file-based roadmap and feature planning workspace for humans and agents. It keeps roadmap state in normal repo files, gives humans a local UI, and lets agents work against the same canonical source of truth.
 
+![Minimap UI](docs/images/minimap-ui.png)
+
 ## Why It Exists
 
 Minimap came out of a practical loop: building projects together with AI agents, managing features through conversation, and repeatedly asking the agent to update the roadmap after each change.
 
 That works for a while, but it stays too loose. I wanted more structure in how roadmap state is managed, and I wanted a small local UI where I could inspect the roadmap directly instead of only asking the agent what was planned, what changed, or what was next.
 
-Minimap is the result:
+Minimap is meant to tighten that loop without turning it into another planning platform.
+
+## What You Get
+
 - roadmap and feature planning live in normal repo files
-- humans get a simple local UI over those files
+- humans get a small local UI for reading and editing those files
 - agents follow the same file contract and update the same state
 - git stays the history
+- there is no separate database, sync layer, or hidden UI state
 
-The goal is not to build another planning platform. The goal is to make repo-local planning easier to read, edit, and share without introducing a second system of record.
+The item editor gives you three ways to work with the same file:
+- `Preview` for reading the item as a document first
+- `Edit` for common metadata and core sections
+- `Raw` for uncommon metadata, extra sections, or formatting that does not fit the structured editor
 
-## What It Is Good For
+## Why It Is Useful
 
-Use minimap when you want a repo to carry its own roadmap and feature planning in a way that works for both humans and agents.
+Use minimap when you want planning to stay close to the repo instead of drifting into chat history or a separate tool.
 
-Typical use cases:
-- keep roadmap state close to the code and specs it refers to
-- let humans review and update roadmap items without hand-editing markdown every time
-- let agents read and update planning state deterministically
-- keep planning lightweight and git-native instead of pushing it into a separate tool
+It is especially useful when:
+- a repo has an active roadmap that both humans and agents need to understand
+- you want planning state to be readable in git and editable in a UI
+- you want agents to update roadmap state deterministically instead of inventing their own structure
+- you want something much lighter than a full project-management tool
 
-The current editor supports three complementary ways to work with an item:
-- preview mode for reading the item as a document first
-- edit mode for common metadata and core sections
-- raw mode for uncommon metadata, extra sections, or formatting that does not fit the structured editor
+## How It Works
+
+Minimap keeps one rule very strict: the files are the source of truth.
+
+- `board.md` owns groups and item order
+- `scope.md` owns current-focus narrative
+- `features/*.md` owns committed or active feature work
+- `ideas/*.md` owns uncommitted or parked ideas
+
+The UI is just a structured lens and editor over those files. It does not maintain separate roadmap state.
 
 ## Portable Package
 
@@ -52,11 +67,11 @@ To adopt minimap in another repo:
 4. run `node tools/minimap/server.js` from the host repo root
 5. point the host repo agent instructions at `tools/minimap/SKILL.md`
 
-See `package/minimap/README.md` for package usage and `package/minimap/CONTRACT.md` for the actual product and file contract.
+See `package/minimap/README.md` for package usage and `package/minimap/CONTRACT.md` for the exact file contract.
 
 ## Run
 
-The canonical minimap run command is the package entrypoint:
+The canonical minimap run command in this repo is the package entrypoint:
 
 ```bash
 node package/minimap/server.js
