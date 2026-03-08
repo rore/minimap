@@ -73,6 +73,42 @@ test("keeps scope on the right side of the editor and narrower on desktop", asyn
   expect(editorBox.width).toBeGreaterThan(scopeBox.width + 220);
 });
 
+test("renders scope markdown instead of raw text", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator("#scope-content ul li").first()).toContainText("complete the self-hosting loop");
+  await expect(page.locator("#scope-content")).not.toContainText("- complete the self-hosting loop so the app can manage more of its own roadmap files");
+});
+
+test("allows resizing the scope panel on desktop", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto("/");
+
+  const handle = page.locator("#scope-resizer");
+  await expect(handle).toBeVisible();
+
+  const initialEditorBox = await page.locator(".editor-panel").boundingBox();
+  const initialScopeBox = await page.locator(".scope-panel").boundingBox();
+  const handleBox = await handle.boundingBox();
+
+  expect(initialEditorBox).not.toBeNull();
+  expect(initialScopeBox).not.toBeNull();
+  expect(handleBox).not.toBeNull();
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x - 120, handleBox.y + 120, { steps: 8 });
+  await page.mouse.up();
+
+  const resizedEditorBox = await page.locator(".editor-panel").boundingBox();
+  const resizedScopeBox = await page.locator(".scope-panel").boundingBox();
+
+  expect(resizedEditorBox).not.toBeNull();
+  expect(resizedScopeBox).not.toBeNull();
+  expect(resizedScopeBox.width).toBeGreaterThan(initialScopeBox.width + 80);
+  expect(resizedEditorBox.width).toBeLessThan(initialEditorBox.width - 80);
+});
+
 test("keeps the board visible at medium widths and pushes scope below", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
   await page.goto("/");
@@ -304,7 +340,7 @@ test("renders extra sections from the item file in the structured editor", async
   await expect(page.locator("#field-milestone")).toHaveValue("P3");
 });
 
-test("preview mode renders markdown from the edit form", async ({ page }) => {
+test("preview mode renders markdown from the edit form without duplicating the title block", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-editor-mode="structured"]').click();
 
@@ -313,6 +349,8 @@ test("preview mode renders markdown from the edit form", async ({ page }) => {
 
   await expect(page.locator("#item-preview ul li").first()).toContainText("keep planning in the repo");
   await expect(page.locator("#item-preview code")).toContainText("board.md");
+  await expect(page.locator("#item-preview h2")).toHaveCount(0);
+  await expect(page.locator("#item-preview")).not.toContainText("Item preview");
 });
 
 test("raw mode saves full-file edits", async ({ page }) => {
