@@ -6,11 +6,9 @@ Minimap is a tiny repo-local, file-based roadmap and feature planning workspace.
 
 ## Why Use It
 
-Minimap came out of a simple real-world pattern: building projects together with AI agents, managing features and roadmap state through conversation, and repeatedly telling the agent to update the roadmap after each change.
+Minimap came out of a simple real-world pattern: building projects together with AI agents and repeatedly managing roadmap state through conversation.
 
-That works for a while, but it stays too loose. Eventually you want more structure in how roadmap state is managed, and you want a small UI where you can inspect the roadmap directly instead of only asking the agent what is going on.
-
-This package is designed for that collaboration model:
+That works for a while, but it stays too loose. This package gives that collaboration model more structure:
 - humans use the local UI
 - agents follow the minimap skill and file convention
 - both update the same canonical roadmap files
@@ -23,8 +21,8 @@ For the exact product boundary and file contract, read `CONTRACT.md`.
 
 The item editor is intentionally small, but it is not limited to a rigid form.
 
-- `Structured` mode handles the common metadata and the core sections
-- `Preview` mode renders the item as markdown before you save it
+- `Preview` mode lets you read the item as markdown first
+- `Edit` mode handles the common metadata and the core sections
 - `Raw` mode lets you edit the full file when a repo uses richer metadata or extra sections
 
 Markdown is allowed inside every section, and minimap preserves unknown frontmatter keys and extra markdown sections instead of flattening everything into one schema.

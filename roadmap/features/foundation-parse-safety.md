@@ -23,6 +23,7 @@ The UI is only a lens over canonical files, so it must fail safely and avoid era
 - non-destructive error messages in the UI
 - safe failure when a board entry points to a missing item
 - preserve unknown frontmatter keys and untouched markdown sections on save
+- allow validated raw file edits while preserving the canonical item id
 
 ## Out of Scope
 
@@ -34,6 +35,7 @@ The UI is only a lens over canonical files, so it must fail safely and avoid era
 - malformed files return parse errors through the API
 - the UI shows an error state without modifying files
 - saving known fields does not erase unknown content
+- raw edits fail safely when they break the canonical item contract
 
 ## Notes
 

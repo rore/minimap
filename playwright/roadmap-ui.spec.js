@@ -119,6 +119,44 @@ test("collapses scope into a narrow rail and gives space back to the editor", as
   expect(collapsedScopeBox.width).toBeLessThan(expandedScopeBox.width - 120);
 });
 
+
+
+test("shows only the active editor pane for each mode", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator('[data-mode-pane="structured"]')).toBeHidden();
+  await expect(page.locator('[data-mode-pane="preview"]')).toBeVisible();
+  await expect(page.locator('[data-mode-pane="raw"]')).toBeHidden();
+
+  await page.locator('[data-editor-mode="structured"]').click();
+  await expect(page.locator('[data-mode-pane="structured"]')).toBeVisible();
+  await expect(page.locator('[data-mode-pane="preview"]')).toBeHidden();
+  await expect(page.locator('[data-mode-pane="raw"]')).toBeHidden();
+
+  await page.locator('[data-editor-mode="raw"]').click();
+  await expect(page.locator('[data-mode-pane="structured"]')).toBeHidden();
+  await expect(page.locator('[data-mode-pane="preview"]')).toBeHidden();
+  await expect(page.locator('[data-mode-pane="raw"]')).toBeVisible();
+});
+
+test("shows clear editor mode changes in the header", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator("#editor-mode-pill")).toHaveText("Preview");
+  await expect(page.locator("#editor-mode-description")).toContainText("rendered markdown");
+  await expect(page.locator("#save-button")).toHaveText("Save");
+
+  await page.locator('[data-editor-mode="structured"]').click();
+  await expect(page.locator("#editor-mode-pill")).toHaveText("Edit");
+  await expect(page.locator("#editor-mode-description")).toContainText("core roadmap sections");
+  await expect(page.locator("#save-button")).toHaveText("Save");
+
+  await page.locator('[data-editor-mode="raw"]').click();
+  await expect(page.locator("#editor-mode-pill")).toHaveText("Raw");
+  await expect(page.locator("#editor-mode-description")).toContainText("full markdown file");
+  await expect(page.locator("#save-button")).toHaveText("Save");
+});
+
 test("loads another board item into the editor when selected", async ({ page }) => {
   await page.goto("/");
 
@@ -168,6 +206,7 @@ test("reorders board sections and persists after reload", async ({ page }) => {
 
 test("saves optional milestone metadata and reflects it in the board", async ({ page }) => {
   await page.goto("/");
+  await page.locator('[data-editor-mode="structured"]').click();
 
   await page.locator("#field-milestone").fill("P2");
   await page.locator("#save-button").click();
@@ -185,13 +224,15 @@ test("renders extra sections from the item file in the structured editor", async
 
   await page.goto("/");
   await page.locator("#refresh-button").click();
+  await page.locator('[data-editor-mode="structured"]').click();
 
   await expect(page.locator('[data-extra-section="Decision Locks"]')).toHaveValue("- keep the file contract thin");
   await expect(page.locator("#field-milestone")).toHaveValue("P3");
 });
 
-test("preview mode renders markdown from the structured editor", async ({ page }) => {
+test("preview mode renders markdown from the edit form", async ({ page }) => {
   await page.goto("/");
+  await page.locator('[data-editor-mode="structured"]').click();
 
   await page.locator("#section-summary").fill("- keep planning in the repo\n- show `board.md` changes clearly");
   await page.locator('[data-editor-mode="preview"]').click();
@@ -222,6 +263,7 @@ test("refresh reloads the workspace after an external file edit", async ({ page 
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, changedTitle), "utf8");
 
   await page.locator("#refresh-button").click();
+  await page.locator('[data-editor-mode="structured"]').click();
 
   await expect(page.locator("#field-title")).toHaveValue(changedTitle);
   await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText(changedTitle);

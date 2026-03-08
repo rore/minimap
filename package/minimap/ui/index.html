@@ -33,18 +33,22 @@
           <div id="board-groups" class="board-groups"></div>
         </section>
 
-        <section class="panel editor-panel">
+        <section class="panel editor-panel" id="editor-panel" data-editor-mode="structured">
           <div class="panel-header editor-header">
-            <div>
-              <h2 id="editor-title">Item</h2>
+            <div class="editor-heading">
+              <div class="editor-heading-top">
+                <h2 id="editor-title">Item</h2>
+                <span id="editor-mode-pill" class="chip chip-muted">Structured</span>
+              </div>
               <p id="editor-subtitle" class="muted">Choose an item from the board.</p>
+              <p id="editor-mode-description" class="muted editor-mode-description">Edit common metadata and the core roadmap sections.</p>
             </div>
             <button id="save-button" class="primary-button" type="button" disabled>Save</button>
           </div>
 
           <div class="editor-tabs" role="tablist" aria-label="Item editor modes">
-            <button class="editor-tab is-active" id="tab-structured" data-editor-mode="structured" type="button" role="tab" aria-selected="true">Structured</button>
-            <button class="editor-tab" id="tab-preview" data-editor-mode="preview" type="button" role="tab" aria-selected="false">Preview</button>
+            <button class="editor-tab is-active" id="tab-preview" data-editor-mode="preview" type="button" role="tab" aria-selected="true">Preview</button>
+            <button class="editor-tab" id="tab-structured" data-editor-mode="structured" type="button" role="tab" aria-selected="false">Edit</button>
             <button class="editor-tab" id="tab-raw" data-editor-mode="raw" type="button" role="tab" aria-selected="false">Raw</button>
           </div>
 
@@ -167,3 +171,4 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
+

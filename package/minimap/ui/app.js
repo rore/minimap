@@ -7,7 +7,7 @@ const state = {
   currentItem: null,
   collapsedGroups: new Set(),
   scopeCollapsed: loadStoredScopePreference(),
-  editorMode: "structured",
+  editorMode: "preview",
   dirtyStructured: false,
   dirtyRaw: false,
 };
@@ -22,6 +22,9 @@ const workspaceSummaryElement = document.querySelector("#workspace-summary");
 const repoNameElement = document.querySelector("#repo-name");
 const editorTitleElement = document.querySelector("#editor-title");
 const editorSubtitleElement = document.querySelector("#editor-subtitle");
+const editorPanelElement = document.querySelector("#editor-panel");
+const editorModePillElement = document.querySelector("#editor-mode-pill");
+const editorModeDescriptionElement = document.querySelector("#editor-mode-description");
 const saveButton = document.querySelector("#save-button");
 const refreshButton = document.querySelector("#refresh-button");
 const statusBanner = document.querySelector("#status-banner");
@@ -224,6 +227,21 @@ function updateWorkspaceSummary() {
   workspaceSummaryElement.textContent = state.workspace ? `${items} items / ${groups} groups` : "Unavailable";
 }
 
+const EDITOR_MODE_CHROME = {
+  structured: {
+    pill: "Edit",
+    description: "Edit common metadata and the core roadmap sections.",
+  },
+  preview: {
+    pill: "Preview",
+    description: "Read the current item as rendered markdown before saving.",
+  },
+  raw: {
+    pill: "Raw",
+    description: "Edit the full markdown file when the structured editor is not enough.",
+  },
+};
+
 function renderScopeChrome() {
   layoutElement.dataset.scopeCollapsed = String(state.scopeCollapsed);
   scopePanelElement.classList.toggle("scope-collapsed", state.scopeCollapsed);
@@ -232,10 +250,19 @@ function renderScopeChrome() {
   scopeToggleButton.setAttribute("aria-label", state.scopeCollapsed ? "Expand scope panel" : "Collapse scope panel");
 }
 
+function renderEditorChrome() {
+  const modeChrome = EDITOR_MODE_CHROME[state.editorMode] || EDITOR_MODE_CHROME.preview;
+  editorPanelElement.dataset.editorMode = state.editorMode;
+  editorModePillElement.textContent = modeChrome.pill;
+  editorModeDescriptionElement.textContent = modeChrome.description;
+  saveButton.textContent = "Save";
+}
+
 function syncWorkspaceChrome() {
   updateDocumentTitle();
   updateWorkspaceSummary();
   renderScopeChrome();
+  renderEditorChrome();
 }
 
 function toggleScopePanel() {
@@ -408,7 +435,7 @@ function resetEditor() {
   extraSectionsPanel.hidden = true;
   rawTextElement.value = "";
   previewElement.className = "preview-surface preview-empty";
-  previewElement.innerHTML = "Preview updates as you edit the structured form.";
+  previewElement.innerHTML = "Preview the current item or switch to Edit to change its core fields.";
 }
 
 function getExtraSectionHeadings() {
@@ -478,7 +505,7 @@ function getStructuredMetadata() {
 function renderPreview() {
   if (!state.currentItem) {
     previewElement.className = "preview-surface preview-empty";
-    previewElement.innerHTML = "Preview updates as you edit the structured form.";
+    previewElement.innerHTML = "Preview the current item or switch to Edit to change its core fields.";
     return;
   }
 
@@ -619,6 +646,8 @@ function canSwitchEditorMode(nextMode) {
 }
 
 function applyEditorMode() {
+  renderEditorChrome();
+
   for (const button of modeButtons) {
     const active = button.dataset.editorMode === state.editorMode;
     button.classList.toggle("is-active", active);
@@ -720,3 +749,5 @@ resetEditor();
 renderScopeChrome();
 applyEditorMode();
 void loadWorkspace();
+
+

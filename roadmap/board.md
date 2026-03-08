@@ -4,7 +4,6 @@
 
 # Next
 - feature-setup-guidance
-- feature-agent-file-rules
 
 # Ideas
 - idea-board-management
@@ -15,3 +14,4 @@
 - foundation-local-server
 - foundation-board-editor
 - foundation-parse-safety
+- feature-agent-file-rules

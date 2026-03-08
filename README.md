@@ -4,23 +4,13 @@ Planning that lives with the repo.
 
 Minimap is a tiny repo-local, file-based roadmap and feature planning workspace for humans and agents. It keeps roadmap state in normal repo files, gives humans a local UI, and lets agents work against the same canonical source of truth.
 
-## Where It Came From
+## Why It Exists
 
-Minimap came out of a very practical loop.
+Minimap came out of a practical loop: building projects together with AI agents, managing features through conversation, and repeatedly asking the agent to update the roadmap after each change.
 
-I have a few projects that I build together with AI agents. In practice, roadmap management often turned into a repeated conversation pattern: we would work on a feature, I would ask the agent to update the roadmap, then later I would need to ask the agent again what was planned, what changed, or what was still next.
+That works for a while, but it stays too loose. I wanted more structure in how roadmap state is managed, and I wanted a small local UI where I could inspect the roadmap directly instead of only asking the agent what was planned, what changed, or what was next.
 
-That worked, but it was too loose. I wanted more structure in how roadmap state is managed, and I also wanted a small local UI where I could see the roadmap directly instead of only through conversation with the agent.
-
-Minimap is the result: a thin shared planning layer where humans and agents work against the same repo files.
-
-## Why This Exists
-
-Most planning tools force an awkward tradeoff:
-- repo-native planning is flexible but messy to read and edit
-- polished planning tools are easier for humans but detached from the repo and hard for agents to follow deterministically
-
-Minimap is meant to stay in the middle:
+Minimap is the result:
 - roadmap and feature planning live in normal repo files
 - humans get a simple local UI over those files
 - agents follow the same file contract and update the same state
@@ -39,8 +29,8 @@ Typical use cases:
 - keep planning lightweight and git-native instead of pushing it into a separate tool
 
 The current editor supports three complementary ways to work with an item:
-- structured editing for common metadata and known sections
-- preview mode for reading markdown as a document before saving
+- preview mode for reading the item as a document first
+- edit mode for common metadata and core sections
 - raw mode for uncommon metadata, extra sections, or formatting that does not fit the structured editor
 
 ## Portable Package

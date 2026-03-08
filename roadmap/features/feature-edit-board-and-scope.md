@@ -1,7 +1,7 @@
 ---
 id: feature-edit-board-and-scope
 title: Edit board and scope from the UI
-status: queued
+status: in-progress
 priority: high
 commitment: committed
 labels:
@@ -34,9 +34,9 @@ The product is not fully self-hosting while board structure and scope narrative 
 ## Done When
 
 - a user can update current focus without leaving the UI
-- a user can reorder the board from the UI
+- a user can regroup and reorder roadmap items from the UI
 - board grouping remains canonical in `board.md`
 
 ## Notes
 
-This should be implemented without creating UI-only ordering state.
+Board group reordering is already shipped. The remaining work is scope editing plus item-level and group-level board authoring without creating UI-only ordering state.

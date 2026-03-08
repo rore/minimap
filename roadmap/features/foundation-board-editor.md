@@ -22,19 +22,21 @@ The product has to be immediately useful for humans before more advanced mutatio
 
 - grouped board display from `board.md`
 - metadata badges from item frontmatter
-- editable fields for title, status, priority, commitment, and fixed sections
+- preview, edit, and raw modes for existing roadmap items
+- editable fields for title, status, priority, commitment, optional milestone, and core sections
+- surface additional item sections that already exist in the file
 - save and reload behavior based on canonical files
 
 ## Out of Scope
 
 - create item flows
-- board drag and drop
-- rich markdown editing
+- item moves between board groups
+- rich markdown editing with a custom document model
 
 ## Done When
 
 - a user can open an item from the board
-- a user can edit it and save it
+- a user can preview, edit, and save it without leaving the app
 - the board refreshes from the saved file contents
 
 ## Notes

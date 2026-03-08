@@ -273,9 +273,21 @@ h3 {
   padding-bottom: 16px;
 }
 
+.editor-heading,
 .panel-header-main {
   display: grid;
   gap: 4px;
+}
+
+.editor-heading-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.editor-mode-description {
+  max-width: 52ch;
 }
 
 .muted {
@@ -501,9 +513,10 @@ h3 {
 }
 
 .editor-tab.is-active {
-  background: rgba(44, 108, 255, 0.1);
-  border-color: rgba(44, 108, 255, 0.16);
+  background: linear-gradient(135deg, rgba(44, 108, 255, 0.16), rgba(35, 82, 212, 0.08));
+  border-color: rgba(44, 108, 255, 0.22);
   color: var(--accent-strong);
+  box-shadow: 0 12px 22px rgba(44, 108, 255, 0.12);
 }
 
 .editor-panels {
@@ -514,6 +527,22 @@ h3 {
 .editor-pane {
   height: 100%;
   overflow: auto;
+}
+
+[data-mode-pane][hidden] {
+  display: none !important;
+}
+
+.editor-panel[data-editor-mode="structured"] .editor-tabs {
+  background: linear-gradient(180deg, rgba(248, 250, 255, 0.92), rgba(255, 255, 255, 0));
+}
+
+.editor-panel[data-editor-mode="preview"] .editor-tabs {
+  background: linear-gradient(180deg, rgba(231, 244, 255, 0.92), rgba(255, 255, 255, 0));
+}
+
+.editor-panel[data-editor-mode="raw"] .editor-tabs {
+  background: linear-gradient(180deg, rgba(22, 32, 51, 0.07), rgba(255, 255, 255, 0));
 }
 
 .item-form {
@@ -558,6 +587,7 @@ h3 {
   padding: 22px;
   display: grid;
   gap: 18px;
+  background: linear-gradient(180deg, rgba(237, 247, 255, 0.55), rgba(255, 255, 255, 0));
 }
 
 .preview-empty {
@@ -648,6 +678,7 @@ h3 {
   padding: 18px 22px 22px;
   display: grid;
   gap: 16px;
+  background: linear-gradient(180deg, rgba(18, 26, 43, 0.04), rgba(255, 255, 255, 0));
 }
 
 .raw-pane-header {
@@ -698,6 +729,10 @@ textarea {
   font-family: "Cascadia Code", "Consolas", monospace;
   font-size: 0.9rem;
   line-height: 1.65;
+  background: rgba(18, 26, 43, 0.95);
+  color: #f4f7ff;
+  border-color: rgba(18, 26, 43, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .section-stack {
@@ -811,3 +846,5 @@ textarea {
     align-items: flex-start;
   }
 }
+
+

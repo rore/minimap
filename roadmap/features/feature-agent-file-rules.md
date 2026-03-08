@@ -1,7 +1,7 @@
 ---
 id: feature-agent-file-rules
 title: Agent operating rules for roadmap files
-status: queued
+status: done
 priority: medium
 commitment: committed
 labels:
@@ -37,4 +37,4 @@ The product includes two layers: canonical files and a human UI. The agent behav
 
 ## Notes
 
-This supports the product, but it is not part of the runtime UI.
+Implemented via the packaged minimap skill and the repo-level AGENTS hook that points roadmap work at that skill.
