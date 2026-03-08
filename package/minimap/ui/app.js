@@ -13,18 +13,19 @@ const state = {
 };
 
 const layoutElement = document.querySelector("#layout-shell");
+const boardPanelElement = document.querySelector("#board-panel");
 const boardGroupsElement = document.querySelector("#board-groups");
 const scopePanelElement = document.querySelector("#scope-panel");
 const scopeContentElement = document.querySelector("#scope-content");
 const scopeToggleButton = document.querySelector("#scope-toggle");
+const jumpToBoardButton = document.querySelector("#jump-to-board");
+const jumpToEditorButton = document.querySelector("#jump-to-editor");
 const roadmapPathElement = document.querySelector("#roadmap-path");
 const workspaceSummaryElement = document.querySelector("#workspace-summary");
 const repoNameElement = document.querySelector("#repo-name");
 const editorTitleElement = document.querySelector("#editor-title");
 const editorSubtitleElement = document.querySelector("#editor-subtitle");
 const editorPanelElement = document.querySelector("#editor-panel");
-const editorModePillElement = document.querySelector("#editor-mode-pill");
-const editorModeDescriptionElement = document.querySelector("#editor-mode-description");
 const saveButton = document.querySelector("#save-button");
 const refreshButton = document.querySelector("#refresh-button");
 const statusBanner = document.querySelector("#status-banner");
@@ -35,6 +36,7 @@ const extraSectionsPanel = document.querySelector("#extra-sections-panel");
 const extraSectionsElement = document.querySelector("#extra-sections");
 const modeButtons = Array.from(document.querySelectorAll("[data-editor-mode]"));
 const modePanes = Array.from(document.querySelectorAll("[data-mode-pane]"));
+const stackedLayoutMedia = window.matchMedia("(max-width: 1320px)");
 
 const fields = {
   id: document.querySelector("#field-id"),
@@ -227,20 +229,19 @@ function updateWorkspaceSummary() {
   workspaceSummaryElement.textContent = state.workspace ? `${items} items / ${groups} groups` : "Unavailable";
 }
 
-const EDITOR_MODE_CHROME = {
-  structured: {
-    pill: "Edit",
-    description: "Edit common metadata and the core roadmap sections.",
-  },
-  preview: {
-    pill: "Preview",
-    description: "Read the current item as rendered markdown before saving.",
-  },
-  raw: {
-    pill: "Raw",
-    description: "Edit the full markdown file when the structured editor is not enough.",
-  },
-};
+function isStackedLayout() {
+  return stackedLayoutMedia.matches;
+}
+
+function scrollPanelIntoView(element) {
+  element?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function syncMobileNavigation() {
+  const hasItem = Boolean(state.selectedItemId);
+  jumpToEditorButton.hidden = !hasItem;
+  jumpToEditorButton.disabled = !hasItem;
+}
 
 function renderScopeChrome() {
   layoutElement.dataset.scopeCollapsed = String(state.scopeCollapsed);
@@ -251,10 +252,7 @@ function renderScopeChrome() {
 }
 
 function renderEditorChrome() {
-  const modeChrome = EDITOR_MODE_CHROME[state.editorMode] || EDITOR_MODE_CHROME.preview;
   editorPanelElement.dataset.editorMode = state.editorMode;
-  editorModePillElement.textContent = modeChrome.pill;
-  editorModeDescriptionElement.textContent = modeChrome.description;
   saveButton.textContent = "Save";
 }
 
@@ -263,6 +261,7 @@ function syncWorkspaceChrome() {
   updateWorkspaceSummary();
   renderScopeChrome();
   renderEditorChrome();
+  syncMobileNavigation();
 }
 
 function toggleScopePanel() {
@@ -345,6 +344,7 @@ function renderBoard() {
 
   if (state.workspace.boardGroups.length === 0) {
     boardGroupsElement.innerHTML = '<div class="empty-state">No board groups found in board.md.</div>';
+    syncMobileNavigation();
     return;
   }
 
@@ -387,10 +387,14 @@ function renderBoard() {
     .join("");
 
   boardGroupsElement.innerHTML = html;
+  syncMobileNavigation();
 
   for (const button of boardGroupsElement.querySelectorAll("[data-item-id]")) {
-    button.addEventListener("click", () => {
-      void loadItem(button.dataset.itemId);
+    button.addEventListener("click", async () => {
+      await loadItem(button.dataset.itemId);
+      if (isStackedLayout()) {
+        scrollPanelIntoView(editorPanelElement);
+      }
     });
   }
 
@@ -423,6 +427,25 @@ function setDirtyState(kind, value) {
   }
 }
 
+function autosizeTextarea(textarea) {
+  if (!textarea) {
+    return;
+  }
+
+  textarea.style.height = "0px";
+  textarea.style.height = `${Math.max(textarea.scrollHeight, 92)}px`;
+}
+
+function autosizeStructuredTextareas() {
+  for (const textarea of form.querySelectorAll("textarea")) {
+    if (textarea === rawTextElement) {
+      continue;
+    }
+
+    autosizeTextarea(textarea);
+  }
+}
+
 function resetEditor() {
   state.currentItem = null;
   state.dirtyStructured = false;
@@ -430,12 +453,15 @@ function resetEditor() {
   editorTitleElement.textContent = "Item";
   editorSubtitleElement.textContent = "Choose an item from the board.";
   saveButton.disabled = true;
+  state.selectedItemId = null;
   form.reset();
   extraSectionsElement.innerHTML = "";
   extraSectionsPanel.hidden = true;
   rawTextElement.value = "";
   previewElement.className = "preview-surface preview-empty";
   previewElement.innerHTML = "Preview the current item or switch to Edit to change its core fields.";
+  autosizeStructuredTextareas();
+  syncMobileNavigation();
 }
 
 function getExtraSectionHeadings() {
@@ -468,7 +494,9 @@ function renderExtraSections(item) {
 
   for (const textarea of extraSectionsElement.querySelectorAll("textarea[data-extra-section]")) {
     textarea.value = item.extraSections[textarea.dataset.extraSection] || "";
+    autosizeTextarea(textarea);
     textarea.addEventListener("input", () => {
+      autosizeTextarea(textarea);
       setDirtyState("structured", true);
       if (state.editorMode === "preview") {
         renderPreview();
@@ -557,7 +585,9 @@ function renderItem(item) {
 
   renderExtraSections(item);
   rawTextElement.value = item.rawText || "";
+  autosizeStructuredTextareas();
   renderPreview();
+  syncMobileNavigation();
 }
 
 async function fetchJson(url, options = {}) {
@@ -661,6 +691,10 @@ function applyEditorMode() {
   if (state.editorMode === "preview") {
     renderPreview();
   }
+
+  if (state.editorMode === "structured") {
+    autosizeStructuredTextareas();
+  }
 }
 
 function switchEditorMode(nextMode) {
@@ -728,7 +762,21 @@ scopeToggleButton.addEventListener("click", () => {
   toggleScopePanel();
 });
 
-form.addEventListener("input", () => {
+jumpToBoardButton.addEventListener("click", () => {
+  scrollPanelIntoView(boardPanelElement);
+});
+
+jumpToEditorButton.addEventListener("click", () => {
+  if (state.selectedItemId) {
+    scrollPanelIntoView(editorPanelElement);
+  }
+});
+
+form.addEventListener("input", (event) => {
+  if (event.target instanceof HTMLTextAreaElement) {
+    autosizeTextarea(event.target);
+  }
+
   setDirtyState("structured", true);
   if (state.editorMode === "preview") {
     renderPreview();

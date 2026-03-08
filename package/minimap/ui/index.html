@@ -23,12 +23,13 @@
       <div id="status-banner" class="status-banner" hidden></div>
 
       <main class="layout" id="layout-shell" data-scope-collapsed="false">
-        <section class="panel board-panel">
+        <section class="panel board-panel" id="board-panel">
           <div class="panel-header">
             <div>
               <h2>Board</h2>
-              <p class="muted">Collapse groups, then move them up or down.</p>
+              <p class="muted">Compact by default, with groups you can collapse and reorder.</p>
             </div>
+            <button id="jump-to-editor" class="ghost-button mobile-nav-button" type="button" hidden>Open item</button>
           </div>
           <div id="board-groups" class="board-groups"></div>
         </section>
@@ -38,12 +39,13 @@
             <div class="editor-heading">
               <div class="editor-heading-top">
                 <h2 id="editor-title">Item</h2>
-                <span id="editor-mode-pill" class="chip chip-muted">Structured</span>
               </div>
               <p id="editor-subtitle" class="muted">Choose an item from the board.</p>
-              <p id="editor-mode-description" class="muted editor-mode-description">Edit common metadata and the core roadmap sections.</p>
             </div>
-            <button id="save-button" class="primary-button" type="button" disabled>Save</button>
+            <div class="editor-actions">
+              <button id="jump-to-board" class="ghost-button mobile-nav-button" type="button">Board</button>
+              <button id="save-button" class="primary-button" type="button" disabled>Save</button>
+            </div>
           </div>
 
           <div class="editor-tabs" role="tablist" aria-label="Item editor modes">
@@ -54,81 +56,88 @@
 
           <div class="editor-panels">
             <form id="item-form" class="item-form editor-pane" data-mode-pane="structured">
-              <div class="metadata-grid">
-                <label>
-                  <span>ID</span>
-                  <input id="field-id" name="id" type="text" readonly />
-                </label>
+              <details class="metadata-details">
+                <summary id="metadata-toggle" class="metadata-summary">
+                  <span class="metadata-summary-title">Item details</span>
+                  <span class="metadata-summary-copy">Title, status, priority, commitment, milestone</span>
+                </summary>
 
-                <label>
-                  <span>Title</span>
-                  <input id="field-title" name="title" type="text" />
-                </label>
+                <div class="metadata-grid">
+                  <label>
+                    <span>ID</span>
+                    <input id="field-id" name="id" type="text" readonly />
+                  </label>
 
-                <label>
-                  <span>Status</span>
-                  <select id="field-status" name="status">
-                    <option value="queued">queued</option>
-                    <option value="in-progress">in-progress</option>
-                    <option value="blocked">blocked</option>
-                    <option value="done">done</option>
-                  </select>
-                </label>
+                  <label>
+                    <span>Title</span>
+                    <input id="field-title" name="title" type="text" />
+                  </label>
 
-                <label>
-                  <span>Priority</span>
-                  <select id="field-priority" name="priority">
-                    <option value="high">high</option>
-                    <option value="medium">medium</option>
-                    <option value="low">low</option>
-                  </select>
-                </label>
+                  <label>
+                    <span>Status</span>
+                    <select id="field-status" name="status">
+                      <option value="queued">queued</option>
+                      <option value="in-progress">in-progress</option>
+                      <option value="blocked">blocked</option>
+                      <option value="done">done</option>
+                    </select>
+                  </label>
 
-                <label>
-                  <span>Commitment</span>
-                  <select id="field-commitment" name="commitment">
-                    <option value="committed">committed</option>
-                    <option value="uncommitted">uncommitted</option>
-                  </select>
-                </label>
+                  <label>
+                    <span>Priority</span>
+                    <select id="field-priority" name="priority">
+                      <option value="high">high</option>
+                      <option value="medium">medium</option>
+                      <option value="low">low</option>
+                    </select>
+                  </label>
 
-                <label>
-                  <span>Milestone</span>
-                  <input id="field-milestone" name="milestone" type="text" placeholder="Optional" />
-                </label>
-              </div>
+                  <label>
+                    <span>Commitment</span>
+                    <select id="field-commitment" name="commitment">
+                      <option value="committed">committed</option>
+                      <option value="uncommitted">uncommitted</option>
+                    </select>
+                  </label>
 
-              <p class="muted editor-note">Markdown is allowed inside every section. Minimap keeps unknown frontmatter and extra sections intact.</p>
+                  <label>
+                    <span>Milestone</span>
+                    <input id="field-milestone" name="milestone" type="text" placeholder="Optional" />
+                  </label>
+                </div>
 
-              <div class="section-stack">
-                <label>
+                <p class="muted editor-note">Markdown is allowed inside every section. Minimap keeps unknown frontmatter and extra sections intact.</p>
+              </details>
+
+              <div class="section-stack fixed-section-grid">
+                <label data-span="full">
                   <span>Summary</span>
-                  <textarea id="section-summary" rows="5"></textarea>
+                  <textarea id="section-summary" rows="4"></textarea>
                 </label>
 
                 <label>
                   <span>Why</span>
-                  <textarea id="section-why" rows="5"></textarea>
+                  <textarea id="section-why" rows="4"></textarea>
                 </label>
 
                 <label>
                   <span>In Scope</span>
-                  <textarea id="section-in-scope" rows="5"></textarea>
+                  <textarea id="section-in-scope" rows="4"></textarea>
                 </label>
 
                 <label>
                   <span>Out of Scope</span>
-                  <textarea id="section-out-of-scope" rows="5"></textarea>
+                  <textarea id="section-out-of-scope" rows="4"></textarea>
                 </label>
 
-                <label>
+                <label data-span="full">
                   <span>Done When</span>
-                  <textarea id="section-done-when" rows="5"></textarea>
+                  <textarea id="section-done-when" rows="4"></textarea>
                 </label>
 
-                <label>
+                <label data-span="full">
                   <span>Notes</span>
-                  <textarea id="section-notes" rows="6"></textarea>
+                  <textarea id="section-notes" rows="5"></textarea>
                 </label>
               </div>
 
@@ -171,4 +180,3 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
-
