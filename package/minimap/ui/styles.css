@@ -157,7 +157,8 @@ h3 {
 .primary-button,
 .order-button,
 .collapse-toggle,
-.scope-toggle-button {
+.scope-toggle-button,
+.editor-tab {
   border-radius: 999px;
   transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease;
 }
@@ -195,7 +196,8 @@ h3 {
 .primary-button:hover,
 .order-button:hover,
 .collapse-toggle:hover,
-.scope-toggle-button:hover {
+.scope-toggle-button:hover,
+.editor-tab:hover {
   transform: translateY(-1px);
 }
 
@@ -267,6 +269,10 @@ h3 {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(245, 248, 255, 0.98));
 }
 
+.editor-header {
+  padding-bottom: 16px;
+}
+
 .panel-header-main {
   display: grid;
   gap: 4px;
@@ -281,7 +287,7 @@ h3 {
 
 .board-groups,
 .scope-content,
-.item-form {
+.editor-pane {
   min-height: 0;
 }
 
@@ -477,10 +483,41 @@ h3 {
   padding-inline: 0.6rem;
 }
 
-.item-form {
+.editor-tabs {
+  display: flex;
+  gap: 10px;
+  padding: 14px 22px 0;
+}
+
+.editor-tab {
+  border: 1px solid rgba(63, 82, 118, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
+  padding: 0.6rem 0.92rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.editor-tab.is-active {
+  background: rgba(44, 108, 255, 0.1);
+  border-color: rgba(44, 108, 255, 0.16);
+  color: var(--accent-strong);
+}
+
+.editor-panels {
   flex: 1;
+  min-height: 0;
+}
+
+.editor-pane {
+  height: 100%;
   overflow: auto;
-  padding: 22px;
+}
+
+.item-form {
+  padding: 18px 22px 22px;
   display: grid;
   gap: 22px;
 }
@@ -497,6 +534,125 @@ h3 {
   gap: 8px;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.editor-note {
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(63, 82, 118, 0.1);
+  border-radius: 16px;
+  background: rgba(244, 247, 253, 0.9);
+}
+
+.extra-sections-panel {
+  display: grid;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.extra-sections-header {
+  display: grid;
+  gap: 4px;
+}
+
+.preview-surface {
+  padding: 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.preview-empty {
+  color: var(--muted);
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(63, 82, 118, 0.1);
+}
+
+.preview-eyebrow {
+  margin-bottom: 6px;
+}
+
+.preview-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.preview-body {
+  display: grid;
+  gap: 18px;
+}
+
+.preview-section {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid rgba(63, 82, 118, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.preview-markdown {
+  color: var(--text);
+  line-height: 1.65;
+}
+
+.preview-markdown > :first-child {
+  margin-top: 0;
+}
+
+.preview-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.preview-markdown p,
+.preview-markdown ul,
+.preview-markdown ol,
+.preview-markdown pre {
+  margin: 0 0 0.8rem;
+}
+
+.preview-markdown ul,
+.preview-markdown ol {
+  padding-left: 1.3rem;
+}
+
+.preview-markdown code {
+  padding: 0.1rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(21, 32, 51, 0.08);
+  font-size: 0.92em;
+}
+
+.preview-markdown pre {
+  overflow: auto;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  background: #142033;
+  color: #f4f7ff;
+}
+
+.preview-markdown pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.raw-pane {
+  padding: 18px 22px 22px;
+  display: grid;
+  gap: 16px;
+}
+
+.raw-pane-header {
+  display: grid;
+  gap: 4px;
 }
 
 input,
@@ -519,6 +675,7 @@ textarea:focus,
 .collapse-toggle:focus-visible,
 .order-button:focus-visible,
 .scope-toggle-button:focus-visible,
+.editor-tab:focus-visible,
 .board-item:focus-visible {
   outline: 2px solid rgba(44, 108, 255, 0.28);
   outline-offset: 2px;
@@ -533,6 +690,14 @@ textarea {
   min-height: 124px;
   resize: vertical;
   line-height: 1.55;
+}
+
+.raw-textarea {
+  min-height: 62vh;
+  resize: vertical;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 0.9rem;
+  line-height: 1.65;
 }
 
 .section-stack {
@@ -565,7 +730,7 @@ textarea {
 
   .board-groups,
   .scope-content,
-  .item-form {
+  .editor-pane {
     overflow: visible;
   }
 
@@ -603,7 +768,8 @@ textarea {
   }
 
   .topbar,
-  .panel-header {
+  .panel-header,
+  .preview-header {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -629,6 +795,15 @@ textarea {
 
   .order-button {
     flex: 1;
+  }
+
+  .editor-tabs {
+    flex-wrap: wrap;
+  }
+
+  .editor-tab {
+    flex: 1;
+    min-width: 120px;
   }
 
   .scope-panel.scope-collapsed .panel-header,

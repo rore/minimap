@@ -7,6 +7,9 @@ const state = {
   currentItem: null,
   collapsedGroups: new Set(),
   scopeCollapsed: loadStoredScopePreference(),
+  editorMode: "structured",
+  dirtyStructured: false,
+  dirtyRaw: false,
 };
 
 const layoutElement = document.querySelector("#layout-shell");
@@ -23,6 +26,12 @@ const saveButton = document.querySelector("#save-button");
 const refreshButton = document.querySelector("#refresh-button");
 const statusBanner = document.querySelector("#status-banner");
 const form = document.querySelector("#item-form");
+const previewElement = document.querySelector("#item-preview");
+const rawTextElement = document.querySelector("#raw-text");
+const extraSectionsPanel = document.querySelector("#extra-sections-panel");
+const extraSectionsElement = document.querySelector("#extra-sections");
+const modeButtons = Array.from(document.querySelectorAll("[data-editor-mode]"));
+const modePanes = Array.from(document.querySelectorAll("[data-mode-pane]"));
 
 const fields = {
   id: document.querySelector("#field-id"),
@@ -30,6 +39,7 @@ const fields = {
   status: document.querySelector("#field-status"),
   priority: document.querySelector("#field-priority"),
   commitment: document.querySelector("#field-commitment"),
+  milestone: document.querySelector("#field-milestone"),
   Summary: document.querySelector("#section-summary"),
   Why: document.querySelector("#section-why"),
   "In Scope": document.querySelector("#section-in-scope"),
@@ -76,6 +86,111 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function renderInlineMarkdown(value) {
+  let html = escapeHtml(value);
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  return html;
+}
+
+function renderMarkdownToHtml(markdown) {
+  const normalized = String(markdown || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  const blocks = [];
+  let paragraphLines = [];
+  let listItems = [];
+  let orderedListItems = [];
+  let codeLines = [];
+  let inCodeBlock = false;
+
+  function flushParagraph() {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+    blocks.push(`<p>${renderInlineMarkdown(paragraphLines.join(" "))}</p>`);
+    paragraphLines = [];
+  }
+
+  function flushList() {
+    if (listItems.length > 0) {
+      blocks.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+      listItems = [];
+    }
+
+    if (orderedListItems.length > 0) {
+      blocks.push(`<ol>${orderedListItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ol>`);
+      orderedListItems = [];
+    }
+  }
+
+  function flushCodeBlock() {
+    if (codeLines.length === 0) {
+      return;
+    }
+    blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+  }
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      flushParagraph();
+      flushList();
+      if (inCodeBlock) {
+        flushCodeBlock();
+      }
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
+
+    const trimmed = line.trim();
+
+    if (trimmed === "") {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const unorderedMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unorderedMatch) {
+      flushParagraph();
+      orderedListItems = [];
+      listItems.push(unorderedMatch[1]);
+      continue;
+    }
+
+    const orderedMatch = trimmed.match(/^\d+[.]\s+(.+)$/);
+    if (orderedMatch) {
+      flushParagraph();
+      listItems = [];
+      orderedListItems.push(orderedMatch[1]);
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const level = headingMatch[1].length;
+      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    paragraphLines.push(trimmed);
+  }
+
+  flushParagraph();
+  flushList();
+  flushCodeBlock();
+
+  return blocks.join("");
+}
+
 function ensureSelectValue(select, value) {
   if (!Array.from(select.options).some((option) => option.value === value)) {
     const option = document.createElement("option");
@@ -92,7 +207,7 @@ function getBoardItems() {
 }
 
 function renderBadges(item) {
-  return [item.status, item.priority, item.commitment]
+  return [item.status, item.priority, item.commitment, item.milestone].filter(Boolean)
     .map((value) => `<span class="badge">${escapeHtml(value)}</span>`)
     .join("");
 }
@@ -271,15 +386,134 @@ function renderScope() {
   scopeContentElement.textContent = state.workspace?.scopeText ?? "";
 }
 
+function setDirtyState(kind, value) {
+  if (kind === "structured") {
+    state.dirtyStructured = value;
+  }
+
+  if (kind === "raw") {
+    state.dirtyRaw = value;
+  }
+}
+
 function resetEditor() {
+  state.currentItem = null;
+  state.dirtyStructured = false;
+  state.dirtyRaw = false;
   editorTitleElement.textContent = "Item";
   editorSubtitleElement.textContent = "Choose an item from the board.";
   saveButton.disabled = true;
   form.reset();
+  extraSectionsElement.innerHTML = "";
+  extraSectionsPanel.hidden = true;
+  rawTextElement.value = "";
+  previewElement.className = "preview-surface preview-empty";
+  previewElement.innerHTML = "Preview updates as you edit the structured form.";
+}
+
+function getExtraSectionHeadings() {
+  return Array.from(extraSectionsElement.querySelectorAll("textarea[data-extra-section]"))
+    .map((textarea) => textarea.dataset.extraSection || "")
+    .filter(Boolean);
+}
+
+function renderExtraSections(item) {
+  const orderedHeadings = item.extraSectionOrder || Object.keys(item.extraSections || {});
+
+  if (orderedHeadings.length === 0) {
+    extraSectionsElement.innerHTML = "";
+    extraSectionsPanel.hidden = true;
+    return;
+  }
+
+  extraSectionsPanel.hidden = false;
+  extraSectionsElement.innerHTML = orderedHeadings
+    .map((heading) => {
+      const safeHeading = escapeHtml(heading);
+      return `
+        <label>
+          <span>${safeHeading}</span>
+          <textarea data-extra-section="${safeHeading}" rows="6"></textarea>
+        </label>
+      `;
+    })
+    .join("");
+
+  for (const textarea of extraSectionsElement.querySelectorAll("textarea[data-extra-section]")) {
+    textarea.value = item.extraSections[textarea.dataset.extraSection] || "";
+    textarea.addEventListener("input", () => {
+      setDirtyState("structured", true);
+      if (state.editorMode === "preview") {
+        renderPreview();
+      }
+    });
+  }
+}
+
+function getStructuredSections() {
+  const sections = {};
+
+  for (const sectionName of FIXED_SECTIONS) {
+    sections[sectionName] = fields[sectionName].value;
+  }
+
+  for (const textarea of extraSectionsElement.querySelectorAll("textarea[data-extra-section]")) {
+    sections[textarea.dataset.extraSection] = textarea.value;
+  }
+
+  return sections;
+}
+
+function getStructuredMetadata() {
+  return {
+    id: fields.id.value,
+    title: fields.title.value,
+    status: fields.status.value,
+    priority: fields.priority.value,
+    commitment: fields.commitment.value,
+    milestone: fields.milestone.value.trim(),
+  };
+}
+
+function renderPreview() {
+  if (!state.currentItem) {
+    previewElement.className = "preview-surface preview-empty";
+    previewElement.innerHTML = "Preview updates as you edit the structured form.";
+    return;
+  }
+
+  const metadata = getStructuredMetadata();
+  const sections = getStructuredSections();
+  const orderedSections = [...FIXED_SECTIONS, ...getExtraSectionHeadings()];
+  const sectionHtml = orderedSections
+    .map((heading) => `
+      <section class="preview-section">
+        <h3>${escapeHtml(heading)}</h3>
+        <div class="preview-markdown">${renderMarkdownToHtml(sections[heading] || "") || '<p class="muted">Empty section.</p>'}</div>
+      </section>
+    `)
+    .join("");
+
+  previewElement.className = "preview-surface";
+  previewElement.innerHTML = `
+    <header class="preview-header">
+      <div>
+        <p class="eyebrow preview-eyebrow">Item preview</p>
+        <h2>${escapeHtml(metadata.title || state.currentItem.metadata.title || state.currentItem.id)}</h2>
+        <p class="muted">${escapeHtml(state.currentItem.filePath)}</p>
+      </div>
+      <div class="preview-meta">
+        ${[metadata.status, metadata.priority, metadata.commitment, metadata.milestone].filter(Boolean).map((value) => `<span class="badge">${escapeHtml(value)}</span>`).join("")}
+      </div>
+    </header>
+    <div class="preview-body">${sectionHtml}</div>
+  `;
 }
 
 function renderItem(item) {
   state.currentItem = item;
+  state.dirtyStructured = false;
+  state.dirtyRaw = false;
   saveButton.disabled = false;
   editorTitleElement.textContent = item.metadata.title;
   editorSubtitleElement.textContent = item.filePath;
@@ -288,10 +522,15 @@ function renderItem(item) {
   ensureSelectValue(fields.status, item.metadata.status || "queued");
   ensureSelectValue(fields.priority, item.metadata.priority || "medium");
   ensureSelectValue(fields.commitment, item.metadata.commitment || "uncommitted");
+  fields.milestone.value = item.metadata.milestone || "";
 
   for (const sectionName of FIXED_SECTIONS) {
     fields[sectionName].value = item.sections[sectionName] || "";
   }
+
+  renderExtraSections(item);
+  rawTextElement.value = item.rawText || "";
+  renderPreview();
 }
 
 async function fetchJson(url, options = {}) {
@@ -339,6 +578,7 @@ async function loadItem(itemId, rerenderBoard = true) {
     const item = await fetchJson(`/api/items/${encodeURIComponent(itemId)}`);
     state.selectedItemId = itemId;
     renderItem(item);
+    applyEditorMode();
     if (rerenderBoard) {
       renderBoard();
     }
@@ -350,22 +590,75 @@ async function loadItem(itemId, rerenderBoard = true) {
 
 function collectPayload() {
   return {
-    metadata: {
-      id: fields.id.value,
-      title: fields.title.value,
-      status: fields.status.value,
-      priority: fields.priority.value,
-      commitment: fields.commitment.value,
-    },
-    sections: {
-      Summary: fields.Summary.value,
-      Why: fields.Why.value,
-      "In Scope": fields["In Scope"].value,
-      "Out of Scope": fields["Out of Scope"].value,
-      "Done When": fields["Done When"].value,
-      Notes: fields.Notes.value,
-    },
+    metadata: getStructuredMetadata(),
+    sections: getStructuredSections(),
   };
+}
+
+function currentModeFamily(mode) {
+  return mode === "raw" ? "raw" : "structured";
+}
+
+function canSwitchEditorMode(nextMode) {
+  const currentFamily = currentModeFamily(state.editorMode);
+  const nextFamily = currentModeFamily(nextMode);
+
+  if (currentFamily === nextFamily) {
+    return true;
+  }
+
+  if (currentFamily === "structured" && state.dirtyStructured) {
+    return window.confirm("Discard unsaved structured changes and switch to raw mode?");
+  }
+
+  if (currentFamily === "raw" && state.dirtyRaw) {
+    return window.confirm("Discard unsaved raw markdown changes and switch back to the structured editor?");
+  }
+
+  return true;
+}
+
+function applyEditorMode() {
+  for (const button of modeButtons) {
+    const active = button.dataset.editorMode === state.editorMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  }
+
+  for (const pane of modePanes) {
+    pane.hidden = pane.dataset.modePane !== state.editorMode;
+  }
+
+  if (state.editorMode === "preview") {
+    renderPreview();
+  }
+}
+
+function switchEditorMode(nextMode) {
+  if (nextMode === state.editorMode) {
+    return;
+  }
+
+  if (!canSwitchEditorMode(nextMode)) {
+    return;
+  }
+
+  if (currentModeFamily(state.editorMode) === "structured" && currentModeFamily(nextMode) === "raw") {
+    setDirtyState("structured", false);
+    if (state.currentItem) {
+      renderItem(state.currentItem);
+    }
+  }
+
+  if (currentModeFamily(state.editorMode) === "raw" && currentModeFamily(nextMode) === "structured") {
+    setDirtyState("raw", false);
+    if (state.currentItem) {
+      renderItem(state.currentItem);
+    }
+  }
+
+  state.editorMode = nextMode;
+  applyEditorMode();
 }
 
 async function saveCurrentItem() {
@@ -374,10 +667,10 @@ async function saveCurrentItem() {
   }
 
   saveButton.disabled = true;
-  setBanner("Saving item...");
+  setBanner(state.editorMode === "raw" ? "Saving raw item..." : "Saving item...");
 
   try {
-    const payload = collectPayload();
+    const payload = state.editorMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
     await fetchJson(`/api/items/${encodeURIComponent(state.selectedItemId)}`, {
       method: "POST",
       headers: {
@@ -406,7 +699,24 @@ scopeToggleButton.addEventListener("click", () => {
   toggleScopePanel();
 });
 
+form.addEventListener("input", () => {
+  setDirtyState("structured", true);
+  if (state.editorMode === "preview") {
+    renderPreview();
+  }
+});
+
+rawTextElement.addEventListener("input", () => {
+  setDirtyState("raw", true);
+});
+
+for (const button of modeButtons) {
+  button.addEventListener("click", () => {
+    switchEditorMode(button.dataset.editorMode);
+  });
+}
+
 resetEditor();
 renderScopeChrome();
+applyEditorMode();
 void loadWorkspace();
-

@@ -16,6 +16,18 @@ function replaceTitle(text, nextTitle) {
   return text.replace(/^title:\s*(?:".*"|.*)$/m, `title: "${nextTitle}"`);
 }
 
+function addMilestone(text, milestone) {
+  if (/^milestone:/m.test(text)) {
+    return text.replace(/^milestone:\s*(?:".*"|.*)$/m, `milestone: ${milestone}`);
+  }
+
+  return text.replace(/^commitment:\s*.*$/m, (line) => `${line}\nmilestone: ${milestone}`);
+}
+
+function addExtraSection(text, heading, content) {
+  return `${text.trimEnd()}\n\n## ${heading}\n\n${content}\n`;
+}
+
 test.describe.configure({ mode: "serial" });
 
 let originalBoardText = "";
@@ -154,24 +166,53 @@ test("reorders board sections and persists after reload", async ({ page }) => {
   await expect(page.locator(".board-group").first().locator(".collapse-toggle")).toContainText(expectedHeadings[0]);
 });
 
-test("edits item metadata and reflects the save in the board", async ({ page }) => {
+test("saves optional milestone metadata and reflects it in the board", async ({ page }) => {
   await page.goto("/");
 
-  await page.locator("#field-title").fill("Create roadmap items without raw markdown");
-  await page.locator("#field-status").selectOption("in-progress");
-  await page.locator("#field-priority").selectOption("medium");
+  await page.locator("#field-milestone").fill("P2");
   await page.locator("#save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Saved.");
-  await expect(page.locator("#field-title")).toHaveValue("Create roadmap items without raw markdown");
-  await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText("Create roadmap items without raw markdown");
-  await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText("in-progress");
-  await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText("medium");
+  await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText("P2");
 
   const updatedFeatureText = await fs.readFile(featurePath, "utf8");
-  expect(updatedFeatureText).toContain('title: "Create roadmap items without raw markdown"');
-  expect(updatedFeatureText).toContain("status: in-progress");
-  expect(updatedFeatureText).toContain("priority: medium");
+  expect(updatedFeatureText).toContain("milestone: P2");
+});
+
+test("renders extra sections from the item file in the structured editor", async ({ page }) => {
+  const nextText = addExtraSection(addMilestone(originalFeatureText, "P3"), "Decision Locks", "- keep the file contract thin");
+  await fs.writeFile(featurePath, nextText, "utf8");
+
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+
+  await expect(page.locator('[data-extra-section="Decision Locks"]')).toHaveValue("- keep the file contract thin");
+  await expect(page.locator("#field-milestone")).toHaveValue("P3");
+});
+
+test("preview mode renders markdown from the structured editor", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator("#section-summary").fill("- keep planning in the repo\n- show `board.md` changes clearly");
+  await page.locator('[data-editor-mode="preview"]').click();
+
+  await expect(page.locator("#item-preview ul li").first()).toContainText("keep planning in the repo");
+  await expect(page.locator("#item-preview code")).toContainText("board.md");
+});
+
+test("raw mode saves full-file edits", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator('[data-editor-mode="raw"]').click();
+  await page.locator("#raw-text").fill(replaceTitle(originalFeatureText, "Create roadmap items through raw mode"));
+  await page.locator("#save-button").click();
+
+  await expect(page.locator("#status-banner")).toContainText("Saved.");
+  await page.locator('[data-editor-mode="structured"]').click();
+  await expect(page.locator("#field-title")).toHaveValue("Create roadmap items through raw mode");
+
+  const updatedFeatureText = await fs.readFile(featurePath, "utf8");
+  expect(updatedFeatureText).toContain('title: "Create roadmap items through raw mode"');
 });
 
 test("refresh reloads the workspace after an external file edit", async ({ page }) => {

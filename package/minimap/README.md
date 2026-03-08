@@ -1,19 +1,33 @@
-# Minimap Package
+# Minimap
 
-Minimap is a tiny repo-local, file-based roadmap and feature planning workspace for humans and agents. The roadmap files are canonical, git is the history, and the UI is only a structured lens and editor over those files.
+Drop this folder into a repo and give that repo a shared planning surface for humans and agents.
+
+Minimap is a tiny repo-local, file-based roadmap and feature planning workspace. The roadmap files are canonical, git is the history, and the UI is only a structured lens and editor over those files.
 
 ## Why Use It
 
-Use minimap when a repo wants its roadmap and feature planning to stay with the repo itself instead of moving into a separate planning tool.
+Minimap came out of a simple real-world pattern: building projects together with AI agents, managing features and roadmap state through conversation, and repeatedly telling the agent to update the roadmap after each change.
 
-The package is designed for a simple collaboration model:
+That works for a while, but it stays too loose. Eventually you want more structure in how roadmap state is managed, and you want a small UI where you can inspect the roadmap directly instead of only asking the agent what is going on.
+
+This package is designed for that collaboration model:
 - humans use the local UI
 - agents follow the minimap skill and file convention
 - both update the same canonical roadmap files
 
-This keeps planning lightweight, local, and deterministic.
+That keeps planning lightweight, local, and deterministic.
 
 For the exact product boundary and file contract, read `CONTRACT.md`.
+
+## What The Editor Gives You
+
+The item editor is intentionally small, but it is not limited to a rigid form.
+
+- `Structured` mode handles the common metadata and the core sections
+- `Preview` mode renders the item as markdown before you save it
+- `Raw` mode lets you edit the full file when a repo uses richer metadata or extra sections
+
+Markdown is allowed inside every section, and minimap preserves unknown frontmatter keys and extra markdown sections instead of flattening everything into one schema.
 
 ## Recommended Host-Repo Layout
 

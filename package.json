@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
+    "start": "node package/minimap/server.js",
     "test": "node --test",
     "test:ui": "playwright test",
     "test:ui:headed": "playwright test --headed"

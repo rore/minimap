@@ -15,7 +15,7 @@ import {
   saveItemById,
   serializeBoard,
   serializeItem,
-} from "../src/roadmap.js";
+} from "../package/minimap/src/roadmap.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,15 +99,16 @@ test("serializeBoard writes canonical markdown", () => {
   assert.equal(board, "# Done\n- a\n- b\n\n# Next\n- c\n");
 });
 
-test("serializeItem preserves unknown frontmatter and unknown sections", () => {
+test("serializeItem preserves unknown frontmatter and unknown sections while allowing optional milestone", () => {
   const parsed = parseItemText(sampleItemText);
   const serialized = serializeItem(parsed, {
-    metadata: { title: "Updated title", status: "done" },
-    sections: { Summary: "Updated summary." },
+    metadata: { title: "Updated title", status: "done", milestone: "P2" },
+    sections: { Summary: "Updated summary.", Extra: "Updated extra." },
   });
 
   assert.match(serialized, /labels:\n  - ui/);
-  assert.match(serialized, /## Extra[\s\S]*Keep this section untouched\./);
+  assert.match(serialized, /milestone: P2/);
+  assert.match(serialized, /## Extra[\s\S]*Updated extra\./);
   assert.match(serialized, /title: "Updated title"/);
   assert.match(serialized, /status: done/);
   assert.match(serialized, /## Summary[\s\S]*Updated summary\./);
@@ -147,7 +148,16 @@ test("saveBoardByGroups persists group order", async () => {
   assert.equal(boardText, "# Ideas\n- idea-a\n\n# Now\n- feature-a\n");
 });
 
-test("saveItemById updates known fields and preserves unknown content", async () => {
+test("readItemById returns extra sections separately", async () => {
+  const repoRoot = await makeTempRepo();
+  const item = await readItemById(repoRoot, "feature-a");
+
+  assert.equal(item.extraSections.Extra, "Keep this section untouched.");
+  assert.deepEqual(item.extraSectionOrder, ["Extra"]);
+  assert.equal(item.metadata.milestone, "");
+});
+
+test("saveItemById updates structured fields, optional milestone, and extra sections", async () => {
   const repoRoot = await makeTempRepo();
   await saveItemById(repoRoot, "feature-a", {
     metadata: {
@@ -155,22 +165,50 @@ test("saveItemById updates known fields and preserves unknown content", async ()
       status: "in-progress",
       priority: "medium",
       commitment: "committed",
+      milestone: "P2",
     },
     sections: {
       Summary: "New summary",
       Notes: "New notes",
+      Extra: "Updated extra details",
     },
   });
 
   const saved = await readItemById(repoRoot, "feature-a");
   assert.equal(saved.metadata.title, "Updated feature");
   assert.equal(saved.metadata.status, "in-progress");
+  assert.equal(saved.metadata.milestone, "P2");
   assert.equal(saved.sections.Summary, "New summary");
   assert.equal(saved.sections.Notes, "New notes");
+  assert.equal(saved.extraSections.Extra, "Updated extra details");
 
   const rawText = await fs.readFile(path.join(repoRoot, "roadmap", "features", "feature-a.md"), "utf8");
   assert.match(rawText, /labels:\n  - ui/);
-  assert.match(rawText, /## Extra[\s\S]*Keep this section untouched\./);
+  assert.match(rawText, /milestone: P2/);
+  assert.match(rawText, /## Extra[\s\S]*Updated extra details/);
+});
+
+test("saveItemById accepts validated raw markdown edits", async () => {
+  const repoRoot = await makeTempRepo();
+  const original = await readItemById(repoRoot, "feature-a");
+  const updatedRaw = original.rawText
+    .replace("title: Test item", 'title: "Raw updated title"')
+    .replace("## Extra\n\nKeep this section untouched.", "## Extra\n\nEdited in raw mode.");
+
+  const saved = await saveItemById(repoRoot, "feature-a", { rawText: updatedRaw });
+  assert.equal(saved.metadata.title, "Raw updated title");
+  assert.equal(saved.extraSections.Extra, "Edited in raw mode.");
+});
+
+test("saveItemById rejects raw markdown that changes the item id", async () => {
+  const repoRoot = await makeTempRepo();
+  const original = await readItemById(repoRoot, "feature-a");
+  const invalidRaw = original.rawText.replace("id: feature-a", "id: feature-b");
+
+  await assert.rejects(
+    () => saveItemById(repoRoot, "feature-a", { rawText: invalidRaw }),
+    (error) => error.code === "bad_request",
+  );
 });
 
 test("loadWorkspace surfaces malformed items as parse errors", async () => {
@@ -183,9 +221,9 @@ test("loadWorkspace surfaces malformed items as parse errors", async () => {
   );
 });
 
-test("server endpoints return workspace and allow save", async () => {
+test("server endpoints return workspace and allow structured and raw saves", async () => {
   const repoRoot = await makeTempRepo();
-  const child = spawn(process.execPath, [path.join(projectRoot, "server.js")], {
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
     cwd: repoRoot,
     env: { ...process.env, PORT: "4412" },
     stdio: ["ignore", "pipe", "pipe"],
@@ -247,9 +285,11 @@ test("server endpoints return workspace and allow save", async () => {
           status: "done",
           priority: "low",
           commitment: "committed",
+          milestone: "P3",
         },
         sections: {
           Summary: "Updated through the API.",
+          Extra: "Updated extra through the API.",
         },
       }),
     });
@@ -257,7 +297,21 @@ test("server endpoints return workspace and allow save", async () => {
     assert.equal(saveResponse.status, 200);
     const item = await saveResponse.json();
     assert.equal(item.metadata.title, "API updated");
+    assert.equal(item.metadata.milestone, "P3");
     assert.equal(item.sections.Summary, "Updated through the API.");
+    assert.equal(item.extraSections.Extra, "Updated extra through the API.");
+
+    const rawSaveResponse = await fetch("http://localhost:4412/api/items/feature-a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rawText: item.rawText.replace('title: "API updated"', 'title: "API raw edit"'),
+      }),
+    });
+
+    assert.equal(rawSaveResponse.status, 200);
+    const rawItem = await rawSaveResponse.json();
+    assert.equal(rawItem.metadata.title, "API raw edit");
   } finally {
     child.kill();
   }
@@ -272,7 +326,7 @@ test("server falls forward to the next free port when requested port is busy", a
 
   await new Promise((resolve) => blocker.listen(4510, resolve));
 
-  const child = spawn(process.execPath, [path.join(projectRoot, "server.js")], {
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
     cwd: repoRoot,
     env: { ...process.env, PORT: "4510" },
     stdio: ["ignore", "pipe", "pipe"],

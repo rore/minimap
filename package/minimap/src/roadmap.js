@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-export const KNOWN_FRONTMATTER_KEYS = ["id", "title", "status", "priority", "commitment"];
+export const REQUIRED_FRONTMATTER_KEYS = ["id", "title", "status", "priority", "commitment"];
+export const OPTIONAL_FRONTMATTER_KEYS = ["milestone"];
+export const EDITABLE_FRONTMATTER_KEYS = [...REQUIRED_FRONTMATTER_KEYS, ...OPTIONAL_FRONTMATTER_KEYS];
 export const KNOWN_SECTIONS = [
   "Summary",
   "Why",
@@ -61,6 +63,10 @@ function formatScalar(value) {
   return JSON.stringify(stringValue);
 }
 
+function shouldKeepOptionalValue(value) {
+  return !(value === null || value === undefined || value === "");
+}
+
 function parseFrontmatterBlock(rawFrontmatter) {
   const lines = rawFrontmatter.split(/\r?\n/);
   const entries = [];
@@ -103,12 +109,12 @@ export function parseItemText(text, sourcePath = "item.md") {
   const frontmatter = {};
 
   for (const entry of frontmatterEntries) {
-    if (KNOWN_FRONTMATTER_KEYS.includes(entry.key)) {
+    if (EDITABLE_FRONTMATTER_KEYS.includes(entry.key)) {
       frontmatter[entry.key] = entry.value;
     }
   }
 
-  for (const key of KNOWN_FRONTMATTER_KEYS) {
+  for (const key of REQUIRED_FRONTMATTER_KEYS) {
     if (!(key in frontmatter)) {
       throw new AppError(`Missing frontmatter key "${key}" in ${sourcePath}.`, 422, "parse_error");
     }
@@ -167,20 +173,31 @@ export function serializeItem(parsedItem, updates) {
   const eol = parsedItem.eol;
   const metadata = { ...parsedItem.frontmatter, ...(updates.metadata || {}) };
   const sections = { ...parsedItem.sections, ...(updates.sections || {}) };
+  const updatedSectionNames = new Set(Object.keys(updates.sections || {}));
   const seenKeys = new Set();
   const frontmatterLines = [];
 
   for (const entry of parsedItem.frontmatterEntries) {
-    if (KNOWN_FRONTMATTER_KEYS.includes(entry.key)) {
+    if (REQUIRED_FRONTMATTER_KEYS.includes(entry.key)) {
       frontmatterLines.push(`${entry.key}: ${formatScalar(metadata[entry.key])}`);
+    } else if (OPTIONAL_FRONTMATTER_KEYS.includes(entry.key)) {
+      if (shouldKeepOptionalValue(metadata[entry.key])) {
+        frontmatterLines.push(`${entry.key}: ${formatScalar(metadata[entry.key])}`);
+      }
     } else {
       frontmatterLines.push(...entry.rawLines);
     }
     seenKeys.add(entry.key);
   }
 
-  for (const key of KNOWN_FRONTMATTER_KEYS) {
+  for (const key of REQUIRED_FRONTMATTER_KEYS) {
     if (!seenKeys.has(key)) {
+      frontmatterLines.push(`${key}: ${formatScalar(metadata[key])}`);
+    }
+  }
+
+  for (const key of OPTIONAL_FRONTMATTER_KEYS) {
+    if (!seenKeys.has(key) && shouldKeepOptionalValue(metadata[key])) {
       frontmatterLines.push(`${key}: ${formatScalar(metadata[key])}`);
     }
   }
@@ -189,7 +206,7 @@ export function serializeItem(parsedItem, updates) {
   const seenSections = new Set();
 
   for (const segment of parsedItem.segments) {
-    if (KNOWN_SECTIONS.includes(segment.heading)) {
+    if (KNOWN_SECTIONS.includes(segment.heading) || updatedSectionNames.has(segment.heading)) {
       bodyParts.push(renderSection(segment.heading, sections[segment.heading], eol));
     } else {
       bodyParts.push(segment.rawSection);
@@ -200,6 +217,14 @@ export function serializeItem(parsedItem, updates) {
   for (const heading of KNOWN_SECTIONS) {
     if (!seenSections.has(heading)) {
       bodyParts.push(renderSection(heading, sections[heading], eol));
+      seenSections.add(heading);
+    }
+  }
+
+  for (const heading of updatedSectionNames) {
+    if (!seenSections.has(heading)) {
+      bodyParts.push(renderSection(heading, sections[heading], eol));
+      seenSections.add(heading);
     }
   }
 
@@ -372,6 +397,7 @@ function makeItemSummary(itemRecord) {
     status: itemRecord.parsed.frontmatter.status,
     priority: itemRecord.parsed.frontmatter.priority,
     commitment: itemRecord.parsed.frontmatter.commitment,
+    milestone: itemRecord.parsed.frontmatter.milestone ?? "",
     kind: itemRecord.kind,
   };
 }
@@ -425,12 +451,25 @@ export async function readItemById(repoRoot, id) {
     throw new AppError(`Roadmap item "${id}" was not found.`, 404, "not_found");
   }
 
+  const extraSections = {};
+
+  for (const heading of item.parsed.segments.map((segment) => segment.heading)) {
+    if (!KNOWN_SECTIONS.includes(heading)) {
+      extraSections[heading] = item.parsed.sections[heading] ?? "";
+    }
+  }
+
   return {
     id: item.id,
     kind: item.kind,
     filePath: path.relative(repoRoot, item.filePath),
-    metadata: item.parsed.frontmatter,
+    metadata: {
+      ...item.parsed.frontmatter,
+      milestone: item.parsed.frontmatter.milestone ?? "",
+    },
     sections: Object.fromEntries(KNOWN_SECTIONS.map((heading) => [heading, item.parsed.sections[heading] ?? ""])),
+    extraSections,
+    extraSectionOrder: Object.keys(extraSections),
     rawText: item.parsed.rawText,
   };
 }
@@ -444,17 +483,38 @@ export async function saveItemById(repoRoot, id, payload) {
     throw new AppError(`Roadmap item "${id}" was not found.`, 404, "not_found");
   }
 
+  if (typeof payload.rawText === "string") {
+    const reparsed = parseItemText(payload.rawText, item.filePath);
+
+    if (String(reparsed.frontmatter.id) !== item.id) {
+      throw new AppError("Raw item edits must preserve the item id.", 400, "bad_request");
+    }
+
+    await fs.writeFile(item.filePath, payload.rawText, "utf8");
+    return readItemById(repoRoot, id);
+  }
+
   const metadata = payload.metadata || {};
   const sections = payload.sections || {};
   const nextMetadata = {};
-  const nextSections = {};
+  const nextSections = { ...item.parsed.sections };
 
-  for (const key of KNOWN_FRONTMATTER_KEYS) {
+  for (const key of REQUIRED_FRONTMATTER_KEYS) {
     nextMetadata[key] = key === "id" ? item.id : (metadata[key] ?? item.parsed.frontmatter[key]);
   }
 
+  for (const key of OPTIONAL_FRONTMATTER_KEYS) {
+    nextMetadata[key] = metadata[key] ?? item.parsed.frontmatter[key] ?? "";
+  }
+
+  for (const [heading, value] of Object.entries(sections)) {
+    nextSections[heading] = value;
+  }
+
   for (const heading of KNOWN_SECTIONS) {
-    nextSections[heading] = sections[heading] ?? item.parsed.sections[heading] ?? "";
+    if (!(heading in nextSections)) {
+      nextSections[heading] = "";
+    }
   }
 
   const serialized = serializeItem(item.parsed, {

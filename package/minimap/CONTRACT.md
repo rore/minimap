@@ -84,9 +84,9 @@ Rules:
 
 ## Item Contract
 
-Each roadmap item is a markdown file with frontmatter and fixed sections.
+Each roadmap item is a markdown file with frontmatter and markdown sections.
 
-Frontmatter keys used by minimap v1:
+Required core frontmatter:
 
 - `id`
 - `title`
@@ -94,7 +94,11 @@ Frontmatter keys used by minimap v1:
 - `priority`
 - `commitment`
 
-Body sections expected by minimap v1:
+Optional common frontmatter supported by minimap v1:
+
+- `milestone`
+
+Required core sections expected by minimap v1:
 
 - `Summary`
 - `Why`
@@ -102,6 +106,8 @@ Body sections expected by minimap v1:
 - `Out of Scope`
 - `Done When`
 - `Notes`
+
+Additional sections are allowed. Minimap keeps them in file order and surfaces them in the structured editor when they already exist.
 
 Example:
 
@@ -112,6 +118,7 @@ title: Example feature
 status: queued
 priority: medium
 commitment: committed
+milestone: v1
 ---
 
 ## Summary
@@ -137,7 +144,13 @@ commitment: committed
 ## Notes
 
 ...
+
+## Decision Locks
+
+...
 ```
+
+Markdown is allowed inside every section. Minimap does not require rich-text formatting or a separate document model.
 
 ## Preservation Rules
 
@@ -146,6 +159,16 @@ When minimap edits an item file, it should preserve:
 - unknown frontmatter keys already present in the file
 - unknown markdown sections already present in the file
 - item ids unless the user explicitly asks to rename them and update references
+
+## Editor Modes
+
+Minimap v1 supports three item-editing modes:
+
+- `Structured` for common metadata and known sections
+- `Preview` for rendered markdown review before save
+- `Raw` for full-file editing when a repo uses richer item files
+
+Raw edits must still parse correctly and must preserve the item id.
 
 ## Human and Agent Collaboration Model
 
@@ -165,6 +188,8 @@ Include:
 - view board groups and item summaries
 - read scope
 - edit existing item metadata and sections
+- preview item markdown before save
+- edit full item markdown in raw mode
 - reorder board groups
 
 Do not assume in v1:
@@ -184,4 +209,3 @@ A copy-in minimap package should include:
 - `SKILL.md`
 - starter roadmap templates
 - host-repo adoption notes
-

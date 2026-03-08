@@ -11,9 +11,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "node server.js",
+    command: "node package/minimap/server.js",
     port: 4315,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     env: {
       PORT: "4315",
     },
