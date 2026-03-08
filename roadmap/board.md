@@ -1,6 +1,5 @@
 # Now
 - feature-create-items
-- feature-edit-board-and-scope
 
 # Next
 - feature-setup-guidance
@@ -15,3 +14,4 @@
 - foundation-board-editor
 - foundation-parse-safety
 - feature-agent-file-rules
+- feature-edit-board-and-scope

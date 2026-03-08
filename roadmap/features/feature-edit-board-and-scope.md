@@ -1,7 +1,7 @@
 ---
 id: feature-edit-board-and-scope
 title: Edit board and scope from the UI
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -15,7 +15,7 @@ Add first-class editing for `board.md` and `scope.md` so roadmap authors can man
 
 ## Why
 
-The product is not fully self-hosting while board structure and scope narrative still require raw markdown edits.
+The product was not fully self-hosting while board structure and scope narrative still required raw markdown edits.
 
 ## In Scope
 
@@ -39,4 +39,4 @@ The product is not fully self-hosting while board structure and scope narrative 
 
 ## Notes
 
-Board group reordering is already shipped. The remaining work is scope editing plus item-level and group-level board authoring without creating UI-only ordering state.
+Shipped with markdown scope rendering plus scope edit/save, board draft editing for group names and item placement, and canonical writes back to `board.md` and `scope.md` without introducing UI-only roadmap state.

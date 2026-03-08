@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
+const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
 const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-create-items.md");
 
 function extractHeadings(boardText) {
@@ -28,6 +29,33 @@ function addExtraSection(text, heading, content) {
   return `${text.trimEnd()}\n\n## ${heading}\n\n${content}\n`;
 }
 
+const repoSpecificFeatureText = `---
+id: feature-create-items
+title: Repo-specific feature shape
+status: queued
+priority: high
+commitment: committed
+milestone: P2
+---
+
+## Goal
+
+Render the real file sections in edit mode.
+
+## Non-goals
+
+- do not force canonical section names
+
+## Acceptance criteria
+
+1. Edit mode shows Goal.
+2. Edit mode does not show Summary first.
+
+## Implementation Notes
+
+- keep the section order from the file
+`;
+
 async function openMetadataDetails(page) {
   const details = page.locator(".metadata-details");
   if ((await details.getAttribute("open")) === null) {
@@ -38,16 +66,19 @@ async function openMetadataDetails(page) {
 test.describe.configure({ mode: "serial" });
 
 let originalBoardText = "";
+let originalScopeText = "";
 let originalFeatureText = "";
 
 test.beforeEach(async ({ page }) => {
   originalBoardText = await fs.readFile(boardPath, "utf8");
+  originalScopeText = await fs.readFile(scopePath, "utf8");
   originalFeatureText = await fs.readFile(featurePath, "utf8");
   await page.addInitScript(() => window.localStorage.removeItem("roadmap-ui.scope-collapsed"));
 });
 
 test.afterEach(async () => {
   await fs.writeFile(boardPath, originalBoardText, "utf8");
+  await fs.writeFile(scopePath, originalScopeText, "utf8");
   await fs.writeFile(featurePath, originalFeatureText, "utf8");
 });
 
@@ -235,7 +266,7 @@ test("edit mode starts with details collapsed so content shows earlier", async (
   await expect(details).not.toHaveAttribute("open", "open");
   await expect(page.locator("#metadata-toggle")).toBeVisible();
   await expect(page.locator("#field-title")).toBeHidden();
-  await expect(page.locator("#section-summary")).toBeVisible();
+  await expect(page.locator('[data-section-heading="Summary"]')).toBeVisible();
 
   await page.locator("#metadata-toggle").click();
   await expect(details).toHaveAttribute("open", "");
@@ -246,8 +277,8 @@ test("edit mode stacks sections in one clean column and autosizes long content",
   await page.goto("/");
   await page.locator('[data-editor-mode="structured"]').click();
 
-  const whyLabel = page.locator('label:has(#section-why)');
-  const inScopeLabel = page.locator('label:has(#section-in-scope)');
+  const whyLabel = page.locator('label:has([data-section-heading="Why"])');
+  const inScopeLabel = page.locator('label:has([data-section-heading="In Scope"])');
   const whyBox = await whyLabel.boundingBox();
   const inScopeBox = await inScopeLabel.boundingBox();
 
@@ -255,7 +286,7 @@ test("edit mode stacks sections in one clean column and autosizes long content",
   expect(inScopeBox).not.toBeNull();
   expect(inScopeBox.y).toBeGreaterThan(whyBox.y + whyBox.height - 10);
 
-  const size = await page.locator('#section-in-scope').evaluate((element) => ({
+  const size = await page.locator('[data-section-heading="In Scope"]').evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
   }));
@@ -336,15 +367,31 @@ test("renders extra sections from the item file in the structured editor", async
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
 
-  await expect(page.locator('[data-extra-section="Decision Locks"]')).toHaveValue("- keep the file contract thin");
+  await expect(page.locator('[data-section-heading="Decision Locks"]')).toHaveValue("- keep the file contract thin");
   await expect(page.locator("#field-milestone")).toHaveValue("P3");
+});
+
+
+test("edit mode renders the item's real section headings for repo-specific item shapes", async ({ page }) => {
+  await fs.writeFile(featurePath, repoSpecificFeatureText, "utf8");
+
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator('[data-editor-mode="structured"]').click();
+
+  await expect(page.locator('[data-section-heading="Goal"]')).toHaveValue("Render the real file sections in edit mode.");
+  await expect(page.locator('[data-section-heading="Acceptance criteria"]')).toHaveValue(/Edit mode shows Goal\./);
+  await expect(page.locator('[data-section-heading="Summary"]')).toHaveCount(0);
+
+  const firstHeading = await page.locator('.structured-section-field span').first().textContent();
+  expect(firstHeading).toBe("Goal");
 });
 
 test("preview mode renders markdown from the edit form without duplicating the title block", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-editor-mode="structured"]').click();
 
-  await page.locator("#section-summary").fill("- keep planning in the repo\n- show `board.md` changes clearly");
+  await page.locator('[data-section-heading="Summary"]').fill("- keep planning in the repo\n- show `board.md` changes clearly");
   await page.locator('[data-editor-mode="preview"]').click();
 
   await expect(page.locator("#item-preview ul li").first()).toContainText("keep planning in the repo");
@@ -381,6 +428,43 @@ test("refresh reloads the workspace after an external file edit", async ({ page 
 
   await expect(page.locator("#field-title")).toHaveValue(changedTitle);
   await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText(changedTitle);
+});
+
+test("edits scope from the UI and saves markdown back to scope.md", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto("/");
+
+  await page.locator("#scope-edit-button").click();
+  await expect(page.locator("#scope-toggle")).toBeHidden();
+  await expect(page.locator("#scope-subtitle")).toBeHidden();
+  await expect(page.locator("#scope-text")).toBeVisible();
+  await page.locator("#scope-text").fill(`# Current focus\n\n- make scope editable from the UI`);
+  await page.locator("#scope-save-button").click();
+
+  await expect(page.locator("#status-banner")).toContainText("Scope saved.");
+  await expect(page.locator("#scope-content ul li").first()).toContainText("make scope editable from the UI");
+
+  const updatedScopeText = await fs.readFile(scopePath, "utf8");
+  expect(updatedScopeText.replace(/\r/g, "")).toBe(`# Current focus\n\n- make scope editable from the UI\n`);
+});
+
+test("edits board groups, moves items, and saves the updated board", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator("#board-edit-button").click();
+  await page.locator('[data-board-group-name="0"]').fill("Ready");
+  await page.locator('[data-board-item-group="feature-setup-guidance"]').selectOption("0");
+  await page.locator('[data-board-item-row="feature-setup-guidance"] [data-board-item-move="up"]').click();
+  await page.locator("#board-save-button").click();
+
+  await expect(page.locator("#status-banner")).toContainText("Board saved.");
+  const updatedBoardText = (await fs.readFile(boardPath, "utf8")).replace(/\r/g, "");
+  expect(updatedBoardText).toContain("# Ready");
+  expect(updatedBoardText).toContain(`- feature-setup-guidance\n- feature-create-items`);
+
+  await page.reload();
+  await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("Ready");
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]').first()).toContainText("Setup guidance and empty-state workflow");
 });
 
 test("prioritizes the selected item before the board on a narrow viewport", async ({ page }) => {

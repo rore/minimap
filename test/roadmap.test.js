@@ -13,6 +13,7 @@ import {
   readItemById,
   saveBoardByGroups,
   saveItemById,
+  saveScopeText,
   serializeBoard,
   serializeItem,
 } from "../package/minimap/src/roadmap.js";
@@ -58,6 +59,34 @@ Initial notes.
 ## Extra
 
 Keep this section untouched.
+`;
+
+
+const sampleRepoSpecificItemText = `---
+id: feature-b
+title: Repo specific item
+status: queued
+priority: high
+commitment: committed
+milestone: P2
+---
+
+## Goal
+
+Ship the repo-specific shape without forcing canonical headings.
+
+## Non-goals
+
+- no hidden UI state
+
+## Acceptance criteria
+
+1. The item still loads in minimap.
+2. Saving metadata does not inject empty canonical headings.
+
+## Implementation Notes
+
+- Keep the original section order.
 `;
 
 async function makeTempRepo() {
@@ -148,6 +177,15 @@ test("saveBoardByGroups persists group order", async () => {
   assert.equal(boardText, "# Ideas\n- idea-a\n\n# Now\n- feature-a\n");
 });
 
+test("saveScopeText persists markdown content", async () => {
+  const repoRoot = await makeTempRepo();
+  const workspace = await saveScopeText(repoRoot, "# Current focus\n\n- keep planning in the repo");
+
+  assert.match(workspace.scopeText, /# Current focus/);
+  const scopeText = await fs.readFile(path.join(repoRoot, "roadmap", "scope.md"), "utf8");
+  assert.equal(scopeText, "# Current focus\n\n- keep planning in the repo\n");
+});
+
 test("readItemById returns extra sections separately", async () => {
   const repoRoot = await makeTempRepo();
   const item = await readItemById(repoRoot, "feature-a");
@@ -221,7 +259,49 @@ test("loadWorkspace surfaces malformed items as parse errors", async () => {
   );
 });
 
-test("server endpoints return workspace and allow structured and raw saves", async () => {
+
+test("loadWorkspace accepts repo-specific section headings", async () => {
+  const repoRoot = await makeTempRepo();
+  await fs.writeFile(path.join(repoRoot, "roadmap", "features", "feature-a.md"), sampleRepoSpecificItemText.replace("feature-b", "feature-a"), "utf8");
+
+  const workspace = await loadWorkspace(repoRoot);
+  assert.equal(workspace.boardGroups[0].items[0].id, "feature-a");
+
+  const item = await readItemById(repoRoot, "feature-a");
+  assert.deepEqual(item.sectionOrder, ["Goal", "Non-goals", "Acceptance criteria", "Implementation Notes"]);
+  assert.equal(item.sections.Summary, "");
+  assert.equal(item.extraSections.Goal, "Ship the repo-specific shape without forcing canonical headings.");
+});
+
+test("saveItemById preserves repo-specific section shapes without injecting empty canonical sections", async () => {
+  const repoRoot = await makeTempRepo();
+  await fs.writeFile(path.join(repoRoot, "roadmap", "features", "feature-a.md"), sampleRepoSpecificItemText.replace("feature-b", "feature-a"), "utf8");
+
+  await saveItemById(repoRoot, "feature-a", {
+    metadata: {
+      title: "Updated repo specific item",
+      status: "in-progress",
+      priority: "high",
+      commitment: "committed",
+      milestone: "P3",
+    },
+    sections: {
+      Summary: "",
+      Notes: "",
+    },
+  });
+
+  const rawText = await fs.readFile(path.join(repoRoot, "roadmap", "features", "feature-a.md"), "utf8");
+  assert.doesNotMatch(rawText, /## Summary/);
+  assert.doesNotMatch(rawText, /## Why/);
+  assert.match(rawText, /title: "Updated repo specific item"/);
+  assert.match(rawText, /status: in-progress/);
+  assert.match(rawText, /milestone: P3/);
+  assert.match(rawText, /## Goal/);
+  assert.match(rawText, /## Acceptance criteria/);
+});
+
+test("server endpoints return workspace and allow board, scope, structured, and raw saves", async () => {
   const repoRoot = await makeTempRepo();
   const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
     cwd: repoRoot,
@@ -275,6 +355,16 @@ test("server endpoints return workspace and allow structured and raw saves", asy
     assert.equal(boardResponse.status, 200);
     const boardPayload = await boardResponse.json();
     assert.equal(boardPayload.boardGroups[0].name, "Ideas");
+
+    const scopeResponse = await fetch("http://localhost:4412/api/scope", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scopeText: "# Current focus\n\n- use the UI for scope edits" }),
+    });
+
+    assert.equal(scopeResponse.status, 200);
+    const scopePayload = await scopeResponse.json();
+    assert.match(scopePayload.scopeText, /# Current focus/);
 
     const saveResponse = await fetch("http://localhost:4412/api/items/feature-a", {
       method: "POST",
