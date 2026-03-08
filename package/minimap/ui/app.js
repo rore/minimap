@@ -36,7 +36,7 @@ const extraSectionsPanel = document.querySelector("#extra-sections-panel");
 const extraSectionsElement = document.querySelector("#extra-sections");
 const modeButtons = Array.from(document.querySelectorAll("[data-editor-mode]"));
 const modePanes = Array.from(document.querySelectorAll("[data-mode-pane]"));
-const stackedLayoutMedia = window.matchMedia("(max-width: 1320px)");
+const stackedLayoutMedia = window.matchMedia("(max-width: 980px)");
 
 const fields = {
   id: document.querySelector("#field-id"),

@@ -247,6 +247,7 @@ h3 {
 .layout {
   display: grid;
   grid-template-columns: minmax(290px, 340px) minmax(760px, 1fr) minmax(220px, 272px);
+  grid-template-areas: "board editor scope";
   gap: 14px;
   align-items: start;
 }
@@ -267,8 +268,19 @@ h3 {
   backdrop-filter: blur(18px);
 }
 
-.board-panel,
+.board-panel {
+  grid-area: board;
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+}
+
+.editor-panel {
+  grid-area: editor;
+}
+
 .scope-panel {
+  grid-area: scope;
   position: sticky;
   top: 18px;
   max-height: calc(100vh - 36px);
@@ -497,8 +509,10 @@ h3 {
   margin: 0;
   padding: 16px 18px;
   white-space: pre-wrap;
-  line-height: 1.52;
-  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  font-family: var(--font-body);
+  line-height: 1.56;
+  font-size: 0.92rem;
 }
 
 .scope-panel.scope-collapsed .panel-header {
@@ -870,41 +884,33 @@ textarea {
 @media (max-width: 1380px) {
   .layout,
   .layout[data-scope-collapsed="true"] {
-    grid-template-columns: minmax(260px, 310px) minmax(0, 1fr) minmax(210px, 250px);
+    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(210px, 236px);
   }
 }
 
 @media (max-width: 1320px) {
   .layout,
   .layout[data-scope-collapsed="true"] {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+    grid-template-areas:
+      "board editor"
+      "scope scope";
   }
 
-  .editor-panel {
-    order: 1;
+  .panel {
+    min-height: auto;
   }
 
-  .board-panel {
-    order: 2;
-  }
-
+  .board-panel,
   .scope-panel,
   .scope-panel.scope-collapsed {
-    order: 3;
-  }
-
-  .panel,
-  .board-panel,
-  .scope-panel {
-    min-height: auto;
-    max-height: none;
     position: static;
+    max-height: none;
   }
 
-  .board-groups,
-  .scope-content,
-  .editor-pane {
-    overflow: visible;
+  .scope-panel:not(.scope-collapsed) .scope-content {
+    max-height: 320px;
+    overflow: auto;
   }
 
   .scope-panel.scope-collapsed .panel-header {
@@ -925,17 +931,38 @@ textarea {
   }
 }
 
-@media (max-width: 960px) {
-  .metadata-grid {
+@media (max-width: 980px) {
+  .layout,
+  .layout[data-scope-collapsed="true"] {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "editor"
+      "board"
+      "scope";
   }
-}
 
-@media (max-width: 1320px) {
+  .panel,
+  .board-panel,
+  .scope-panel {
+    min-height: auto;
+    max-height: none;
+    position: static;
+  }
+
+  .board-groups,
+  .scope-content,
+  .editor-pane {
+    overflow: visible;
+  }
+
   .mobile-nav-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .metadata-grid {
+    grid-template-columns: 1fr;
   }
 }
 

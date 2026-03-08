@@ -73,6 +73,28 @@ test("keeps scope on the right side of the editor and narrower on desktop", asyn
   expect(editorBox.width).toBeGreaterThan(scopeBox.width + 220);
 });
 
+test("keeps the board visible at medium widths and pushes scope below", async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 1100 });
+  await page.goto("/");
+
+  const boardBox = await page.locator('.board-panel').boundingBox();
+  const editorBox = await page.locator('.editor-panel').boundingBox();
+  const scopeBox = await page.locator('.scope-panel').boundingBox();
+
+  expect(boardBox).not.toBeNull();
+  expect(editorBox).not.toBeNull();
+  expect(scopeBox).not.toBeNull();
+
+  expect(boardBox.x).toBeLessThan(editorBox.x);
+  expect(Math.abs(boardBox.y - editorBox.y)).toBeLessThan(40);
+  expect(scopeBox.y).toBeGreaterThan(boardBox.y + boardBox.height - 20);
+  expect(scopeBox.y).toBeGreaterThan(editorBox.y + 120);
+  expect(scopeBox.height).toBeLessThan(420);
+  await expect(page.locator('#jump-to-board')).toBeHidden();
+  await expect(page.locator('#jump-to-editor')).toBeHidden();
+  await expect(page.locator('pre#scope-content')).toHaveCount(0);
+});
+
 test("renders a denser board rail on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto("/");
