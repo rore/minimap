@@ -306,6 +306,32 @@ test("loads another board item into the editor when selected", async ({ page }) 
   await expect(page.locator("#editor-subtitle")).toContainText("feature-edit-board-and-scope.md");
 });
 
+
+test("keeps the selected item in the URL so refresh returns to it", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
+  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
+
+  await page.reload();
+  await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
+  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
+});
+
+test("supports direct item links and back-forward navigation through the URL", async ({ page }) => {
+  await page.goto('/#item=feature-edit-board-and-scope&mode=structured');
+
+  await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
+  await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
+
+  await page.locator('[data-item-id="feature-create-items"]').click();
+  await expect(page).toHaveURL(/#item=feature-create-items&mode=structured$/);
+
+  await page.goBack();
+  await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
+  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope&mode=structured$/);
+});
+
 test("collapses and expands a board section", async ({ page }) => {
   await page.goto("/");
 
@@ -536,3 +562,4 @@ test("selecting a board item in stacked layout returns focus to the editor", asy
   const editorTop = await page.locator(".editor-panel").evaluate((element) => Math.round(element.getBoundingClientRect().top));
   expect(editorTop).toBeLessThan(40);
 });
+
