@@ -1,7 +1,7 @@
 ---
 id: feature-search-and-filters
 title: Search and dynamic roadmap filters
-status: queued
+status: done
 priority: high
 commitment: committed
 labels:

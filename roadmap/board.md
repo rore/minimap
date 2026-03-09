@@ -1,5 +1,4 @@
 # Now
-- feature-search-and-filters
 - feature-setup-guidance
 
 # Next
@@ -20,3 +19,4 @@
 - foundation-parse-safety
 - feature-agent-file-rules
 - feature-edit-board-and-scope
+- feature-search-and-filters
