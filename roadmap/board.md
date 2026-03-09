@@ -1,13 +1,15 @@
-# Next
-- feature-card-preview-and-overview
+# Now
 - feature-derived-roadmap-lenses
 
+# Next
+- feature-card-preview-and-overview
+
 # Ideas
-- idea-create-items
 - idea-parent-grouping-overview
+- idea-history-and-recent-changes
 - idea-timeline-view
 - idea-board-management
-- idea-history-and-recent-changes
+- idea-create-items
 - idea-custom-fields-and-templates
 
 # Done

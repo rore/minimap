@@ -13,8 +13,8 @@ Current focus:
 - keep edits thin, file-canonical, and generic across different repo structures
 
 Concrete next steps:
-- improve browse quality with better cards and quicker item preview
 - add alternate derived lenses over the same roadmap files
+- improve browse quality with better cards and quicker item preview
 - keep the UI focused on scanning, lightweight control, and file-canonical editing
 
 Recently completed:

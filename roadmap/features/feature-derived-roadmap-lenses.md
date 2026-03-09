@@ -2,7 +2,7 @@
 id: feature-derived-roadmap-lenses
 title: Derived roadmap lenses
 status: queued
-priority: medium
+priority: high
 commitment: committed
 labels:
   - ui
