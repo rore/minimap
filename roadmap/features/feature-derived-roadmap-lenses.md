@@ -1,9 +1,9 @@
 ---
-id: idea-derived-roadmap-lenses
+id: feature-derived-roadmap-lenses
 title: Derived roadmap lenses
 status: queued
 priority: medium
-commitment: uncommitted
+commitment: committed
 labels:
   - ui
   - navigation
@@ -16,7 +16,7 @@ Allow the same roadmap files to be viewed through alternate grouping lenses such
 
 ## Why
 
-Elastic's roadmap is effective partly because users can navigate the same underlying work through multiple organizational cuts. Minimap should support alternate read lenses too, but they must be computed from the existing files rather than stored as UI-only structure.
+The roadmap files may support more than one useful organizational cut, and minimap should help humans inspect that without inventing parallel state. Derived lenses strengthen visibility and prioritization while preserving `board.md` as the canonical board view.
 
 ## In Scope
 
@@ -39,4 +39,4 @@ Elastic's roadmap is effective partly because users can navigate the same underl
 
 ## Notes
 
-This should be treated as a browse layer over the current editor-first workflow, not as a replacement for it.
+This should follow search because alternate lenses become much more useful once users can already navigate quickly.

@@ -1,9 +1,9 @@
 ---
-id: feature-create-items
+id: idea-create-items
 title: Create roadmap items from the UI
 status: queued
-priority: high
-commitment: committed
+priority: low
+commitment: uncommitted
 labels:
   - ui
   - authoring
@@ -15,7 +15,7 @@ Add create flows for new feature and idea items so authors do not need to start 
 
 ## Why
 
-The current product still requires raw file edits to add roadmap items, which blocks the repo from fully managing its own roadmap through the tool.
+This is a convenience feature, but the primary minimap loop is usually discussion with an agent followed by human review and lightweight adjustments in the UI. That makes item creation useful, not core.
 
 ## In Scope
 
@@ -38,4 +38,4 @@ The current product still requires raw file edits to add roadmap items, which bl
 
 ## Notes
 
-This is the most important remaining step for dogfooding the product on itself.
+This should stay behind visibility and light-control features unless real usage shows that manual item creation is a frequent bottleneck.

@@ -1,9 +1,9 @@
 ---
-id: idea-card-preview-and-overview
+id: feature-card-preview-and-overview
 title: Better cards and quick preview
 status: queued
 priority: medium
-commitment: uncommitted
+commitment: committed
 labels:
   - ui
   - board
@@ -16,7 +16,7 @@ Improve board and list cards so they communicate more at a glance, then let user
 
 ## Why
 
-Elastic's card-to-detail flow makes browsing efficient because users can inspect an item without losing context. Minimap needs a comparable read path for scanning, while still keeping the full editor as the primary write surface.
+Minimap is primarily a review surface for roadmap state that often originates in agent conversations. Better overview cards and quick preview make that review loop faster without requiring users to bounce in and out of full edit mode.
 
 ## In Scope
 
@@ -39,4 +39,4 @@ Elastic's card-to-detail flow makes browsing efficient because users can inspect
 
 ## Notes
 
-This pairs naturally with search and filters because both features increase the value of rapid scanning.
+This is a strong follow-on to search because it improves the quality of the browse flow after a user finds an item.

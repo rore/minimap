@@ -1,9 +1,9 @@
 ---
-id: idea-search-and-filters
+id: feature-search-and-filters
 title: Search and dynamic roadmap filters
 status: queued
-priority: medium
-commitment: uncommitted
+priority: high
+commitment: committed
 labels:
   - ui
   - navigation
@@ -16,7 +16,7 @@ Add fast search plus dynamic filter controls that derive their options from the 
 
 ## Why
 
-Elastic's public roadmap emphasizes search and lightweight top-level filtering because scanning stops working once the roadmap grows. Minimap needs the same navigation help, but it must stay file-canonical and adapt to whatever metadata a repo already uses.
+As roadmap size grows, minimap needs faster navigation more than it needs heavier authoring. Search and dynamic filters make the UI substantially more useful for human review while staying fully file-canonical.
 
 ## In Scope
 
@@ -24,6 +24,7 @@ Elastic's public roadmap emphasizes search and lightweight top-level filtering b
 - search across common metadata already present in files, such as labels, status, commitment, or milestone
 - filter chips or similar controls that only appear for fields the repo actually uses
 - combining search and filters without creating a second saved roadmap state
+- stable URL state for the active search and filter set when practical
 
 ## Out of Scope
 
@@ -39,4 +40,4 @@ Elastic's public roadmap emphasizes search and lightweight top-level filtering b
 
 ## Notes
 
-This is the highest-value Elastic-inspired UI feature because it improves browsing without changing the product's editing model.
+This is the most important next visibility feature because it improves review and navigation without changing the product's editing model.

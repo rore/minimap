@@ -1,13 +1,13 @@
 # Now
-- feature-create-items
-
-# Next
+- feature-search-and-filters
 - feature-setup-guidance
 
+# Next
+- feature-card-preview-and-overview
+- feature-derived-roadmap-lenses
+
 # Ideas
-- idea-search-and-filters
-- idea-derived-roadmap-lenses
-- idea-card-preview-and-overview
+- idea-create-items
 - idea-parent-grouping-overview
 - idea-timeline-view
 - idea-board-management
