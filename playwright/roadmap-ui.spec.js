@@ -4,7 +4,7 @@ import path from "node:path";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
 const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
-const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-create-items.md");
+const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-search-and-filters.md");
 
 function extractHeadings(boardText) {
   return boardText
@@ -30,7 +30,7 @@ function addExtraSection(text, heading, content) {
 }
 
 const repoSpecificFeatureText = `---
-id: feature-create-items
+id: feature-search-and-filters
 title: Repo-specific feature shape
 status: queued
 priority: high
@@ -107,8 +107,8 @@ test("keeps scope on the right side of the editor and narrower on desktop", asyn
 test("renders scope markdown instead of raw text", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator("#scope-content ul li").first()).toContainText("complete the self-hosting loop");
-  await expect(page.locator("#scope-content")).not.toContainText("- complete the self-hosting loop so the app can manage more of its own roadmap files");
+  await expect(page.locator("#scope-content ul li").first()).toContainText("human visibility and light-control tool");
+  await expect(page.locator("#scope-content")).not.toContainText("- human visibility and light-control tool so the app can manage more of its own roadmap files");
 });
 
 test("allows resizing the scope panel on desktop", async ({ page }) => {
@@ -167,6 +167,7 @@ test("renders a denser board rail on desktop", async ({ page }) => {
   await page.goto("/");
 
   const firstCard = page.locator(".board-item").first();
+  await expect(firstCard).toBeVisible();
   const box = await firstCard.boundingBox();
 
   expect(box).not.toBeNull();
@@ -185,6 +186,8 @@ test("renders compact board group controls that stay on one row", async ({ page 
 
   await expect(upButton).toContainText("Up");
   await expect(downButton).toContainText("Down");
+  await firstHeader.scrollIntoViewIfNeeded();
+  await expect(firstHeader).toBeVisible();
 
   const headerBox = await firstHeader.boundingBox();
   const toggleBox = await toggle.boundingBox();
@@ -324,8 +327,8 @@ test("supports direct item links and back-forward navigation through the URL", a
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
   await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
 
-  await page.locator('[data-item-id="feature-create-items"]').click();
-  await expect(page).toHaveURL(/#item=feature-create-items&mode=structured$/);
+  await page.locator('[data-item-id="feature-search-and-filters"]').click();
+  await expect(page).toHaveURL(/#item=feature-search-and-filters&mode=structured$/);
 
   await page.goBack();
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
@@ -378,7 +381,7 @@ test("saves optional milestone metadata and reflects it in the board", async ({ 
   await page.locator("#save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Saved.");
-  await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText("P2");
+  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toContainText("P2");
 
   const updatedFeatureText = await fs.readFile(featurePath, "utf8");
   expect(updatedFeatureText).toContain("milestone: P2");
@@ -430,22 +433,22 @@ test("raw mode saves full-file edits", async ({ page }) => {
   await page.goto("/");
 
   await page.locator('[data-editor-mode="raw"]').click();
-  await page.locator("#raw-text").fill(replaceTitle(originalFeatureText, "Create roadmap items through raw mode"));
+  await page.locator("#raw-text").fill(replaceTitle(originalFeatureText, "Search roadmap items through raw mode"));
   await page.locator("#save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Saved.");
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
-  await expect(page.locator("#field-title")).toHaveValue("Create roadmap items through raw mode");
+  await expect(page.locator("#field-title")).toHaveValue("Search roadmap items through raw mode");
 
   const updatedFeatureText = await fs.readFile(featurePath, "utf8");
-  expect(updatedFeatureText).toContain('title: "Create roadmap items through raw mode"');
+  expect(updatedFeatureText).toContain('title: "Search roadmap items through raw mode"');
 });
 
 test("refresh reloads the workspace after an external file edit", async ({ page }) => {
   await page.goto("/");
 
-  const changedTitle = "Create roadmap items with guided setup";
+  const changedTitle = "Search roadmap items with guided setup";
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, changedTitle), "utf8");
 
   await page.locator("#refresh-button").click();
@@ -453,7 +456,7 @@ test("refresh reloads the workspace after an external file edit", async ({ page 
   await openMetadataDetails(page);
 
   await expect(page.locator("#field-title")).toHaveValue(changedTitle);
-  await expect(page.locator('[data-item-id="feature-create-items"]')).toContainText(changedTitle);
+  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toContainText(changedTitle);
 });
 
 test("edits scope from the UI and saves markdown back to scope.md", async ({ page }) => {
@@ -486,7 +489,7 @@ test("edits board groups, moves items, and saves the updated board", async ({ pa
   await expect(page.locator("#status-banner")).toContainText("Board saved.");
   const updatedBoardText = (await fs.readFile(boardPath, "utf8")).replace(/\r/g, "");
   expect(updatedBoardText).toContain("# Ready");
-  expect(updatedBoardText).toContain(`- feature-setup-guidance\n- feature-create-items`);
+  expect(updatedBoardText).toContain(`- feature-setup-guidance\n- feature-search-and-filters`);
 
   await page.reload();
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("Ready");
@@ -562,4 +565,51 @@ test("selecting a board item in stacked layout returns focus to the editor", asy
   const editorTop = await page.locator(".editor-panel").evaluate((element) => Math.round(element.getBoundingClientRect().top));
   expect(editorTop).toBeLessThan(40);
 });
+
+
+test("search filters the grouped board by item body text and persists in the URL", async ({ page }) => {
+  const nextText = originalFeatureText.replace("Add fast search plus dynamic filter controls", "Add fast search plus dynamic filter controls for lighthouse review");
+  await fs.writeFile(featurePath, nextText, "utf8");
+
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-search").fill("lighthouse review");
+
+  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toBeVisible();
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toHaveCount(0);
+  await expect(page).toHaveURL(/q=lighthouse\+review/);
+
+  await page.reload();
+  await expect(page.locator("#board-search")).toHaveValue("lighthouse review");
+  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toBeVisible();
+});
+
+test("generic metadata filters render from file frontmatter and combine with search", async ({ page }) => {
+  await page.goto("/");
+
+  await page.locator("#board-filter-toggle").click();
+  await expect(page.locator('[data-filter-key="commitment"][data-filter-value="committed"]')).toBeVisible();
+  await expect(page.locator('[data-filter-key="id"]')).toHaveCount(0);
+  await expect(page.locator('[data-filter-key="labels"]')).toHaveCount(0);
+
+  await page.locator('[data-filter-key="commitment"][data-filter-value="uncommitted"]').click();
+
+  await expect(page.locator('[data-item-id="idea-create-items"]')).toBeVisible();
+  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toHaveCount(0);
+  await expect(page).toHaveURL(/f=commitment%3Auncommitted/);
+
+  await page.locator("#board-filter-toggle").click();
+  await expect(page.locator('[data-filter-key="commitment"][data-filter-value="committed"]')).toHaveCount(0);
+  await expect(page.locator('[data-item-id="idea-create-items"]')).toBeVisible();
+
+  await page.locator("#board-search").fill("create roadmap items");
+  await expect(page).toHaveURL(/q=create\+roadmap\+items/);
+  await page.locator("#board-clear-filters").click();
+
+  await expect(page.locator("#board-search")).toHaveValue("");
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toBeVisible();
+  await expect(page).not.toHaveURL(/f=commitment%3Auncommitted/);
+});
+
+
 

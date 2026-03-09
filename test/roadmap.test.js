@@ -491,3 +491,17 @@ test("portable minimap package includes app, skill, and starter templates", asyn
   assert.equal(packageJson.scripts.start, "node server.js");
 });
 
+
+test("loadWorkspace exposes compact search text and generic metadata filters", async () => {
+  const repoRoot = await makeTempRepo();
+  const ideaPath = path.join(repoRoot, "roadmap", "ideas", "idea-a.md");
+  const originalIdeaText = await fs.readFile(ideaPath, "utf8");
+  await fs.writeFile(ideaPath, originalIdeaText.replace("labels:\n  - ui", "labels:\n  - docs"), "utf8");
+
+  const workspace = await loadWorkspace(repoRoot);
+  assert.deepEqual(workspace.items["feature-a"].metadata.labels, ["ui"]);
+  assert.equal(workspace.items["feature-a"].metadata.kind, "feature");
+  assert.match(workspace.items["feature-a"].searchText, /initial summary/);
+  assert.match(workspace.items["feature-a"].searchText, /keep this section untouched/);
+  assert.deepEqual(workspace.availableFilters.find((facet) => facet.key === "labels")?.values, ["docs", "ui"]);
+});
