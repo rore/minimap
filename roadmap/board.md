@@ -5,6 +5,11 @@
 - feature-setup-guidance
 
 # Ideas
+- idea-search-and-filters
+- idea-derived-roadmap-lenses
+- idea-card-preview-and-overview
+- idea-parent-grouping-overview
+- idea-timeline-view
 - idea-board-management
 - idea-history-and-recent-changes
 - idea-custom-fields-and-templates
