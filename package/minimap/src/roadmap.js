@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const REQUIRED_FRONTMATTER_KEYS = ["id", "title", "status", "priority", "commitment"];
 export const OPTIONAL_FRONTMATTER_KEYS = ["milestone"];
@@ -12,6 +13,13 @@ export const KNOWN_SECTIONS = [
   "Done When",
   "Notes",
 ];
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TEMPLATE_ROADMAP_ROOT = path.join(__dirname, "..", "templates", "roadmap");
+const STARTER_FILE_NAMES = ["board.md", "scope.md"];
+const STARTER_DIRECTORY_NAMES = ["features", "ideas"];
+const STARTER_CONFIG_EXAMPLE = `{\n  "roadmapPath": "roadmap"\n}`;
 
 export class AppError extends Error {
   constructor(message, statusCode, code, details = null) {
@@ -422,8 +430,62 @@ async function fileExists(filePath) {
   }
 }
 
-export async function resolveRoadmapRoot(repoRoot) {
-  const configPath = path.join(repoRoot, "roadmap.config.json");
+async function safeStat(targetPath) {
+  try {
+    return await fs.stat(targetPath);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function normalizeRepoRelativePath(repoRoot, targetPath) {
+  return path.relative(path.resolve(repoRoot), path.resolve(targetPath)).replaceAll('\\', '/');
+}
+
+function normalizeDisplayPath(value) {
+  return String(value || '').replaceAll('\\', '/');
+}
+
+function buildExpectedWorkspaceEntries(roadmapPath) {
+  const base = normalizeDisplayPath(roadmapPath);
+  return [
+    `${base}/board.md`,
+    `${base}/scope.md`,
+    `${base}/features/`,
+    `${base}/ideas/`,
+  ];
+}
+
+function buildConfigErrorDetails(repoRoot, configPath, extra = {}) {
+  return {
+    configPath: configPath ? normalizeRepoRelativePath(repoRoot, configPath) : null,
+    configMode: "override",
+    canInitialize: false,
+    suggestedConfig: STARTER_CONFIG_EXAMPLE,
+    ...extra,
+  };
+}
+
+function buildWorkspaceSetupDetails(repoRoot, workspace, extra = {}) {
+  return {
+    configPath: workspace.configPath ? normalizeRepoRelativePath(repoRoot, workspace.configPath) : null,
+    configMode: workspace.configPath ? "override" : "default",
+    roadmapPath: normalizeDisplayPath(workspace.roadmapPath),
+    resolvedPath: normalizeRepoRelativePath(repoRoot, workspace.resolvedPath),
+    expectedEntries: buildExpectedWorkspaceEntries(workspace.roadmapPath),
+    missingEntries: [],
+    canInitialize: true,
+    ...extra,
+  };
+}
+
+async function readRoadmapConfig(repoRoot) {
+  const resolvedRepoRoot = path.resolve(repoRoot);
+  const configPath = path.join(resolvedRepoRoot, "roadmap.config.json");
   let configuredPath = "roadmap";
   const hasConfig = await fileExists(configPath);
 
@@ -433,7 +495,7 @@ export async function resolveRoadmapRoot(repoRoot) {
     try {
       rawConfig = await fs.readFile(configPath, "utf8");
     } catch {
-      throw new AppError("Could not read roadmap.config.json.", 500, "config_error");
+      throw new AppError("Could not read roadmap.config.json.", 500, "config_error", buildConfigErrorDetails(resolvedRepoRoot, configPath));
     }
 
     let config;
@@ -441,34 +503,109 @@ export async function resolveRoadmapRoot(repoRoot) {
     try {
       config = JSON.parse(rawConfig);
     } catch {
-      throw new AppError("roadmap.config.json must contain valid JSON.", 422, "config_error");
+      throw new AppError("roadmap.config.json must contain valid JSON.", 422, "config_error", buildConfigErrorDetails(resolvedRepoRoot, configPath));
     }
 
     if (typeof config.roadmapPath !== "string" || config.roadmapPath.trim() === "") {
-      throw new AppError('roadmap.config.json must define a non-empty string "roadmapPath".', 422, "config_error");
+      throw new AppError('roadmap.config.json must define a non-empty string "roadmapPath".', 422, "config_error", buildConfigErrorDetails(resolvedRepoRoot, configPath));
     }
 
     configuredPath = config.roadmapPath;
   }
 
-  const resolvedPath = path.resolve(repoRoot, configuredPath);
-  const relative = path.relative(path.resolve(repoRoot), resolvedPath);
+  const resolvedPath = path.resolve(resolvedRepoRoot, configuredPath);
+  const relative = path.relative(resolvedRepoRoot, resolvedPath);
 
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new AppError("Configured roadmapPath must stay inside the repo root.", 422, "config_error");
-  }
-
-  if (!(await fileExists(resolvedPath))) {
-    throw new AppError(`Roadmap path not found: ${configuredPath}`, 404, "setup_error", {
-      roadmapPath: configuredPath,
-    });
+    throw new AppError("Configured roadmapPath must stay inside the repo root.", 422, "config_error", buildConfigErrorDetails(resolvedRepoRoot, configPath, {
+      roadmapPath: normalizeDisplayPath(configuredPath),
+      resolvedPath: normalizeDisplayPath(resolvedPath),
+    }));
   }
 
   return {
+    repoRoot: resolvedRepoRoot,
     configPath: hasConfig ? configPath : null,
     roadmapPath: configuredPath,
     resolvedPath,
   };
+}
+
+async function validateWorkspaceShape(repoRoot, workspace) {
+  const rootStat = await safeStat(workspace.resolvedPath);
+
+  if (!rootStat) {
+    throw new AppError(`Roadmap path not found: ${workspace.roadmapPath}`, 404, "setup_error", buildWorkspaceSetupDetails(repoRoot, workspace, {
+      reason: "missing_root",
+      missingEntries: [normalizeDisplayPath(workspace.roadmapPath)],
+    }));
+  }
+
+  if (!rootStat.isDirectory()) {
+    throw new AppError(`Roadmap path must be a directory: ${workspace.roadmapPath}`, 422, "setup_error", buildWorkspaceSetupDetails(repoRoot, workspace, {
+      reason: "invalid_root",
+      canInitialize: false,
+    }));
+  }
+
+  const missingEntries = [];
+
+  for (const directoryName of STARTER_DIRECTORY_NAMES) {
+    const targetPath = path.join(workspace.resolvedPath, directoryName);
+    const stats = await safeStat(targetPath);
+
+    if (!stats) {
+      missingEntries.push(`${normalizeDisplayPath(workspace.roadmapPath)}/${directoryName}/`);
+      continue;
+    }
+
+    if (!stats.isDirectory()) {
+      throw new AppError(`Roadmap workspace expects ${directoryName}/ to be a directory.`, 422, "setup_error", buildWorkspaceSetupDetails(repoRoot, workspace, {
+        reason: "invalid_entry",
+        canInitialize: false,
+        invalidEntries: [`${normalizeDisplayPath(workspace.roadmapPath)}/${directoryName}/`],
+      }));
+    }
+  }
+
+  for (const fileName of STARTER_FILE_NAMES) {
+    const targetPath = path.join(workspace.resolvedPath, fileName);
+    const stats = await safeStat(targetPath);
+
+    if (!stats) {
+      missingEntries.push(`${normalizeDisplayPath(workspace.roadmapPath)}/${fileName}`);
+      continue;
+    }
+
+    if (!stats.isFile()) {
+      throw new AppError(`Roadmap workspace expects ${fileName} to be a file.`, 422, "setup_error", buildWorkspaceSetupDetails(repoRoot, workspace, {
+        reason: "invalid_entry",
+        canInitialize: false,
+        invalidEntries: [`${normalizeDisplayPath(workspace.roadmapPath)}/${fileName}`],
+      }));
+    }
+  }
+
+  if (missingEntries.length > 0) {
+    throw new AppError("Roadmap workspace is incomplete.", 404, "setup_error", buildWorkspaceSetupDetails(repoRoot, workspace, {
+      reason: "missing_entries",
+      missingEntries,
+    }));
+  }
+}
+
+async function ensureStarterFile(templateName, targetPath) {
+  if (await fileExists(targetPath)) {
+    return;
+  }
+
+  const templatePath = path.join(TEMPLATE_ROADMAP_ROOT, templateName);
+  const templateText = await fs.readFile(templatePath, "utf8");
+  await fs.writeFile(targetPath, templateText, "utf8");
+}
+
+export async function resolveRoadmapRoot(repoRoot) {
+  return readRoadmapConfig(repoRoot);
 }
 
 export function parseBoardText(text, sourcePath = "board.md") {
@@ -559,6 +696,7 @@ async function loadItemIndex(roadmapRoot) {
 
 export async function loadWorkspace(repoRoot) {
   const workspace = await resolveRoadmapRoot(repoRoot);
+  await validateWorkspaceShape(repoRoot, workspace);
   const boardPath = path.join(workspace.resolvedPath, "board.md");
   const scopePath = path.join(workspace.resolvedPath, "scope.md");
   const boardText = await readUtf8(boardPath, "Missing roadmap board.md file.");
@@ -598,6 +736,29 @@ export async function loadWorkspace(repoRoot) {
   };
 }
 
+export async function initializeWorkspace(repoRoot) {
+  const workspace = await readRoadmapConfig(repoRoot);
+  const rootStat = await safeStat(workspace.resolvedPath);
+
+  if (rootStat && !rootStat.isDirectory()) {
+    throw new AppError(`Roadmap path must be a directory: ${workspace.roadmapPath}`, 422, "setup_error", buildWorkspaceSetupDetails(repoRoot, workspace, {
+      reason: "invalid_root",
+      canInitialize: false,
+    }));
+  }
+
+  await fs.mkdir(workspace.resolvedPath, { recursive: true });
+
+  for (const directoryName of STARTER_DIRECTORY_NAMES) {
+    await fs.mkdir(path.join(workspace.resolvedPath, directoryName), { recursive: true });
+  }
+
+  for (const fileName of STARTER_FILE_NAMES) {
+    await ensureStarterFile(fileName, path.join(workspace.resolvedPath, fileName));
+  }
+
+  return loadWorkspace(repoRoot);
+}
 export async function readItemById(repoRoot, id) {
   const workspace = await resolveRoadmapRoot(repoRoot);
   const itemIndex = await loadItemIndex(workspace.resolvedPath);
@@ -737,3 +898,15 @@ export async function saveBoardByGroups(repoRoot, groupsPayload) {
   await fs.writeFile(boardPath, serialized, "utf8");
   return loadWorkspace(repoRoot);
 }
+
+
+
+
+
+
+
+
+
+
+
+

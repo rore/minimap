@@ -1,6 +1,3 @@
-# Now
-- feature-setup-guidance
-
 # Next
 - feature-card-preview-and-overview
 - feature-derived-roadmap-lenses
@@ -20,3 +17,4 @@
 - feature-agent-file-rules
 - feature-edit-board-and-scope
 - feature-search-and-filters
+- feature-setup-guidance

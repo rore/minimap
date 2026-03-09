@@ -1,13 +1,19 @@
 ---
 id: feature-setup-guidance
-title: Setup guidance and empty-state workflow
-status: queued
+title: "Setup guidance and empty-state workflow"
+status: done
 priority: medium
 commitment: committed
 labels:
   - onboarding
   - ux
+milestone: P2
 ---
+
+
+
+
+
 
 ## Summary
 

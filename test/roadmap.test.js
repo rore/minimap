@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
+  initializeWorkspace,
   loadWorkspace,
   parseBoardText,
   parseItemText,
@@ -111,6 +112,11 @@ async function makeTempRepo() {
   return repoRoot;
 }
 
+async function makeEmptyRepo() {
+  return fs.mkdtemp(path.join(os.tmpdir(), "roadmap-ui-empty-"));
+}
+
+
 test("parseBoardText reads groups and item order", () => {
   const groups = parseBoardText("# Now\n- feature-a\n- feature-b\n\n# Next\n- feature-c\n");
   assert.deepEqual(groups, [
@@ -165,6 +171,47 @@ test("loadWorkspace uses roadmap.config.json override", async () => {
   assert.equal(workspace.repoName, path.basename(repoRoot));
 });
 
+test("loadWorkspace returns actionable setup details when roadmap path is missing", async () => {
+  const repoRoot = await makeEmptyRepo();
+
+  await assert.rejects(
+    () => loadWorkspace(repoRoot),
+    (error) => {
+      assert.equal(error.code, "setup_error");
+      assert.equal(error.details.roadmapPath, "roadmap");
+      assert.equal(error.details.canInitialize, true);
+      assert.deepEqual(error.details.expectedEntries, [
+        "roadmap/board.md",
+        "roadmap/scope.md",
+        "roadmap/features/",
+        "roadmap/ideas/",
+      ]);
+      return true;
+    },
+  );
+});
+
+test("initializeWorkspace creates the starter roadmap workspace", async () => {
+  const repoRoot = await makeEmptyRepo();
+
+  const workspace = await initializeWorkspace(repoRoot);
+
+  assert.equal(workspace.roadmapPath, "roadmap");
+  assert.equal(workspace.boardGroups.length, 3);
+  assert.equal(workspace.boardGroups[0].name, "Now");
+  assert.equal(workspace.scopeText.trim().length > 0, true);
+  assert.equal((await fs.readFile(path.join(repoRoot, "roadmap", "board.md"), "utf8")).replace(/\r\n/g, "\n"), "# Now\n\n# Next\n\n# Ideas\n");
+});
+
+test("initializeWorkspace respects roadmap.config.json overrides", async () => {
+  const repoRoot = await makeEmptyRepo();
+  await fs.writeFile(path.join(repoRoot, "roadmap.config.json"), JSON.stringify({ roadmapPath: "docs/roadmap" }), "utf8");
+
+  const workspace = await initializeWorkspace(repoRoot);
+
+  assert.equal(workspace.roadmapPath, "docs/roadmap");
+  assert.equal(await fs.readFile(path.join(repoRoot, "docs", "roadmap", "scope.md"), "utf8").then((text) => text.includes("current-focus narrative")), true);
+});
 test("saveBoardByGroups persists group order", async () => {
   const repoRoot = await makeTempRepo();
   const workspace = await saveBoardByGroups(repoRoot, [
@@ -505,3 +552,11 @@ test("loadWorkspace exposes compact search text and generic metadata filters", a
   assert.match(workspace.items["feature-a"].searchText, /keep this section untouched/);
   assert.deepEqual(workspace.availableFilters.find((facet) => facet.key === "labels")?.values, ["docs", "ui"]);
 });
+
+
+
+
+
+
+
+

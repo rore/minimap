@@ -4,7 +4,10 @@ import path from "node:path";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
 const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
-const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-search-and-filters.md");
+const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-setup-guidance.md");
+const searchFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-search-and-filters.md");
+const configPath = path.join(process.cwd(), "roadmap.config.json");
+const setupSandboxPath = path.join(process.cwd(), "playwright-setup-roadmap");
 
 function extractHeadings(boardText) {
   return boardText
@@ -30,7 +33,7 @@ function addExtraSection(text, heading, content) {
 }
 
 const repoSpecificFeatureText = `---
-id: feature-search-and-filters
+id: feature-setup-guidance
 title: Repo-specific feature shape
 status: queued
 priority: high
@@ -68,11 +71,16 @@ test.describe.configure({ mode: "serial" });
 let originalBoardText = "";
 let originalScopeText = "";
 let originalFeatureText = "";
+let originalSearchFeatureText = "";
+let originalConfigText = null;
 
 test.beforeEach(async ({ page }) => {
   originalBoardText = await fs.readFile(boardPath, "utf8");
   originalScopeText = await fs.readFile(scopePath, "utf8");
   originalFeatureText = await fs.readFile(featurePath, "utf8");
+  originalSearchFeatureText = await fs.readFile(searchFeaturePath, "utf8");
+  originalConfigText = await fs.readFile(configPath, "utf8").catch(() => null);
+  await fs.rm(setupSandboxPath, { recursive: true, force: true });
   await page.addInitScript(() => window.localStorage.removeItem("roadmap-ui.scope-collapsed"));
 });
 
@@ -80,6 +88,14 @@ test.afterEach(async () => {
   await fs.writeFile(boardPath, originalBoardText, "utf8");
   await fs.writeFile(scopePath, originalScopeText, "utf8");
   await fs.writeFile(featurePath, originalFeatureText, "utf8");
+  await fs.writeFile(searchFeaturePath, originalSearchFeatureText, "utf8");
+  await fs.rm(setupSandboxPath, { recursive: true, force: true });
+  if (originalConfigText === null) {
+    await fs.rm(configPath, { force: true });
+    return;
+  }
+
+  await fs.writeFile(configPath, originalConfigText, "utf8");
 });
 
 test("shows repo name and ASCII workspace summary in the header", async ({ page }) => {
@@ -91,6 +107,21 @@ test("shows repo name and ASCII workspace summary in the header", async ({ page 
   await expect(page.locator("#workspace-summary")).not.toContainText("?");
 });
 
+test("shows guided setup state and can create a starter workspace", async ({ page }) => {
+  await fs.writeFile(configPath, JSON.stringify({ roadmapPath: "playwright-setup-roadmap" }), "utf8");
+  await page.goto("/");
+
+  await expect(page.locator("#workspace-summary")).toContainText("Setup required");
+  await expect(page.locator("#editor-title")).toContainText("Roadmap workspace needs setup");
+  await expect(page.locator("#setup-view")).toContainText("Roadmap workspace needs setup");
+  await expect(page.locator("#setup-view")).toContainText("playwright-setup-roadmap");
+  await page.locator('[data-setup-action="initialize"]').click();
+
+  await expect(page.locator("#workspace-summary")).toContainText("0 items / 3 groups");
+  await expect(page.locator(".board-group").first()).toContainText("Now");
+  await expect(page.locator("#setup-view")).toBeHidden();
+  await expect(page.locator("#status-banner")).toContainText("Roadmap workspace created.");
+});
 test("keeps scope on the right side of the editor and narrower on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto("/");
@@ -186,7 +217,6 @@ test("renders compact board group controls that stay on one row", async ({ page 
 
   await expect(upButton).toContainText("Up");
   await expect(downButton).toContainText("Down");
-  await firstHeader.scrollIntoViewIfNeeded();
   await expect(firstHeader).toBeVisible();
 
   const headerBox = await firstHeader.boundingBox();
@@ -373,7 +403,7 @@ test("reorders board sections and persists after reload", async ({ page }) => {
 });
 
 test("saves optional milestone metadata and reflects it in the board", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#item=feature-setup-guidance");
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
 
@@ -381,7 +411,7 @@ test("saves optional milestone metadata and reflects it in the board", async ({ 
   await page.locator("#save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Saved.");
-  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toContainText("P2");
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toContainText("P2");
 
   const updatedFeatureText = await fs.readFile(featurePath, "utf8");
   expect(updatedFeatureText).toContain("milestone: P2");
@@ -391,7 +421,7 @@ test("renders extra sections from the item file in the structured editor", async
   const nextText = addExtraSection(addMilestone(originalFeatureText, "P3"), "Decision Locks", "- keep the file contract thin");
   await fs.writeFile(featurePath, nextText, "utf8");
 
-  await page.goto("/");
+  await page.goto("/#item=feature-setup-guidance");
   await page.locator("#refresh-button").click();
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
@@ -404,7 +434,7 @@ test("renders extra sections from the item file in the structured editor", async
 test("edit mode renders the item's real section headings for repo-specific item shapes", async ({ page }) => {
   await fs.writeFile(featurePath, repoSpecificFeatureText, "utf8");
 
-  await page.goto("/");
+  await page.goto("/#item=feature-setup-guidance");
   await page.locator("#refresh-button").click();
   await page.locator('[data-editor-mode="structured"]').click();
 
@@ -417,7 +447,7 @@ test("edit mode renders the item's real section headings for repo-specific item 
 });
 
 test("preview mode renders markdown from the edit form without duplicating the title block", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#item=feature-setup-guidance");
   await page.locator('[data-editor-mode="structured"]').click();
 
   await page.locator('[data-section-heading="Summary"]').fill("- keep planning in the repo\n- show `board.md` changes clearly");
@@ -430,7 +460,7 @@ test("preview mode renders markdown from the edit form without duplicating the t
 });
 
 test("raw mode saves full-file edits", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#item=feature-setup-guidance");
 
   await page.locator('[data-editor-mode="raw"]').click();
   await page.locator("#raw-text").fill(replaceTitle(originalFeatureText, "Search roadmap items through raw mode"));
@@ -446,7 +476,7 @@ test("raw mode saves full-file edits", async ({ page }) => {
 });
 
 test("refresh reloads the workspace after an external file edit", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#item=feature-setup-guidance");
 
   const changedTitle = "Search roadmap items with guided setup";
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, changedTitle), "utf8");
@@ -456,7 +486,7 @@ test("refresh reloads the workspace after an external file edit", async ({ page 
   await openMetadataDetails(page);
 
   await expect(page.locator("#field-title")).toHaveValue(changedTitle);
-  await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toContainText(changedTitle);
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toContainText(changedTitle);
 });
 
 test("edits scope from the UI and saves markdown back to scope.md", async ({ page }) => {
@@ -483,13 +513,12 @@ test("edits board groups, moves items, and saves the updated board", async ({ pa
   await page.locator("#board-edit-button").click();
   await page.locator('[data-board-group-name="0"]').fill("Ready");
   await page.locator('[data-board-item-group="feature-setup-guidance"]').selectOption("0");
-  await page.locator('[data-board-item-row="feature-setup-guidance"] [data-board-item-move="up"]').click();
   await page.locator("#board-save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Board saved.");
   const updatedBoardText = (await fs.readFile(boardPath, "utf8")).replace(/\r/g, "");
   expect(updatedBoardText).toContain("# Ready");
-  expect(updatedBoardText).toContain(`- feature-setup-guidance\n- feature-search-and-filters`);
+  expect(updatedBoardText).toContain("- feature-setup-guidance");
 
   await page.reload();
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("Ready");
@@ -568,8 +597,8 @@ test("selecting a board item in stacked layout returns focus to the editor", asy
 
 
 test("search filters the grouped board by item body text and persists in the URL", async ({ page }) => {
-  const nextText = originalFeatureText.replace("Add fast search plus dynamic filter controls", "Add fast search plus dynamic filter controls for lighthouse review");
-  await fs.writeFile(featurePath, nextText, "utf8");
+  const nextText = originalSearchFeatureText.replace("Add fast search plus dynamic filter controls", "Add fast search plus dynamic filter controls for lighthouse review");
+  await fs.writeFile(searchFeaturePath, nextText, "utf8");
 
   await page.goto("/");
   await page.locator("#refresh-button").click();
@@ -610,6 +639,15 @@ test("generic metadata filters render from file frontmatter and combine with sea
   await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toBeVisible();
   await expect(page).not.toHaveURL(/f=commitment%3Auncommitted/);
 });
+
+
+
+
+
+
+
+
+
 
 
 

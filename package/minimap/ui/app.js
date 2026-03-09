@@ -8,6 +8,7 @@ const EDITOR_MODES = new Set(["preview", "structured", "raw"]);
 
 const state = {
   workspace: null,
+  setupState: null,
   selectedItemId: null,
   currentItem: null,
   searchQuery: "",
@@ -29,6 +30,7 @@ const state = {
 
 const layoutElement = document.querySelector("#layout-shell");
 const boardPanelElement = document.querySelector("#board-panel");
+const boardControlsElement = document.querySelector("#board-controls");
 const boardGroupsElement = document.querySelector("#board-groups");
 const boardEditButton = document.querySelector("#board-edit-button");
 const boardSaveButton = document.querySelector("#board-save-button");
@@ -61,6 +63,8 @@ const form = document.querySelector("#item-form");
 const previewElement = document.querySelector("#item-preview");
 const rawTextElement = document.querySelector("#raw-text");
 const sectionsContainer = document.querySelector("#sections-container");
+const editorTabsElement = document.querySelector("#editor-tabs");
+const setupViewElement = document.querySelector("#setup-view");
 const modeButtons = Array.from(document.querySelectorAll("[data-editor-mode]"));
 const modePanes = Array.from(document.querySelectorAll("[data-mode-pane]"));
 const stackedLayoutMedia = window.matchMedia("(max-width: 980px)");
@@ -375,6 +379,164 @@ function humanizeFilterKey(key) {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
+function isSetupMode() {
+  return Boolean(state.setupState);
+}
+
+function buildSetupState(error) {
+  if (!error || !["setup_error", "config_error"].includes(error.code)) {
+    return null;
+  }
+
+  const details = error.details || {};
+  const reason = details.reason || error.code;
+  const title = error.code === "config_error" ? "Roadmap config needs attention" : "Roadmap workspace needs setup";
+  const description = error.code === "config_error"
+    ? "Minimap could not resolve a usable roadmap path from the current repo configuration."
+    : "Minimap could not load a usable roadmap workspace from the current repo state.";
+
+  return {
+    code: error.code,
+    title,
+    message: error.message,
+    description,
+    reason,
+    canInitialize: details.canInitialize === true,
+    roadmapPath: details.roadmapPath || "roadmap",
+    resolvedPath: details.resolvedPath || details.roadmapPath || "roadmap",
+    configPath: details.configPath || null,
+    configMode: details.configMode || "default",
+    expectedEntries: Array.isArray(details.expectedEntries) ? details.expectedEntries : [],
+    missingEntries: Array.isArray(details.missingEntries) ? details.missingEntries : [],
+    invalidEntries: Array.isArray(details.invalidEntries) ? details.invalidEntries : [],
+    suggestedConfig: details.suggestedConfig || "",
+  };
+}
+
+function renderSetupList(entries, emptyCopy) {
+  if (!entries || entries.length === 0) {
+    return `<p class="muted">${escapeHtml(emptyCopy)}</p>`;
+  }
+
+  return `<ul class="setup-list">${entries.map((entry) => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul>`;
+}
+
+function renderSetupView() {
+  if (!setupViewElement) {
+    return;
+  }
+
+  if (!state.setupState) {
+    setupViewElement.hidden = true;
+    setupViewElement.innerHTML = "";
+    return;
+  }
+
+  const setup = state.setupState;
+  const locationSummary = setup.configPath
+    ? `Using ${setup.configPath} to point minimap at ${setup.roadmapPath}.`
+    : `No roadmap.config.json found. Minimap defaults to ${setup.roadmapPath}.`;
+  const statusSummary = setup.canInitialize
+    ? "Minimap can scaffold the starter roadmap files directly in this repo."
+    : "This state needs a manual config or path fix before the workspace can load.";
+  const stats = [
+    { label: "Expected", value: setup.expectedEntries.length },
+    { label: "Missing", value: setup.missingEntries.length },
+    { label: "Invalid", value: setup.invalidEntries.length },
+  ];
+  const statsHtml = stats.map(({ label, value }) => `
+    <div class="setup-stat">
+      <span class="setup-stat-label">${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value))}</strong>
+    </div>
+  `).join("");
+  const actionHtml = setup.canInitialize
+    ? '<div class="setup-actions"><button class="primary-button" type="button" data-setup-action="initialize">Create starter roadmap workspace</button></div>'
+    : "";
+  const invalidCard = setup.invalidEntries.length > 0
+    ? `
+      <section class="setup-card">
+        <div class="setup-card-header">
+          <p class="setup-kicker">Needs manual fix</p>
+          <h3>Correct these entries</h3>
+        </div>
+        ${renderSetupList(setup.invalidEntries, "No invalid entries were provided.")}
+      </section>
+    `
+    : "";
+  const configHelp = setup.suggestedConfig
+    ? `
+      <section class="setup-card setup-card-wide">
+        <div class="setup-card-header">
+          <p class="setup-kicker">Suggested config</p>
+          <h3>Point minimap at a custom roadmap path</h3>
+        </div>
+        <pre class="setup-code">${escapeHtml(setup.suggestedConfig)}</pre>
+      </section>
+    `
+    : "";
+
+  editorTitleElement.textContent = setup.title;
+  editorSubtitleElement.textContent = setup.roadmapPath;
+  setupViewElement.hidden = false;
+  setupViewElement.innerHTML = `
+    <div class="setup-shell">
+      <section class="setup-hero">
+        <div class="setup-hero-copy">
+          <p class="setup-kicker">${escapeHtml(setup.code === "config_error" ? "Config" : "Onboarding")}</p>
+          <h3>${escapeHtml(setup.title)}</h3>
+          <p class="setup-lead">${escapeHtml(setup.description)}</p>
+          <p class="setup-message">${escapeHtml(setup.message)}</p>
+          <div class="setup-path-row">
+            <span class="setup-path-label">Roadmap path</span>
+            <code>${escapeHtml(setup.roadmapPath)}</code>
+          </div>
+          <p class="muted">${escapeHtml(locationSummary)}</p>
+        </div>
+        <div class="setup-hero-side">
+          <div class="setup-stat-grid">${statsHtml}</div>
+          <p class="setup-side-copy">${escapeHtml(statusSummary)}</p>
+          ${actionHtml}
+        </div>
+      </section>
+      <div class="setup-grid">
+        <section class="setup-card">
+          <div class="setup-card-header">
+            <p class="setup-kicker">Expected workspace</p>
+            <h3>Starter file shape</h3>
+          </div>
+          ${renderSetupList(setup.expectedEntries, "No expected entries were provided.")}
+        </section>
+        <section class="setup-card">
+          <div class="setup-card-header">
+            <p class="setup-kicker">Missing now</p>
+            <h3>What is not present yet</h3>
+          </div>
+          ${renderSetupList(setup.missingEntries, "Nothing is missing, but the current setup still needs attention.")}
+        </section>
+        <section class="setup-card setup-card-note">
+          <div class="setup-card-header">
+            <p class="setup-kicker">Next step</p>
+            <h3>${escapeHtml(setup.canInitialize ? "Create the starter workspace" : "Fix the current path")}</h3>
+          </div>
+          <p>${escapeHtml(setup.canInitialize
+            ? "Use the action above to scaffold board.md, scope.md, features/, and ideas/ directly in the configured roadmap path."
+            : "Fix the config or missing path first, then refresh minimap to load the workspace.")}</p>
+        </section>
+        ${invalidCard}
+        ${configHelp}
+      </div>
+    </div>
+  `;
+
+  const initializeButton = setupViewElement.querySelector('[data-setup-action="initialize"]');
+  if (initializeButton) {
+    initializeButton.addEventListener("click", () => {
+      void initializeWorkspaceFromSetup();
+    });
+  }
+}
+
 function renderBadges(item) {
   return [item.status, item.priority, item.commitment, item.milestone]
     .filter(Boolean)
@@ -391,6 +553,11 @@ function updateDocumentTitle() {
 function updateWorkspaceSummary() {
   const groups = state.workspace?.boardGroups.length ?? 0;
   const items = getBoardItems().length;
+
+  if (state.setupState) {
+    workspaceSummaryElement.textContent = "Setup required";
+    return;
+  }
 
   if (!state.workspace) {
     workspaceSummaryElement.textContent = "Unavailable";
@@ -544,15 +711,18 @@ function renderSearchControls() {
   }
 }
 function renderBoardChrome() {
-  boardEditButton.hidden = state.boardEditMode;
-  boardSaveButton.hidden = !state.boardEditMode;
-  boardCancelButton.hidden = !state.boardEditMode;
+  const setupMode = isSetupMode();
+  boardEditButton.hidden = setupMode || state.boardEditMode;
+  boardSaveButton.hidden = setupMode || !state.boardEditMode;
+  boardCancelButton.hidden = setupMode || !state.boardEditMode;
+  boardControlsElement.hidden = setupMode;
   boardSaveButton.disabled = !state.boardDirty;
   renderSearchControls();
 }
 
 function renderScopeChrome() {
-  const showResizer = !state.scopeCollapsed && isDesktopScopeLayout();
+  const setupMode = isSetupMode();
+  const showResizer = !setupMode && !state.scopeCollapsed && isDesktopScopeLayout();
 
   layoutElement.dataset.scopeCollapsed = String(state.scopeCollapsed);
   layoutElement.style.setProperty("--scope-width", `${state.scopeWidth}px`);
@@ -560,12 +730,12 @@ function renderScopeChrome() {
   scopePanelElement.classList.toggle("scope-editing", state.scopeEditMode);
   scopeSubtitleElement.textContent = "";
   scopeSubtitleElement.hidden = true;
-  scopeEditButton.hidden = state.scopeEditMode;
-  scopeSaveButton.hidden = !state.scopeEditMode;
-  scopeCancelButton.hidden = !state.scopeEditMode;
+  scopeEditButton.hidden = setupMode || state.scopeEditMode;
+  scopeSaveButton.hidden = setupMode || !state.scopeEditMode;
+  scopeCancelButton.hidden = setupMode || !state.scopeEditMode;
   scopeSaveButton.disabled = !state.scopeDirty;
-  scopeToggleButton.hidden = state.scopeEditMode;
-  scopeToggleButton.disabled = state.scopeEditMode;
+  scopeToggleButton.hidden = setupMode || state.scopeEditMode;
+  scopeToggleButton.disabled = setupMode || state.scopeEditMode;
   scopeToggleButton.textContent = state.scopeCollapsed ? "Expand" : "Collapse";
   scopeToggleButton.setAttribute("aria-expanded", state.scopeCollapsed ? "false" : "true");
   scopeResizerElement.hidden = !showResizer;
@@ -576,16 +746,29 @@ function renderScopeChrome() {
 }
 
 function renderEditorChrome() {
+  const setupMode = isSetupMode();
   editorPanelElement.dataset.editorMode = state.editorMode;
   saveButton.textContent = "Save";
+  saveButton.hidden = setupMode;
+  editorTabsElement.hidden = setupMode;
+
+  if (setupMode) {
+    for (const pane of modePanes) {
+      pane.hidden = true;
+    }
+  }
 }
 
 function syncWorkspaceChrome() {
+  const setupMode = isSetupMode();
+  document.body.dataset.setupMode = String(setupMode);
+  layoutElement.dataset.setupMode = String(setupMode);
   updateDocumentTitle();
   updateWorkspaceSummary();
   renderBoardChrome();
   renderScopeChrome();
   renderEditorChrome();
+  renderSetupView();
   syncMobileNavigation();
 }
 
@@ -1001,6 +1184,27 @@ function renderBoardEditMode() {
 }
 
 function renderBoard() {
+  if (isSetupMode()) {
+    const setup = state.setupState;
+    boardGroupsElement.innerHTML = `
+      <div class="setup-sidebar">
+        <section class="setup-sidebar-card setup-sidebar-card-primary">
+          <p class="setup-kicker">Workspace path</p>
+          <h3>${escapeHtml(setup.roadmapPath)}</h3>
+          <p class="muted">${escapeHtml(setup.configPath ? `Configured through ${setup.configPath}.` : "Using the default roadmap path.")}</p>
+        </section>
+        <section class="setup-sidebar-card">
+          <div class="setup-mini-stat-list">
+            <div class="setup-mini-stat"><span>Missing</span><strong>${escapeHtml(String(setup.missingEntries.length))}</strong></div>
+            <div class="setup-mini-stat"><span>Invalid</span><strong>${escapeHtml(String(setup.invalidEntries.length))}</strong></div>
+          </div>
+          <p class="setup-sidebar-copy">${escapeHtml(setup.message)}</p>
+        </section>
+      </div>
+    `;
+    return;
+  }
+
   if (state.boardEditMode) {
     renderBoardEditMode();
     return;
@@ -1010,6 +1214,43 @@ function renderBoard() {
 }
 
 function renderScope() {
+  if (isSetupMode()) {
+    const setup = state.setupState;
+    const steps = setup.canInitialize
+      ? [
+          "Use the create action in the main panel to scaffold the starter roadmap files.",
+          "Review the generated board.md and scope.md once the workspace loads.",
+          "Start editing roadmap items from the normal board and item views.",
+        ]
+      : [
+          "Fix the configured roadmap path or the invalid entry called out in the main panel.",
+          "Make sure minimap can find board.md, scope.md, features/, and ideas/.",
+          "Refresh the app after the files or config are corrected.",
+        ];
+
+    scopeContentElement.hidden = false;
+    scopeTextElement.hidden = true;
+    scopeContentElement.innerHTML = `
+      <div class="setup-side-stack">
+        <section class="setup-card setup-card-compact">
+          <div class="setup-card-header">
+            <p class="setup-kicker">Checklist</p>
+            <h3>What minimap expects</h3>
+          </div>
+          ${renderSetupList(setup.expectedEntries, "No expected entries were provided.")}
+        </section>
+        <section class="setup-card setup-card-compact">
+          <div class="setup-card-header">
+            <p class="setup-kicker">Recovery path</p>
+            <h3>${escapeHtml(setup.canInitialize ? "Create and continue" : "Fix and refresh")}</h3>
+          </div>
+          <ol class="setup-steps">${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+        </section>
+      </div>
+    `;
+    return;
+  }
+
   scopeContentElement.hidden = state.scopeEditMode;
   scopeTextElement.hidden = !state.scopeEditMode;
 
@@ -1205,7 +1446,11 @@ async function fetchJson(url, options = {}) {
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload?.error?.message || "Request failed.");
+    const error = new Error(payload?.error?.message || "Request failed.");
+    error.code = payload?.error?.code || "request_failed";
+    error.details = payload?.error?.details || null;
+    error.statusCode = response.status;
+    throw error;
   }
 
   return payload;
@@ -1271,6 +1516,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   try {
     const workspace = await fetchJson("/api/workspace");
     resetAncillaryEditModes();
+    state.setupState = null;
     state.workspace = workspace;
     state.editorMode = normalizeEditorMode(options.preferredMode ?? state.editorMode);
     roadmapPathElement.textContent = workspace.roadmapPath;
@@ -1285,14 +1531,23 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     });
   } catch (error) {
     state.workspace = null;
-    roadmapPathElement.textContent = "Unavailable";
+    state.setupState = buildSetupState(error);
+    roadmapPathElement.textContent = state.setupState?.roadmapPath || "Unavailable";
     resetAncillaryEditModes();
-    syncWorkspaceChrome();
-    boardGroupsElement.innerHTML = "";
-    scopeContentElement.textContent = "";
-    scopeTextElement.hidden = true;
     resetEditor();
-    setBanner(error.message, "error");
+    syncWorkspaceChrome();
+    renderBoard();
+    renderScope();
+
+    if (!state.setupState) {
+      boardGroupsElement.innerHTML = "";
+      scopeContentElement.textContent = "";
+      scopeTextElement.hidden = true;
+      setBanner(error.message, "error");
+      return;
+    }
+
+    setBanner("");
   }
 }
 
@@ -1311,6 +1566,34 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     setBanner("");
   } catch (error) {
     setBanner(error.message, "error");
+  }
+}
+async function initializeWorkspaceFromSetup() {
+  if (!state.setupState?.canInitialize) {
+    return;
+  }
+
+  setBanner("Creating starter roadmap workspace...");
+
+  try {
+    await fetchJson("/api/setup/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    await loadWorkspace("", { replaceRoute: true });
+    setBanner("Roadmap workspace created.", "success");
+  } catch (error) {
+    state.setupState = buildSetupState(error) || state.setupState;
+    syncWorkspaceChrome();
+    renderBoard();
+    renderScope();
+    if (!state.setupState) {
+      setBanner(error.message, "error");
+      return;
+    }
+
+    setBanner("");
   }
 }
 function collectPayload() {
@@ -1483,6 +1766,18 @@ refreshButton.addEventListener("click", () => {
   void loadWorkspace();
 });
 
+setupViewElement.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const action = target?.closest("[data-setup-action]");
+  if (!action) {
+    return;
+  }
+
+  if (action.dataset.setupAction === "initialize") {
+    void initializeWorkspaceFromSetup();
+  }
+});
+
 boardEditButton.addEventListener("click", () => {
   startBoardEditMode();
 });
@@ -1602,6 +1897,33 @@ void loadWorkspace(initialRoute.itemId || state.selectedItemId, {
     syncRouteState({ replace: true });
   }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

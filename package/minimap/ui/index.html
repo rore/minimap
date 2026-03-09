@@ -63,13 +63,15 @@
             </div>
           </div>
 
-          <div class="editor-tabs" role="tablist" aria-label="Item editor modes">
+          <div class="editor-tabs" id="editor-tabs" role="tablist" aria-label="Item editor modes">
             <button class="editor-tab is-active" id="tab-preview" data-editor-mode="preview" type="button" role="tab" aria-selected="true">Preview</button>
             <button class="editor-tab" id="tab-structured" data-editor-mode="structured" type="button" role="tab" aria-selected="false">Edit</button>
             <button class="editor-tab" id="tab-raw" data-editor-mode="raw" type="button" role="tab" aria-selected="false">Raw</button>
           </div>
 
           <div class="editor-panels">
+            <section id="setup-view" class="editor-pane setup-view" hidden></section>
+
             <form id="item-form" class="item-form editor-pane" data-mode-pane="structured">
               <details class="metadata-details">
                 <summary id="metadata-toggle" class="metadata-summary">
@@ -165,3 +167,7 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
+
+
+
+
