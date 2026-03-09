@@ -41,8 +41,11 @@
                 <span class="visually-hidden">Search roadmap</span>
                 <input id="board-search" type="search" placeholder="Search roadmap" autocomplete="off" spellcheck="false" />
               </label>
-              <button id="board-filter-toggle" class="ghost-button board-filter-toggle" type="button" aria-expanded="false">Filters</button>
-              <button id="board-clear-filters" class="ghost-button board-clear-button" type="button">Clear</button>
+              <div id="board-lens-switcher" class="board-lens-switcher"></div>
+              <div class="board-control-actions">
+                <button id="board-filter-toggle" class="ghost-button board-filter-toggle" type="button" aria-expanded="false">Filters</button>
+                <button id="board-clear-filters" class="ghost-button board-clear-button" type="button">Clear</button>
+              </div>
             </div>
             <div id="board-filters" class="board-filters" hidden></div>
           </div>

@@ -13,11 +13,12 @@ Current focus:
 - keep edits thin, file-canonical, and generic across different repo structures
 
 Concrete next steps:
-- add alternate derived lenses over the same roadmap files
 - improve browse quality with better cards and quicker item preview
+- explore higher-level grouping only when repos already expose useful parent metadata
 - keep the UI focused on scanning, lightweight control, and file-canonical editing
 
 Recently completed:
+- ship alternate derived lenses over existing roadmap metadata without inventing a second board state
 - ship search plus dynamic filters over existing roadmap metadata
 - make setup and empty-state behavior clearer for new or partially configured repos
 - ship scope editing plus deeper board editing from the UI
@@ -30,4 +31,3 @@ Still out of scope for this phase:
 - git history and diff visualization
 - custom schemas or arbitrary field builders
 - multi-user coordination or remote sync
-

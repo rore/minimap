@@ -6,6 +6,7 @@ const boardPath = path.join(process.cwd(), "roadmap", "board.md");
 const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
 const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-setup-guidance.md");
 const searchFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-search-and-filters.md");
+const ideaCreatePath = path.join(process.cwd(), "roadmap", "ideas", "idea-create-items.md");
 const configPath = path.join(process.cwd(), "roadmap.config.json");
 const setupSandboxPath = path.join(process.cwd(), "playwright-setup-roadmap");
 
@@ -30,6 +31,14 @@ function addMilestone(text, milestone) {
 
 function addExtraSection(text, heading, content) {
   return `${text.trimEnd()}\n\n## ${heading}\n\n${content}\n`;
+}
+
+function addFrontmatterField(text, key, value) {
+  if (new RegExp(`^${key}:`, "m").test(text)) {
+    return text.replace(new RegExp(`^${key}:\\s*(?:".*"|.*)$`, "m"), `${key}: ${value}`);
+  }
+
+  return text.replace(/^commitment:\s*.*$/m, (line) => `${line}\n${key}: ${value}`);
 }
 
 const repoSpecificFeatureText = `---
@@ -72,6 +81,7 @@ let originalBoardText = "";
 let originalScopeText = "";
 let originalFeatureText = "";
 let originalSearchFeatureText = "";
+let originalIdeaCreateText = "";
 let originalConfigText = null;
 
 test.beforeEach(async ({ page }) => {
@@ -79,6 +89,7 @@ test.beforeEach(async ({ page }) => {
   originalScopeText = await fs.readFile(scopePath, "utf8");
   originalFeatureText = await fs.readFile(featurePath, "utf8");
   originalSearchFeatureText = await fs.readFile(searchFeaturePath, "utf8");
+  originalIdeaCreateText = await fs.readFile(ideaCreatePath, "utf8");
   originalConfigText = await fs.readFile(configPath, "utf8").catch(() => null);
   await fs.rm(setupSandboxPath, { recursive: true, force: true });
   await page.addInitScript(() => window.localStorage.removeItem("roadmap-ui.scope-collapsed"));
@@ -89,6 +100,7 @@ test.afterEach(async () => {
   await fs.writeFile(scopePath, originalScopeText, "utf8");
   await fs.writeFile(featurePath, originalFeatureText, "utf8");
   await fs.writeFile(searchFeaturePath, originalSearchFeatureText, "utf8");
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText, "utf8");
   await fs.rm(setupSandboxPath, { recursive: true, force: true });
   if (originalConfigText === null) {
     await fs.rm(configPath, { force: true });
@@ -138,8 +150,8 @@ test("keeps scope on the right side of the editor and narrower on desktop", asyn
 test("renders scope markdown instead of raw text", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator("#scope-content ul li").first()).toContainText("human visibility and light-control tool");
-  await expect(page.locator("#scope-content")).not.toContainText("- human visibility and light-control tool so the app can manage more of its own roadmap files");
+  await expect(page.locator("#scope-content ul li").first()).toContainText("keep the canonical minimap contract as small as possible");
+  await expect(page.locator("#scope-content")).not.toContainText("- keep the canonical minimap contract as small as possible");
 });
 
 test("allows resizing the scope panel on desktop", async ({ page }) => {
@@ -639,15 +651,66 @@ test("generic metadata filters render from file frontmatter and combine with sea
   await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toBeVisible();
   await expect(page).not.toHaveURL(/f=commitment%3Auncommitted/);
 });
+test("switches to the status lens, hides board editing, and restores from the URL", async ({ page }) => {
+  await page.goto("/");
 
+  await page.locator('[data-lens-key="status"]').click();
 
+  await expect(page).toHaveURL(/lens=status/);
+  await expect(page.locator('[data-lens-key="status"]')).toHaveClass(/is-active/);
+  await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("queued");
+  await expect(page.locator("#board-edit-button")).toBeHidden();
 
+  await page.reload();
+  await expect(page).toHaveURL(/lens=status/);
+  await expect(page.locator('[data-lens-key="status"]')).toHaveClass(/is-active/);
+  await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("queued");
+});
 
+test("uses the compact overflow lens picker for milestone groups without pushing the board down", async ({ page }) => {
+  await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
+  await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-lens-select").selectOption("milestone");
 
+  await expect(page).toHaveURL(/lens=milestone/);
+  await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("P1");
+  await expect(page.locator('[data-item-id="idea-create-items"]')).toBeVisible();
 
+  const controlRow = await page.locator(".board-search-row").boundingBox();
+  const firstGroup = await page.locator(".board-group").first().boundingBox();
+  const boardPanel = await page.locator(".board-panel").boundingBox();
 
+  expect(controlRow).not.toBeNull();
+  expect(firstGroup).not.toBeNull();
+  expect(boardPanel).not.toBeNull();
+  expect(controlRow.height).toBeLessThan(100);
+  expect(firstGroup.y - boardPanel.y).toBeLessThan(320);
+});
 
+test("dragging an item in the status lens updates the canonical frontmatter", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-lens-key="status"]').click();
 
+  await page.evaluate(() => {
+    const source = document.querySelector('[data-item-id="feature-derived-roadmap-lenses"]');
+    const target = document.querySelector('[data-lens-drop-value="done"]');
+    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+      throw new Error("Derived lens drag targets were not found.");
+    }
 
+    const dataTransfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
+  });
 
+  await expect(page.locator("#status-banner")).toContainText("Status updated.");
+  await expect(page.locator('[data-item-id="feature-derived-roadmap-lenses"]')).toHaveCount(1);
+
+  const updatedFeatureText = await fs.readFile(path.join(process.cwd(), "roadmap", "features", "feature-derived-roadmap-lenses.md"), "utf8");
+  expect(updatedFeatureText).toContain("status: done");
+});

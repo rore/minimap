@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
+  deriveAvailableLenses,
   initializeWorkspace,
   loadWorkspace,
   parseBoardText,
@@ -552,11 +553,88 @@ test("loadWorkspace exposes compact search text and generic metadata filters", a
   assert.match(workspace.items["feature-a"].searchText, /keep this section untouched/);
   assert.deepEqual(workspace.availableFilters.find((facet) => facet.key === "labels")?.values, ["docs", "ui"]);
 });
+test("deriveAvailableLenses ignores noisy keys and respects config order", () => {
+  const lenses = deriveAvailableLenses({
+    "feature-a": {
+      metadata: {
+        status: "queued",
+        commitment: "committed",
+        priority: "high",
+        kind: "feature",
+        team: "product",
+        owner: "alex",
+        labels: ["ui"],
+      },
+    },
+    "idea-a": {
+      metadata: {
+        status: "done",
+        commitment: "uncommitted",
+        priority: "low",
+        kind: "idea",
+        team: "platform",
+        owner: "alex",
+        labels: ["docs"],
+      },
+    },
+  }, {
+    lenses: {
+      fields: {
+        status: { order: ["done", "queued"] },
+        team: { order: ["platform", "product"], draggable: true },
+      },
+    },
+  });
 
+  assert.deepEqual(lenses.map((lens) => lens.key), ["board", "status", "commitment", "priority", "kind", "team"]);
+  assert.deepEqual(lenses.find((lens) => lens.key === "status")?.values, ["done", "queued"]);
+  assert.equal(lenses.find((lens) => lens.key === "team")?.draggable, true);
+  assert.deepEqual(lenses.find((lens) => lens.key === "team")?.values, ["platform", "product"]);
+  assert.equal(lenses.some((lens) => lens.key === "labels"), false);
+  assert.equal(lenses.some((lens) => lens.key === "owner"), false);
+});
 
+test("loadWorkspace exposes derived lenses from metadata and roadmap config", async () => {
+  const repoRoot = await makeTempRepo();
+  const featureItemPath = path.join(repoRoot, "roadmap", "features", "feature-a.md");
+  const ideaItemPath = path.join(repoRoot, "roadmap", "ideas", "idea-a.md");
 
+  await fs.writeFile(path.join(repoRoot, "roadmap.config.json"), JSON.stringify({
+    roadmapPath: "roadmap",
+    lenses: {
+      fields: {
+        team: { order: ["platform", "product"], draggable: true },
+      },
+    },
+  }), "utf8");
+  await fs.writeFile(featureItemPath, sampleItemText.replace("labels:\n  - ui", "team: product\nlabels:\n  - ui"), "utf8");
+  await fs.writeFile(ideaItemPath, sampleItemText
+    .replaceAll("feature-a", "idea-a")
+    .replace("title: Test item", "title: Idea item")
+    .replace("commitment: committed", "commitment: uncommitted")
+    .replace("labels:\n  - ui", "team: platform\nlabels:\n  - docs"), "utf8");
 
+  const workspace = await loadWorkspace(repoRoot);
+  assert.equal(workspace.availableLenses.some((lens) => lens.key === "team"), true);
+  assert.deepEqual(workspace.availableLenses.find((lens) => lens.key === "team")?.values, ["platform", "product"]);
+  assert.equal(workspace.availableLenses.find((lens) => lens.key === "team")?.draggable, true);
+  assert.equal(workspace.availableLenses.some((lens) => lens.key === "labels"), false);
+});
 
+test("saveItemById updates generic metadata and can move an item between feature and idea kinds", async () => {
+  const repoRoot = await makeTempRepo();
+  const featureFilePath = path.join(repoRoot, "roadmap", "features", "feature-a.md");
+  const ideaFilePath = path.join(repoRoot, "roadmap", "ideas", "feature-a.md");
 
+  await saveItemById(repoRoot, "feature-a", {
+    metadata: {
+      kind: "idea",
+      team: "platform",
+    },
+  });
 
-
+  const saved = await readItemById(repoRoot, "feature-a");
+  assert.equal(saved.kind, "idea");
+  assert.equal(await fs.readFile(ideaFilePath, "utf8").then((content) => content.includes("team: platform")), true);
+  await assert.rejects(() => fs.access(featureFilePath));
+});

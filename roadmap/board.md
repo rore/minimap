@@ -1,7 +1,4 @@
 # Now
-- feature-derived-roadmap-lenses
-
-# Next
 - feature-card-preview-and-overview
 
 # Ideas
@@ -20,3 +17,4 @@
 - feature-edit-board-and-scope
 - feature-search-and-filters
 - feature-setup-guidance
+- feature-derived-roadmap-lenses
