@@ -1,5 +1,12 @@
 This repo now uses the roadmap workspace to plan the roadmap workspace itself.
 
+Product principles:
+- keep the canonical minimap contract as small as possible
+- make the UI adapt to repo structure that already exists instead of forcing one workflow model
+- derive views, filters, and grouping from file metadata rather than hidden UI state
+- preserve unknown frontmatter and markdown sections so repos can keep their own shape
+- rely on agents only for the minimum normalization needed to make a repo minimap-compatible
+
 Current focus:
 - make minimap stronger as a human visibility and light-control tool over canonical roadmap files
 - improve navigation and scanning before adding heavier authoring workflows
@@ -23,3 +30,4 @@ Still out of scope for this phase:
 - git history and diff visualization
 - custom schemas or arbitrary field builders
 - multi-user coordination or remote sync
+
