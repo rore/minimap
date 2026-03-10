@@ -4,7 +4,6 @@ const SCOPE_WIDTH_STORAGE_KEY = "roadmap-ui.scope-width";
 const DEFAULT_SCOPE_WIDTH = 272;
 const MIN_SCOPE_WIDTH = 240;
 const MAX_SCOPE_WIDTH = 440;
-const INLINE_LENS_BUTTON_LIMIT = 3;
 const DEFAULT_LENS_KEY = "board";
 const UNASSIGNED_GROUP_KEY = "__unassigned__";
 const UNASSIGNED_GROUP_LABEL = "Unassigned";
@@ -18,6 +17,7 @@ const state = {
   activeLens: DEFAULT_LENS_KEY,
   dragItemId: null,
   dragClickSuppressUntil: 0,
+  lensesExpanded: false,
   searchQuery: "",
   activeFilters: {},
   filtersExpanded: false,
@@ -44,6 +44,7 @@ const boardSaveButton = document.querySelector("#board-save-button");
 const boardCancelButton = document.querySelector("#board-cancel-button");
 const boardSearchInput = document.querySelector("#board-search");
 const boardLensSwitcherElement = document.querySelector("#board-lens-switcher");
+const boardViewToggleButton = document.querySelector("#board-view-toggle");
 const boardFilterToggleButton = document.querySelector("#board-filter-toggle");
 const boardClearFiltersButton = document.querySelector("#board-clear-filters");
 const boardFiltersElement = document.querySelector("#board-filters");
@@ -794,87 +795,56 @@ function syncMobileNavigation() {
   jumpToEditorButton.disabled = !stacked || !hasItem || state.boardEditMode;
 }
 
-function getVisibleLensButtons(lenses, activeLensKey) {
-  const alwaysVisible = [];
-  const seen = new Set();
-
-  for (const key of [DEFAULT_LENS_KEY, activeLensKey]) {
-    const lens = lenses.find((entry) => entry.key === key);
-    if (lens && !seen.has(lens.key)) {
-      alwaysVisible.push(lens);
-      seen.add(lens.key);
-    }
-  }
-
-  for (const lens of lenses) {
-    if (alwaysVisible.length >= INLINE_LENS_BUTTON_LIMIT) {
-      break;
-    }
-    if (seen.has(lens.key)) {
-      continue;
-    }
-    alwaysVisible.push(lens);
-    seen.add(lens.key);
-  }
-
-  return alwaysVisible;
-}
 
 function renderLensControls() {
-  if (!boardLensSwitcherElement) {
+  if (!boardLensSwitcherElement || !boardViewToggleButton) {
     return;
   }
 
   if (!state.workspace) {
+    boardViewToggleButton.hidden = true;
+    boardLensSwitcherElement.hidden = true;
     boardLensSwitcherElement.innerHTML = "";
     return;
   }
 
   const lenses = getAvailableLenses();
+  const activeLens = getActiveLensDefinition();
   const activeLensKey = normalizeLensKey(state.activeLens);
-  const visibleButtons = getVisibleLensButtons(lenses, activeLensKey);
-  const hiddenLenses = lenses.filter((lens) => !visibleButtons.some((visible) => visible.key === lens.key));
+  const hasAlternateLenses = lenses.length > 1;
+  const showLenses = hasAlternateLenses && state.lensesExpanded && !state.boardEditMode;
 
-  const buttonsHtml = visibleButtons.map((lens) => `
-    <button class="board-lens-button${lens.key === activeLensKey ? " is-active" : ""}" data-lens-key="${escapeHtml(lens.key)}" type="button" ${state.boardEditMode ? "disabled" : ""}>${escapeHtml(lens.label)}</button>
+  boardViewToggleButton.hidden = !hasAlternateLenses;
+  boardViewToggleButton.disabled = !hasAlternateLenses || state.boardEditMode;
+  boardViewToggleButton.textContent = activeLensKey === DEFAULT_LENS_KEY ? "Group by" : `By ${activeLens.label.toLowerCase()}`;
+  boardViewToggleButton.setAttribute("aria-label", activeLensKey === DEFAULT_LENS_KEY ? "Change board grouping" : `Change board grouping, current: ${activeLens.label}`);
+  boardViewToggleButton.setAttribute("aria-expanded", showLenses ? "true" : "false");
+  boardViewToggleButton.classList.toggle("is-active", showLenses || activeLensKey !== DEFAULT_LENS_KEY);
+
+  if (!showLenses) {
+    boardLensSwitcherElement.hidden = true;
+    boardLensSwitcherElement.innerHTML = "";
+    return;
+  }
+
+  const buttonsHtml = lenses.map((lens) => `
+    <button class="board-lens-button${lens.key === activeLensKey ? " is-active" : ""}" data-lens-key="${escapeHtml(lens.key)}" type="button">${escapeHtml(lens.label)}</button>
   `).join("");
 
-  const overflowHtml = hiddenLenses.length > 0
-    ? `
-      <label class="visually-hidden" for="board-lens-select">More roadmap views</label>
-      <select id="board-lens-select" class="board-lens-select" ${state.boardEditMode ? "disabled" : ""}>
-        <option value="">More</option>
-        ${hiddenLenses.map((lens) => `<option value="${escapeHtml(lens.key)}">${escapeHtml(lens.label)}</option>`).join("")}
-      </select>
-    `
-    : "";
-
-  boardLensSwitcherElement.innerHTML = `
-    <div class="board-lens-buttons">${buttonsHtml}</div>
-    ${overflowHtml}
-  `;
+  boardLensSwitcherElement.hidden = false;
+  boardLensSwitcherElement.innerHTML = `<div class="board-lens-buttons">${buttonsHtml}</div>`;
 
   for (const button of boardLensSwitcherElement.querySelectorAll("[data-lens-key]")) {
     button.addEventListener("click", () => {
       state.activeLens = button.dataset.lensKey || DEFAULT_LENS_KEY;
-      void syncVisibleSelection({ replaceRoute: true });
-    });
-  }
-
-  const select = boardLensSwitcherElement.querySelector("#board-lens-select");
-  if (select) {
-    select.addEventListener("change", () => {
-      if (!select.value) {
-        return;
-      }
-      state.activeLens = select.value;
+      state.lensesExpanded = false;
       void syncVisibleSelection({ replaceRoute: true });
     });
   }
 }
 
 function renderSearchControls() {
-  if (!boardSearchInput || !boardFilterToggleButton || !boardFiltersElement || !boardClearFiltersButton) {
+  if (!boardSearchInput || !boardViewToggleButton || !boardFilterToggleButton || !boardFiltersElement || !boardClearFiltersButton) {
     return;
   }
 
@@ -2162,12 +2132,49 @@ boardSearchInput.addEventListener("input", () => {
   void syncVisibleSelection({ replaceRoute: true });
 });
 
+boardViewToggleButton.addEventListener("click", () => {
+  if (!state.workspace || getAvailableLenses().length <= 1 || state.boardEditMode) {
+    return;
+  }
+
+  state.lensesExpanded = !state.lensesExpanded;
+  if (state.lensesExpanded) {
+    state.filtersExpanded = false;
+  }
+  renderBoardChrome();
+});
+
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Node) || !state.lensesExpanded) {
+    return;
+  }
+
+  const clickedLensControl = boardViewToggleButton?.contains(target) || boardLensSwitcherElement?.contains(target);
+  if (!clickedLensControl) {
+    state.lensesExpanded = false;
+    renderBoardChrome();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !state.lensesExpanded) {
+    return;
+  }
+
+  state.lensesExpanded = false;
+  renderBoardChrome();
+});
+
 boardFilterToggleButton.addEventListener("click", () => {
   if (!state.workspace?.availableFilters?.length || state.boardEditMode) {
     return;
   }
 
   state.filtersExpanded = !state.filtersExpanded;
+  if (state.filtersExpanded) {
+    state.lensesExpanded = false;
+  }
   renderBoardChrome();
 });
 
@@ -2248,36 +2255,4 @@ void loadWorkspace(initialRoute.itemId || state.selectedItemId, {
     syncRouteState({ replace: true });
   }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

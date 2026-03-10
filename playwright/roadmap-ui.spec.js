@@ -7,6 +7,7 @@ const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
 const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-setup-guidance.md");
 const searchFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-search-and-filters.md");
 const ideaCreatePath = path.join(process.cwd(), "roadmap", "ideas", "idea-create-items.md");
+const derivedLensesFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-derived-roadmap-lenses.md");
 const configPath = path.join(process.cwd(), "roadmap.config.json");
 const setupSandboxPath = path.join(process.cwd(), "playwright-setup-roadmap");
 
@@ -654,44 +655,50 @@ test("generic metadata filters render from file frontmatter and combine with sea
 test("switches to the status lens, hides board editing, and restores from the URL", async ({ page }) => {
   await page.goto("/");
 
+  await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
 
   await expect(page).toHaveURL(/lens=status/);
-  await expect(page.locator('[data-lens-key="status"]')).toHaveClass(/is-active/);
+  await expect(page.locator('#board-view-toggle')).toContainText('By status');
+  await expect(page.locator('#board-view-toggle')).toHaveClass(/is-active/);
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("queued");
   await expect(page.locator("#board-edit-button")).toBeHidden();
 
   await page.reload();
   await expect(page).toHaveURL(/lens=status/);
-  await expect(page.locator('[data-lens-key="status"]')).toHaveClass(/is-active/);
+  await expect(page.locator('#board-view-toggle')).toContainText('By status');
+  await expect(page.locator('#board-view-toggle')).toHaveClass(/is-active/);
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("queued");
 });
 
-test("uses the compact overflow lens picker for milestone groups without pushing the board down", async ({ page }) => {
+test("keeps the view chooser compact when switching to the milestone lens", async ({ page }) => {
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
   await page.goto("/");
   await page.locator("#refresh-button").click();
-  await page.locator("#board-lens-select").selectOption("milestone");
+  await page.locator('#board-view-toggle').click();
+  await page.locator('[data-lens-key="milestone"]').click();
 
   await expect(page).toHaveURL(/lens=milestone/);
+  await expect(page.locator('#board-view-toggle')).toContainText('By milestone');
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("P1");
   await expect(page.locator('[data-item-id="idea-create-items"]')).toBeVisible();
 
-  const controlRow = await page.locator(".board-search-row").boundingBox();
+  const controlRow = await page.locator(".board-controls").boundingBox();
   const firstGroup = await page.locator(".board-group").first().boundingBox();
   const boardPanel = await page.locator(".board-panel").boundingBox();
 
   expect(controlRow).not.toBeNull();
   expect(firstGroup).not.toBeNull();
   expect(boardPanel).not.toBeNull();
-  expect(controlRow.height).toBeLessThan(100);
+  expect(controlRow.height).toBeLessThan(120);
   expect(firstGroup.y - boardPanel.y).toBeLessThan(320);
 });
 
 test("dragging an item in the status lens updates the canonical frontmatter", async ({ page }) => {
   await page.goto("/");
+  await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
 
   await page.evaluate(() => {
@@ -711,6 +718,7 @@ test("dragging an item in the status lens updates the canonical frontmatter", as
   await expect(page.locator("#status-banner")).toContainText("Status updated.");
   await expect(page.locator('[data-item-id="feature-derived-roadmap-lenses"]')).toHaveCount(1);
 
-  const updatedFeatureText = await fs.readFile(path.join(process.cwd(), "roadmap", "features", "feature-derived-roadmap-lenses.md"), "utf8");
+  const updatedFeatureText = await fs.readFile(derivedLensesFeaturePath, "utf8");
   expect(updatedFeatureText).toContain("status: done");
 });
+
