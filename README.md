@@ -2,62 +2,70 @@
 
 Planning that lives with the repo.
 
-Minimap is a tiny repo-local, file-based roadmap and feature planning workspace for humans and agents. It keeps roadmap state in normal repo files, gives humans a local UI, and lets agents work against the same canonical source of truth.
+Minimap is a tiny repo-local roadmap and feature planning workspace for humans and agents. The roadmap files stay canonical, git stays the history, and the local UI is a structured lens over those files rather than a second system with hidden state.
 
-![Minimap UI](docs/images/minimap-ui.png)
+This repo dogfoods the packaged minimap app and roadmap contract, so the screenshots and feature list below describe the product as it exists in this repo today.
 
-## Why It Exists
+![Minimap list view](docs/images/minimap-board-list.png)
 
-Minimap came out of a practical loop: building projects together with AI agents, managing features through conversation, and repeatedly asking the agent to update the roadmap after each change.
+## What Ships Today
 
-That works for a while, but it stays too loose. I wanted more structure in how roadmap state is managed, and I wanted a small local UI where I could inspect the roadmap directly instead of only asking the agent what was planned, what changed, or what was next.
+- local server and UI that discover `roadmap/` from repo root, honor `roadmap.config.json`, and fall forward to the next free port if the requested port is busy
+- file-canonical roadmap ownership: `board.md` owns groups and item order, `scope.md` owns current focus, and `features/*.md` plus `ideas/*.md` own item detail
+- compact board cards with overview excerpts, metadata badges, collapsible groups, and stable deep links back to the selected item
+- read-first item flow with `Read`, `Edit`, and `Raw` modes so the default action is review before edit
+- structured item editing for common metadata such as `title`, `status`, `priority`, `commitment`, and optional `milestone`, plus markdown section editing
+- raw markdown editing for repo-specific frontmatter or section shapes when a file does not fit the structured editor cleanly
+- non-destructive saves that preserve unknown frontmatter keys and extra markdown sections instead of flattening files into one strict schema
+- board editing from the UI: rename groups, reorder groups, move items between groups, and save canonical changes back to `board.md`
+- scope rendering and scope editing in the UI, including markdown display plus a collapsible and resizable scope panel
+- search across ids, titles, metadata, and item body text
+- dynamic filters that appear only for metadata the repo actually uses
+- derived roadmap lenses such as board, status, commitment, priority, kind, milestone, and configured custom metadata fields
+- a second `Columns` layout for kanban-like browsing, with drag handles where canonical moves are safe
+- overlay item reading and editing from columns mode so the board stays visible while item detail opens on top
+- guided setup and workspace initialization when the roadmap folder is missing, empty, or misconfigured
+- a portable package in `package/minimap/` that includes the app, roadmap templates, contract docs, and the agent skill
 
-Minimap is meant to tighten that loop without turning it into another planning platform.
+## Interesting Views
 
-## What You Get
+List view stays the default for scanning and editing because it keeps the selected item and current scope visible at the same time.
 
-- roadmap and feature planning live in normal repo files
-- humans get a small local UI for reading and editing those files
-- agents follow the same file contract and update the same state
-- git stays the history
-- there is no separate database, sync layer, or hidden UI state
+![Minimap columns layout](docs/images/minimap-board-columns.png)
 
-The item editor gives you three ways to work with the same file:
-- `Preview` for reading the item as a document first
-- `Edit` for common metadata and core sections
-- `Raw` for uncommon metadata, extra sections, or formatting that does not fit the structured editor
+Columns view uses the same canonical grouping source as list view, gives you a denser board for wide screens, and supports safe drag moves for `board.md` groups and configured draggable metadata lenses such as status.
 
 ## Why It Is Useful
 
-Use minimap when you want planning to stay close to the repo instead of drifting into chat history or a separate tool.
+Use minimap when you want planning to stay close to the repo instead of drifting into chat history or a separate planning tool.
 
-It is especially useful when:
-- a repo has an active roadmap that both humans and agents need to understand
-- you want planning state to be readable in git and editable in a UI
-- you want agents to update roadmap state deterministically instead of inventing their own structure
-- you want something much lighter than a full project-management tool
+- humans get a local UI for reading and editing the roadmap files directly
+- agents follow the same file contract and update the same canonical files
+- repo-specific headings, metadata, and section shapes are allowed instead of forcing one workflow
+- git remains the history, with no database, sync layer, or hidden UI-only roadmap state
 
 ## How It Works
 
-Minimap keeps one rule very strict: the files are the source of truth.
+Minimap keeps one rule strict: the files are the source of truth.
 
 - `board.md` owns groups and item order
 - `scope.md` owns current-focus narrative
-- `features/*.md` owns committed or active feature work
+- `features/*.md` owns committed or active work
 - `ideas/*.md` owns uncommitted or parked ideas
 
-The UI is just a structured lens and editor over those files. It does not maintain separate roadmap state.
+The UI is only a structured lens and editor over those files. It does not maintain separate roadmap state.
 
 ## Portable Package
 
 A copy-in package is prepared at `package/minimap/`.
 
 That folder is the portable bundle for other repos. It includes:
+
 - the local app and server
 - the minimap skill
 - starter roadmap templates
 - host-repo adoption docs
-- a canonical minimap contract
+- the canonical minimap contract
 
 To adopt minimap in another repo:
 
@@ -82,8 +90,6 @@ This repo also provides a local shortcut:
 ```bash
 npm start
 ```
-
-Here, `npm start` just runs the same packaged server from the repo root. In a consuming repo, the equivalent command would be `node tools/minimap/server.js`.
 
 Then open the URL printed by the server. It prefers `http://localhost:4312` and falls forward to the next free port if that one is busy.
 
@@ -128,19 +134,7 @@ Optional repo-root config:
 ```
 
 Discovery rules:
+
 - if `roadmap.config.json` is absent, use `roadmap/`
 - if it exists, resolve `roadmapPath` relative to repo root
 - if the configured path is missing or invalid, the app shows a setup error
-
-## Canonical Ownership
-
-- `board.md` owns group names and item order
-- `scope.md` owns current-focus narrative
-- `features/*.md` owns detailed committed or active work
-- `ideas/*.md` owns detailed uncommitted ideas
-
-Board headings are freeform and repo-defined. Repos can group items by status, release, milestone, team, stream, or any other planning model that fits the repo.
-
-Item files use markdown with a small core of required frontmatter and sections, but they can also carry optional metadata such as `milestone` and additional markdown sections. Minimap preserves unknown frontmatter and extra sections, and raw mode gives you an escape hatch when a repo needs richer item files.
-
-The UI does not store separate roadmap state.
