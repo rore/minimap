@@ -551,6 +551,9 @@ test("loadWorkspace exposes compact search text and generic metadata filters", a
   assert.equal(workspace.items["feature-a"].metadata.kind, "feature");
   assert.match(workspace.items["feature-a"].searchText, /initial summary/);
   assert.match(workspace.items["feature-a"].searchText, /keep this section untouched/);
+  assert.equal(workspace.items["feature-a"].overviewHeading, "Summary");
+  assert.match(workspace.items["feature-a"].overviewExcerpt, /Initial summary/);
+  assert.ok(workspace.boardGroups[0].items[0].overviewExcerpt.length > 0);
   assert.deepEqual(workspace.availableFilters.find((facet) => facet.key === "labels")?.values, ["docs", "ui"]);
 });
 test("deriveAvailableLenses ignores noisy keys and respects config order", () => {

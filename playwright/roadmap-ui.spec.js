@@ -340,11 +340,19 @@ test("edit mode stacks sections in one clean column and autosizes long content",
   expect(size.scrollHeight).toBeLessThanOrEqual(size.clientHeight + 2);
 });
 
-test("loads another board item into the editor when selected", async ({ page }) => {
+test("opens another board item in read mode before entering edit mode", async ({ page }) => {
   await page.goto("/");
 
-  await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
-  await page.locator('[data-editor-mode="structured"]').click();
+  const targetCard = page.locator('[data-item-id="feature-edit-board-and-scope"]');
+  await expect(targetCard.locator('.board-item-overview')).toContainText('Add first-class editing for board.md and scope.md');
+
+  await targetCard.click();
+  await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
+  await expect(page.locator('#save-button')).toHaveText('Edit');
+  await expect(page.locator('#item-preview')).toContainText('Add first-class editing for board.md and scope.md');
+
+  await page.locator('#save-button').click();
+  await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
   await openMetadataDetails(page);
 
   await expect(page.locator("#field-id")).toHaveValue("feature-edit-board-and-scope");
@@ -371,7 +379,8 @@ test("supports direct item links and back-forward navigation through the URL", a
   await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
 
   await page.locator('[data-item-id="feature-search-and-filters"]').click();
-  await expect(page).toHaveURL(/#item=feature-search-and-filters&mode=structured$/);
+  await expect(page).toHaveURL(/#item=feature-search-and-filters$/);
+  await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
 
   await page.goBack();
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
@@ -459,17 +468,44 @@ test("edit mode renders the item's real section headings for repo-specific item 
   expect(firstHeading).toBe("Goal");
 });
 
-test("preview mode renders markdown from the edit form without duplicating the title block", async ({ page }) => {
-  await page.goto("/#item=feature-setup-guidance");
-  await page.locator('[data-editor-mode="structured"]').click();
+test("read mode shows the full item and reflects the current edit state", async ({ page }) => {
+  await page.goto('/#item=feature-setup-guidance&mode=structured');
 
-  await page.locator('[data-section-heading="Summary"]').fill("- keep planning in the repo\n- show `board.md` changes clearly");
+  await page.locator('[data-section-heading="Summary"]').fill('Keep planning in the repo, show board changes clearly, and tighten review workflow.');
+  await page.locator('[data-section-heading="Why"]').fill('Read mode should show the whole item while still reflecting the current edit state.');
   await page.locator('[data-editor-mode="preview"]').click();
 
-  await expect(page.locator("#item-preview ul li").first()).toContainText("keep planning in the repo");
-  await expect(page.locator("#item-preview code")).toContainText("board.md");
-  await expect(page.locator("#item-preview h2")).toHaveCount(0);
-  await expect(page.locator("#item-preview")).not.toContainText("Item preview");
+  await expect(page.locator('#item-preview')).toContainText('Keep planning in the repo');
+  await expect(page.locator('#item-preview')).toContainText('Read mode should show the whole item');
+  const sectionCount = await page.locator('#item-preview .preview-section').count();
+  expect(sectionCount).toBeGreaterThanOrEqual(6);
+  await expect(page.locator('#item-preview .preview-glance-card')).toHaveCount(0);
+  await expect(page.locator('#save-button')).toHaveText('Edit');
+});
+
+test("prompts before discarding unsaved structured changes when switching items from the board", async ({ page }) => {
+  await page.goto('/#item=feature-setup-guidance&mode=structured');
+  await openMetadataDetails(page);
+  await page.locator('#field-title').fill('Unsaved setup title');
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard unsaved item changes');
+    await dialog.dismiss();
+  });
+  await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
+
+  await expect(page.locator('#field-title')).toHaveValue('Unsaved setup title');
+  await expect(page).toHaveURL(/#item=feature-setup-guidance&mode=structured$/);
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard unsaved item changes');
+    await dialog.accept();
+  });
+  await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
+
+  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
+  await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
+  await expect(page.locator('#save-button')).toHaveText('Edit');
 });
 
 test("raw mode saves full-file edits", async ({ page }) => {

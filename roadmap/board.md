@@ -1,6 +1,3 @@
-# Now
-- feature-card-preview-and-overview
-
 # Ideas
 - idea-parent-grouping-overview
 - idea-history-and-recent-changes
@@ -18,3 +15,4 @@
 - feature-search-and-filters
 - feature-setup-guidance
 - feature-derived-roadmap-lenses
+- feature-card-preview-and-overview

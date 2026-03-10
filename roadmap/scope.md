@@ -13,17 +13,18 @@ Current focus:
 - keep edits thin, file-canonical, and generic across different repo structures
 
 Concrete next steps:
-- improve browse quality with better cards and quicker item preview
 - explore higher-level grouping only when repos already expose useful parent metadata
 - keep the UI focused on scanning, lightweight control, and file-canonical editing
+- keep improving overview density without turning the board into a heavy PM surface
 
 Recently completed:
 - ship alternate derived lenses over existing roadmap metadata without inventing a second board state
+- ship better cards plus a read-first item review flow
 - ship search plus dynamic filters over existing roadmap metadata
 - make setup and empty-state behavior clearer for new or partially configured repos
 - ship scope editing plus deeper board editing from the UI
 - package the app so this repo dogfoods the same minimap bundle a consuming repo would copy in
-- add preview, edit, and raw item modes without introducing hidden UI state
+- add read, edit, and raw item modes without introducing hidden UI state
 - define and hook up the separate agent operating rules for roadmap files
 
 Still out of scope for this phase:

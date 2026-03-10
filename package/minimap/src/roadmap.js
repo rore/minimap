@@ -121,6 +121,50 @@ function normalizeSearchText(value) {
     .trim();
 }
 
+function stripMarkdownForExcerpt(value) {
+  return String(value ?? "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[>\-*+]\s+/gm, "")
+    .replace(/^\d+[.)]\s+/gm, "")
+    .replace(/[\*_~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clampExcerpt(value, maxLength = 150) {
+  if (!value || value.length <= maxLength) {
+    return value;
+  }
+
+  const clipped = value.slice(0, Math.max(0, maxLength - 1)).trim().replace(/[.,;:!?-]+$/, "");
+  return clipped ? `${clipped}?` : value.slice(0, maxLength - 1).trimEnd() + "?";
+}
+
+function buildItemOverview(itemRecord) {
+  const preferredHeadings = ["Summary", "Goal", "Why", "In Scope", "Acceptance criteria", "Done When", "Notes"];
+  const segments = itemRecord.parsed.segments.map((segment) => ({
+    heading: segment.heading,
+    content: itemRecord.parsed.sections[segment.heading] ?? "",
+  }));
+
+  let selected = segments.find((segment) => segment.heading === "Summary" && stripMarkdownForExcerpt(segment.content));
+  if (!selected) {
+    selected = segments.find((segment) => preferredHeadings.includes(segment.heading) && stripMarkdownForExcerpt(segment.content));
+  }
+  if (!selected) {
+    selected = segments.find((segment) => stripMarkdownForExcerpt(segment.content));
+  }
+
+  return {
+    heading: selected?.heading ?? "",
+    excerpt: selected ? clampExcerpt(stripMarkdownForExcerpt(selected.content)) : "",
+  };
+}
+
 function naturalValueCompare(left, right) {
   return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
 }
@@ -270,6 +314,7 @@ function normalizeSummaryMetadata(itemRecord) {
 
 function makeItemSummary(itemRecord) {
   const metadata = normalizeSummaryMetadata(itemRecord);
+  const overview = buildItemOverview(itemRecord);
   return {
     id: itemRecord.id,
     title: itemRecord.parsed.frontmatter.title,
@@ -279,6 +324,8 @@ function makeItemSummary(itemRecord) {
     milestone: itemRecord.parsed.frontmatter.milestone ?? "",
     kind: itemRecord.kind,
     metadata,
+    overviewHeading: overview.heading,
+    overviewExcerpt: overview.excerpt,
     searchText: buildSearchText(itemRecord),
   };
 }
@@ -292,6 +339,8 @@ function makeBoardItemSummary(itemSummary) {
     commitment: itemSummary.commitment,
     milestone: itemSummary.milestone,
     kind: itemSummary.kind,
+    overviewHeading: itemSummary.overviewHeading,
+    overviewExcerpt: itemSummary.overviewExcerpt,
   };
 }
 
