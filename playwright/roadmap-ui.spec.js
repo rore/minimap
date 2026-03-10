@@ -258,7 +258,8 @@ test("collapses scope into a narrow rail and gives space back to the editor", as
   await scopeToggle.click();
 
   await expect(scopePanel).toHaveClass(/scope-collapsed/);
-  await expect(scopeToggle).toContainText("Expand");
+  await expect(scopeToggle).toContainText("Open");
+  await expect(page.locator("#scope-edit-button")).toBeHidden();
   await expect(scopeContent).toBeHidden();
 
   const collapsedEditorBox = await editorPanel.boundingBox();
@@ -345,6 +346,7 @@ test("opens another board item in read mode before entering edit mode", async ({
 
   const targetCard = page.locator('[data-item-id="feature-edit-board-and-scope"]');
   await expect(targetCard.locator('.board-item-overview')).toContainText('Add first-class editing for board.md and scope.md');
+  await expect(targetCard).toHaveAttribute('title', 'Edit board and scope from the UI');
 
   await targetCard.click();
   await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
@@ -604,7 +606,7 @@ test("mobile scope toggle collapses and expands the scope panel", async ({ page 
 
   await scopeToggle.click();
   await expect(scopePanel).toHaveClass(/scope-collapsed/);
-  await expect(scopeToggle).toContainText("Expand");
+  await expect(scopeToggle).toContainText("Open");
   await expect(scopeContent).toBeHidden();
 
   await scopeToggle.click();
