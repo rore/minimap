@@ -1044,3 +1044,85 @@ test("milestone columns stay browse-only without drag handles", async ({ page })
   await expect(page.locator('[data-drag-item-id]')).toHaveCount(0);
 });
 
+
+test("lets a crowded desktop column scroll inside the lane", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 720 });
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+
+  const doneColumn = page.locator(".board-column").filter({ has: page.locator(".board-column-name", { hasText: "Done" }) }).first();
+  const doneList = doneColumn.locator(".board-column-list");
+  await expect(doneList).toBeVisible();
+
+  const before = await doneList.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+  }));
+
+  expect(before.scrollHeight).toBeGreaterThan(before.clientHeight + 80);
+
+  await doneList.evaluate((element) => {
+    element.scrollTop = 320;
+  });
+
+  const after = await doneList.evaluate((element) => element.scrollTop);
+  expect(after).toBeGreaterThan(before.scrollTop + 120);
+});
+
+test("mobile list view keeps board mode and search rows stacked cleanly", async ({ page }) => {
+  await page.setViewportSize({ width: 540, height: 900 });
+  await page.goto("/");
+
+  const modeRow = page.locator(".board-mode-row");
+  const groupBy = page.locator("#board-view-toggle");
+  const layoutControls = page.locator("#board-layout-controls");
+  const toolbarRow = page.locator(".board-toolbar-row");
+  const searchField = page.locator("#board-search");
+  const filterButton = page.locator("#board-filter-toggle");
+
+  const modeRowBox = await modeRow.boundingBox();
+  const groupByBox = await groupBy.boundingBox();
+  const layoutBox = await layoutControls.boundingBox();
+  const toolbarBox = await toolbarRow.boundingBox();
+  const searchBox = await searchField.boundingBox();
+  const filterBox = await filterButton.boundingBox();
+
+  expect(modeRowBox).not.toBeNull();
+  expect(groupByBox).not.toBeNull();
+  expect(layoutBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  expect(searchBox).not.toBeNull();
+  expect(filterBox).not.toBeNull();
+  expect(layoutBox.y).toBeGreaterThan(groupByBox.y + groupByBox.height - 2);
+  expect(toolbarBox.y).toBeGreaterThan(modeRowBox.y + modeRowBox.height - 2);
+  expect(filterBox.y).toBeGreaterThanOrEqual(searchBox.y - 2);
+});
+
+test("mobile columns view stays usable for grouping and opening items", async ({ page }) => {
+  await page.setViewportSize({ width: 540, height: 900 });
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="status"]').click();
+
+  const columns = page.locator(".board-columns");
+  await expect(columns).toBeVisible();
+  await expect(page.locator(".board-column")).toHaveCount(4);
+
+  const metrics = await columns.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth + 60);
+
+  await page.locator('[data-item-open="feature-column-board-view"]').first().click();
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(page.locator("#editor-title")).toContainText("Column board view");
+
+  const overlayBox = await page.locator(".editor-overlay-slot").boundingBox();
+  expect(overlayBox).not.toBeNull();
+  expect(overlayBox.x).toBeGreaterThanOrEqual(0);
+  expect(overlayBox.x + overlayBox.width).toBeLessThanOrEqual(540);
+  await expect(page.locator("#save-button")).toHaveText("Close");
+});
