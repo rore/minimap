@@ -1126,3 +1126,22 @@ test("mobile columns view stays usable for grouping and opening items", async ({
   expect(overlayBox.x + overlayBox.width).toBeLessThanOrEqual(540);
   await expect(page.locator("#save-button")).toHaveText("Close");
 });
+
+test("uses restrained semantic badge tones without coloring every field", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="priority"]').click();
+
+  const card = page.locator('[data-item-open="foundation-local-server"]').first().locator('xpath=ancestor::article[1]');
+  const badges = card.locator('.badge');
+  await expect(badges).toHaveCount(2);
+  await expect(badges.nth(0)).toHaveText("done");
+  await expect(badges.nth(0)).toHaveClass(/badge-tone-status-done/);
+  await expect(badges.nth(1)).toHaveText("committed");
+  await expect(badges.nth(1)).toHaveClass(/badge-tone-commitment-committed/);
+  await expect(card).not.toContainText("high");
+
+  await page.locator('[data-item-open="feature-column-board-view"]').first().click();
+  await expect(page.locator('.preview-meta .badge').first()).toHaveClass(/badge-tone-status-done/);
+});
