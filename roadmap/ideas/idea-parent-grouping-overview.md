@@ -1,13 +1,14 @@
 ---
 id: idea-parent-grouping-overview
-title: Parent grouping overview
-status: queued
+title: "Parent grouping overview"
+status: done
 priority: low
 commitment: uncommitted
 labels:
   - ui
   - navigation
   - grouping
+milestone: ""
 ---
 
 ## Summary

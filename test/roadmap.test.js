@@ -556,7 +556,7 @@ test("loadWorkspace exposes compact search text and generic metadata filters", a
   assert.ok(workspace.boardGroups[0].items[0].overviewExcerpt.length > 0);
   assert.deepEqual(workspace.availableFilters.find((facet) => facet.key === "labels")?.values, ["docs", "ui"]);
 });
-test("deriveAvailableLenses ignores noisy keys and respects config order", () => {
+test("deriveAvailableLenses ignores noisy keys and respects configured domains", () => {
   const lenses = deriveAvailableLenses({
     "feature-a": {
       metadata: {
@@ -583,16 +583,16 @@ test("deriveAvailableLenses ignores noisy keys and respects config order", () =>
   }, {
     lenses: {
       fields: {
-        status: { order: ["done", "queued"] },
-        team: { order: ["platform", "product"], draggable: true },
+        status: { order: ["queued", "in-progress", "blocked", "done"] },
+        team: { values: ["platform", "product", "docs"], draggable: true },
       },
     },
   });
 
   assert.deepEqual(lenses.map((lens) => lens.key), ["board", "status", "commitment", "priority", "kind", "team"]);
-  assert.deepEqual(lenses.find((lens) => lens.key === "status")?.values, ["done", "queued"]);
+  assert.deepEqual(lenses.find((lens) => lens.key === "status")?.values, ["queued", "in-progress", "blocked", "done"]);
   assert.equal(lenses.find((lens) => lens.key === "team")?.draggable, true);
-  assert.deepEqual(lenses.find((lens) => lens.key === "team")?.values, ["platform", "product"]);
+  assert.deepEqual(lenses.find((lens) => lens.key === "team")?.values, ["platform", "product", "docs"]);
   assert.equal(lenses.some((lens) => lens.key === "labels"), false);
   assert.equal(lenses.some((lens) => lens.key === "owner"), false);
 });
@@ -606,21 +606,24 @@ test("loadWorkspace exposes derived lenses from metadata and roadmap config", as
     roadmapPath: "roadmap",
     lenses: {
       fields: {
-        team: { order: ["platform", "product"], draggable: true },
+        team: { values: ["platform", "product", "docs"], draggable: true },
+        milestone: { values: ["P1", "P2", "P3"] },
       },
     },
   }), "utf8");
-  await fs.writeFile(featureItemPath, sampleItemText.replace("labels:\n  - ui", "team: product\nlabels:\n  - ui"), "utf8");
+  await fs.writeFile(featureItemPath, sampleItemText.replace("milestone: P2", "milestone: P3").replace("labels:\n  - ui", "team: product\nlabels:\n  - ui"), "utf8");
   await fs.writeFile(ideaItemPath, sampleItemText
     .replaceAll("feature-a", "idea-a")
     .replace("title: Test item", "title: Idea item")
     .replace("commitment: committed", "commitment: uncommitted")
+    .replace("milestone: P2", "milestone: P1")
     .replace("labels:\n  - ui", "team: platform\nlabels:\n  - docs"), "utf8");
 
   const workspace = await loadWorkspace(repoRoot);
   assert.equal(workspace.availableLenses.some((lens) => lens.key === "team"), true);
-  assert.deepEqual(workspace.availableLenses.find((lens) => lens.key === "team")?.values, ["platform", "product"]);
+  assert.deepEqual(workspace.availableLenses.find((lens) => lens.key === "team")?.values, ["platform", "product", "docs"]);
   assert.equal(workspace.availableLenses.find((lens) => lens.key === "team")?.draggable, true);
+  assert.deepEqual(workspace.availableLenses.find((lens) => lens.key === "milestone")?.values, ["P1", "P2", "P3"]);
   assert.equal(workspace.availableLenses.some((lens) => lens.key === "labels"), false);
 });
 

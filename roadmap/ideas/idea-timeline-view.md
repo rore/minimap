@@ -1,6 +1,6 @@
 ---
 id: idea-timeline-view
-title: Optional timeline view
+title: "Optional timeline view"
 status: queued
 priority: low
 commitment: uncommitted

@@ -76,6 +76,22 @@ async function openMetadataDetails(page) {
   }
 }
 
+async function dragRoadmapElement(page, sourceSelector, targetSelector) {
+  await page.evaluate(({ sourceSelector, targetSelector }) => {
+    const source = document.querySelector(sourceSelector);
+    const target = document.querySelector(targetSelector);
+    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+      throw new Error(`Drag targets were not found: ${sourceSelector} -> ${targetSelector}`);
+    }
+
+    const dataTransfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
+  }, { sourceSelector, targetSelector });
+}
+
 test.describe.configure({ mode: "serial" });
 
 let originalBoardText = "";
@@ -323,6 +339,8 @@ test("edit mode starts with details collapsed so content shows earlier", async (
 test("edit mode stacks sections in one clean column and autosizes long content", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-editor-mode="structured"]').click();
+  await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
+  await expect(page.locator('[data-mode-pane="structured"]')).toBeVisible();
 
   const whyLabel = page.locator('label:has([data-section-heading="Why"])');
   const inScopeLabel = page.locator('label:has([data-section-heading="In Scope"])');
@@ -350,10 +368,10 @@ test("opens another board item in read mode before entering edit mode", async ({
 
   await targetCard.click();
   await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
-  await expect(page.locator('#save-button')).toHaveText('Edit');
+  await expect(page.locator('#save-button')).toBeHidden();
   await expect(page.locator('#item-preview')).toContainText('Add first-class editing for board.md and scope.md');
 
-  await page.locator('#save-button').click();
+  await page.locator('#tab-structured').click();
   await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
   await openMetadataDetails(page);
 
@@ -482,7 +500,7 @@ test("read mode shows the full item and reflects the current edit state", async 
   const sectionCount = await page.locator('#item-preview .preview-section').count();
   expect(sectionCount).toBeGreaterThanOrEqual(6);
   await expect(page.locator('#item-preview .preview-glance-card')).toHaveCount(0);
-  await expect(page.locator('#save-button')).toHaveText('Edit');
+  await expect(page.locator('#save-button')).toBeHidden();
 });
 
 test("prompts before discarding unsaved structured changes when switching items from the board", async ({ page }) => {
@@ -507,7 +525,22 @@ test("prompts before discarding unsaved structured changes when switching items 
 
   await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
   await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
-  await expect(page.locator('#save-button')).toHaveText('Edit');
+  await expect(page.locator('#save-button')).toBeHidden();
+});
+
+test("inline edit mode shows cancel beside save and discards changes back to read", async ({ page }) => {
+  await page.goto("/#item=feature-setup-guidance&mode=structured");
+
+  await expect(page.locator("#editor-cancel-button")).toBeVisible();
+  await openMetadataDetails(page);
+  await page.locator("#field-title").fill("Discard me");
+  await page.locator("#editor-cancel-button").click();
+
+  await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
+  await expect(page.locator('#item-preview')).not.toContainText('Discard me');
+  await page.locator('#tab-structured').click();
+  await openMetadataDetails(page);
+  await expect(page.locator('#field-title')).toHaveValue('Setup guidance and empty-state workflow');
 });
 
 test("raw mode saves full-file edits", async ({ page }) => {
@@ -574,6 +607,22 @@ test("edits board groups, moves items, and saves the updated board", async ({ pa
   await page.reload();
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("Ready");
   await expect(page.locator('[data-item-id="feature-setup-guidance"]').first()).toContainText("Setup guidance and empty-state workflow");
+});
+
+test("moves an item to another board group from the structured editor and saves board.md", async ({ page }) => {
+  await page.goto("/#item=idea-timeline-view&mode=structured");
+
+  await openMetadataDetails(page);
+  await page.locator("#field-board-group").selectOption({ label: "Next" });
+  await page.locator("#save-button").click();
+
+  await expect(page.locator("#status-banner")).toContainText("Saved.");
+  await expect(page.locator(".board-group").nth(1).locator(".group-name")).toContainText("Next");
+  await expect(page.locator(".board-group").nth(1)).toContainText("Optional timeline view");
+
+  const updatedBoardText = (await fs.readFile(boardPath, "utf8")).replace(/\r/g, "");
+  expect(updatedBoardText).toContain("# Next\n- idea-timeline-view");
+  expect(updatedBoardText).not.toContain("# Ideas\n- idea-timeline-view");
 });
 
 test("prioritizes the selected item before the board on a narrow viewport", async ({ page }) => {
@@ -734,6 +783,34 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
   expect(firstGroup.y - boardPanel.y).toBeLessThan(320);
 });
 
+test("anchors the group-by chooser to the trigger instead of the far board edge", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+
+  const triggerBox = await page.locator("#board-view-toggle").boundingBox();
+  const chooserBox = await page.locator("#board-lens-switcher").boundingBox();
+
+  expect(triggerBox).not.toBeNull();
+  expect(chooserBox).not.toBeNull();
+  expect(Math.abs((chooserBox?.x ?? 0) - (triggerBox?.x ?? 0))).toBeLessThan(40);
+  expect((chooserBox?.y ?? 0)).toBeGreaterThan((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) - 6);
+});
+test("status columns keep empty built-in lanes visible in columns mode", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="status"]').click();
+
+  await expect(page.locator(".board-column")).toHaveCount(4);
+  await expect(page.locator(".board-column").nth(0)).toContainText("queued");
+  await expect(page.locator(".board-column").nth(1)).toContainText("in-progress");
+  await expect(page.locator(".board-column").nth(2)).toContainText("blocked");
+  await expect(page.locator(".board-column").nth(3)).toContainText("done");
+  await expect(page.locator(".board-column").nth(1).locator(".board-column-empty")).toContainText("No visible items.");
+  await expect(page.locator(".board-column").nth(2).locator(".board-column-empty")).toContainText("No visible items.");
+});
 test("dragging an item in the status lens updates the canonical frontmatter", async ({ page }) => {
   await page.goto("/");
   await page.locator('#board-view-toggle').click();
@@ -758,5 +835,212 @@ test("dragging an item in the status lens updates the canonical frontmatter", as
 
   const updatedFeatureText = await fs.readFile(derivedLensesFeaturePath, "utf8");
   expect(updatedFeatureText).toContain("status: done");
+});
+test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 1100 });
+  await page.goto("/");
+
+  const modeRow = page.locator(".board-mode-row");
+  const groupBy = page.locator("#board-view-toggle");
+  const layoutControls = page.locator("#board-layout-controls");
+  const searchRow = page.locator(".board-toolbar-row");
+
+  const modeRowBox = await modeRow.boundingBox();
+  const groupByBox = await groupBy.boundingBox();
+  const layoutBox = await layoutControls.boundingBox();
+  const searchRowBox = await searchRow.boundingBox();
+
+  expect(modeRowBox).not.toBeNull();
+  expect(groupByBox).not.toBeNull();
+  expect(layoutBox).not.toBeNull();
+  expect(searchRowBox).not.toBeNull();
+  expect(modeRowBox.height).toBeLessThan(52);
+  expect(layoutBox.x).toBeGreaterThan(groupByBox.x + groupByBox.width - 4);
+  expect(searchRowBox.y).toBeGreaterThan(modeRowBox.y + modeRowBox.height - 2);
+});
+
+test("uses a board-first columns layout when many groups are visible", async ({ page }) => {
+  const sixGroupBoard = `# Backlog\n\n- feature-edit-board-and-scope\n\n# Next\n\n- feature-setup-guidance\n\n# Ready\n\n- feature-search-and-filters\n\n# Working\n\n- feature-card-preview-and-overview\n\n# Verify\n\n- feature-derived-roadmap-lenses\n\n# Ideas\n\n- idea-create-items\n`;
+  await fs.writeFile(boardPath, sixGroupBoard, "utf8");
+
+  await page.setViewportSize({ width: 1180, height: 1100 });
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-layout-columns").click();
+
+  await expect(page).toHaveURL(/layout=columns/);
+  await expect(page).not.toHaveURL(/item=/);
+  await expect(page.locator(".board-column")).toHaveCount(6);
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+
+  const boardMetrics = await page.locator(".board-columns").evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+
+  expect(boardMetrics.scrollWidth).toBeGreaterThan(boardMetrics.clientWidth + 80);
+});
+
+test("opens a card in an overlay from columns and keeps the full title as a tooltip", async ({ page }) => {
+  const longTitle = "Add a recurring-question value benchmark with a long descriptive title that still needs the full tooltip";
+  await fs.writeFile(featurePath, replaceTitle(originalFeatureText, longTitle), "utf8");
+
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-layout-columns").click();
+
+  const cardBody = page.locator('[data-item-dblopen="feature-setup-guidance"]').first();
+  const openButton = page.locator('[data-item-open="feature-setup-guidance"]').first();
+  await expect(cardBody).toHaveAttribute("title", longTitle);
+  await expect(cardBody.locator(".board-item-title")).toHaveAttribute("title", longTitle);
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+
+  await openButton.click();
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(page.locator("#editor-title")).toContainText(longTitle);
+  await expect(page.locator("#tab-preview")).toHaveClass(/is-active/);
+  await expect(page).toHaveURL(/layout=columns/);
+  await expect(page).toHaveURL(/item=feature-setup-guidance/);
+
+  await expect(page.locator('#save-button')).toHaveText('Close');
+  await page.locator('#save-button').click();
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+  await expect(page).not.toHaveURL(/item=/);
+});
+test("overlay scroll locks the page background and scrolls the item instead", async ({ page }) => {
+  const longNotes = "Paragraph ".repeat(1200);
+  await fs.writeFile(featurePath, addExtraSection(originalFeatureText, "Overlay Scroll Notes", longNotes), "utf8");
+
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-layout-columns").click();
+  await page.locator('[data-item-open="feature-setup-guidance"]').click();
+
+  const previewPane = page.locator('.editor-overlay [data-mode-pane="preview"]');
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(previewPane).toBeVisible();
+
+  const before = await page.evaluate(() => {
+    const preview = document.querySelector('.editor-overlay [data-mode-pane="preview"]');
+    return {
+      pageScroll: window.scrollY,
+      previewScroll: preview?.scrollTop || 0,
+      previewClientHeight: preview?.clientHeight || 0,
+      previewScrollHeight: preview?.scrollHeight || 0,
+      overflow: document.body.dataset.editorOverlayOpen,
+    };
+  });
+
+  await previewPane.evaluate((element) => {
+    element.scrollTop = 900;
+  });
+
+  const after = await page.evaluate(() => {
+    const preview = document.querySelector('.editor-overlay [data-mode-pane="preview"]');
+    return {
+      pageScroll: window.scrollY,
+      previewScroll: preview?.scrollTop || 0,
+    };
+  });
+
+  expect(before.overflow).toBe("true");
+  expect(before.previewScrollHeight).toBeGreaterThan(before.previewClientHeight + 80);
+  expect(after.pageScroll).toBe(before.pageScroll);
+  expect(after.previewScroll).toBeGreaterThan(before.previewScroll + 40);
+});
+test("overlay edit mode shows cancel beside save and returns to read mode", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+  await page.locator('[data-item-open="feature-setup-guidance"]').click();
+
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(page.locator("#save-button")).toHaveText("Close");
+  await page.locator('#tab-structured').click();
+
+  await expect(page.locator("#save-button")).toHaveText("Save");
+  await expect(page.locator("#editor-cancel-button")).toBeVisible();
+  await page.locator('[data-section-heading="Summary"]').fill('Unsaved overlay edit');
+  await page.locator("#editor-cancel-button").click();
+
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
+  await expect(page.locator('#item-preview')).not.toContainText('Unsaved overlay edit');
+});
+
+test("switches to columns layout, keeps the lens, and restores from the URL", async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 1100 });
+  await page.goto("/");
+
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="status"]').click();
+
+  await expect(page).toHaveURL(/layout=columns/);
+  await expect(page).toHaveURL(/lens=status/);
+  await expect(page.locator("#board-layout-columns")).toHaveClass(/is-active/);
+  await expect(page.locator(".board-columns")).toBeVisible();
+  await expect(page.locator(".board-column").first()).toContainText("queued");
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+
+  const boardBox = await page.locator(".board-panel").boundingBox();
+  const firstColumn = await page.locator(".board-column").first().boundingBox();
+  const secondColumn = await page.locator(".board-column").nth(1).boundingBox();
+
+  expect(boardBox).not.toBeNull();
+  expect(firstColumn).not.toBeNull();
+  expect(secondColumn).not.toBeNull();
+  expect(boardBox.width).toBeGreaterThan(560);
+  expect(secondColumn.x).toBeLessThan(boardBox.x + boardBox.width - 20);
+
+  await page.reload();
+  await expect(page).toHaveURL(/layout=columns/);
+  await expect(page).toHaveURL(/lens=status/);
+  await expect(page.locator(".board-columns")).toBeVisible();
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+});
+
+test("dragging between board columns rewrites the canonical board groups", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+
+  await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '[data-board-drop-group-index="1"]');
+
+  await expect(page.locator("#status-banner")).toContainText("Board updated.");
+  await expect(page.locator('.board-column').nth(1)).toContainText("Parent grouping overview");
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+  await expect(page).not.toHaveURL(/item=/);
+
+  const updatedBoard = await fs.readFile(boardPath, "utf8");
+  expect(updatedBoard).toMatch(/# Next[\s\S]*idea-parent-grouping-overview/);
+});
+
+test("dragging between status columns uses the handle and updates the canonical frontmatter", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="status"]').click();
+
+  await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '[data-lens-drop-value="done"]');
+
+  await expect(page.locator("#status-banner")).toContainText("Status updated.");
+  await expect(page.locator("#editor-overlay")).toBeHidden();
+  await expect(page).not.toHaveURL(/item=/);
+  const updatedIdeaText = await fs.readFile(path.join(process.cwd(), "roadmap", "ideas", "idea-parent-grouping-overview.md"), "utf8");
+  expect(updatedIdeaText).toContain("status: done");
+});
+
+test("milestone columns stay browse-only without drag handles", async ({ page }) => {
+  await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
+  await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
+
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-layout-columns").click();
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="milestone"]').click();
+
+  await expect(page.locator(".board-columns")).toBeVisible();
+  await expect(page.locator('[data-drag-item-id]')).toHaveCount(0);
 });
 

@@ -19,6 +19,7 @@ Concrete next steps:
 
 Recently completed:
 - ship alternate derived lenses over existing roadmap metadata without inventing a second board state
+- ship a column board view that reuses existing grouping sources for lightweight drag-based roadmap management
 - ship better cards plus a read-first item review flow
 - ship search plus dynamic filters over existing roadmap metadata
 - make setup and empty-state behavior clearer for new or partially configured repos

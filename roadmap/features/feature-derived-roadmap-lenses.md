@@ -11,7 +11,6 @@ labels:
 milestone: ""
 ---
 
-
 ## Summary
 
 Allow the same roadmap files to be viewed through alternate grouping lenses such as board group, milestone, status, type, or label.
