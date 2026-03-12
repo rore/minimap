@@ -2,7 +2,7 @@
 
 Planning that lives with the repo, not in chat history.
 
-Minimap is a repo-local roadmap workspace for teams that want humans and AI agents to work from the same source of truth. It reads the roadmap files already in the repo, gives you a small local UI for browsing and editing them, and keeps git as the history.
+Minimap is a repo-local roadmap workspace for teams that want humans and AI agents to work from the same source of truth. In practice, that usually means roadmap items and feature plans are written through conversations with an agent, while minimap gives the human a fast way to inspect the resulting roadmap, verify it, and make targeted changes when needed. The files stay canonical and git stays the history.
 
 This repo dogfoods the packaged app in `package/minimap/`, so the screenshots below are the real product as it exists here today.
 
@@ -12,9 +12,10 @@ Minimap is for the common case where roadmap state starts drifting across chat t
 
 It gives you a lightweight middle ground:
 
-- planning stays in the repo
-- humans get a local UI instead of hand-editing every file
-- agents follow the same file contract and touch the same canonical files
+- roadmap state stays in the repo instead of disappearing into chat history
+- agents can draft and update features, scope, and roadmap items through normal conversations
+- humans get a local UI to review what the agent wrote, understand the current plan, and adjust it if needed
+- both sides work against the same canonical files instead of a second hidden system
 - repo-specific structure still works without forcing a heavy PM tool or custom backend
 
 ## What It Looks Like
@@ -76,12 +77,13 @@ Optional repo-root config:
 }
 ```
 
-## Typical Workflow
+## Human-Agent Workflow
 
-1. Start the local server from the repo root.
-2. Scan the board, filter or regroup by existing metadata, and open an item in read mode.
-3. Make lightweight edits in the structured editor, or switch to raw markdown when the repo needs it.
-4. Commit the resulting file changes like any other repo change.
+1. Work with an agent in normal repo conversations to shape features, priorities, and roadmap state.
+2. Let the agent write or update the canonical roadmap files in the repo.
+3. Open minimap to quickly see the current roadmap, review what changed, and understand the plan in context.
+4. Make lightweight human corrections in the UI when needed, or leave the files as the agent wrote them.
+5. Commit the resulting file changes like any other repo change.
 
 ## Portable Package
 
