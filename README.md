@@ -4,7 +4,7 @@ Planning that lives with the repo, not in chat history.
 
 Minimap is a local UI for repo roadmap files. It lets humans and AI agents plan against the same canonical markdown instead of scattering roadmap state across chat threads, ad hoc docs, and separate PM tools.
 
-In practice, that usually means an agent drafts or updates roadmap state through normal repo conversations, then a human opens minimap to review the board, scope, and item detail together, make any needed corrections, and commit the resulting markdown changes.
+In practice, an agent drafts or updates roadmap files through normal repo conversations, then a human opens minimap to review the board, scope, and item detail together, make corrections, and commit the markdown changes.
 
 **Files are canonical. Git is the history. The UI is a structured review and editing surface over those files.**
 
@@ -57,7 +57,7 @@ Because many agent-heavy repo workflows already keep planning in markdown and gi
 ## What Minimap Adds
 
 - A fast human review layer over roadmap files the agent wrote.
-- One visible source of truth in the repo instead of split state across chat and docs.
+- A clear visible view over the canonical roadmap files instead of split state across chat and docs.
 - Lightweight editing without abandoning markdown as the canonical format.
 - Search, filters, regrouping, and multiple browse layouts over metadata the repo already has.
 - No database, sync layer, or UI-only board state.
