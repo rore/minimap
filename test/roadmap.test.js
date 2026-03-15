@@ -297,6 +297,20 @@ test("saveItemById rejects raw markdown that changes the item id", async () => {
   );
 });
 
+
+
+test("loadWorkspace accepts UTF-8 BOM-prefixed roadmap files", async () => {
+  const repoRoot = await makeTempRepo();
+  await fs.writeFile(path.join(repoRoot, "roadmap", "features", "feature-a.md"), `﻿${sampleItemText}`, "utf8");
+
+  const workspace = await loadWorkspace(repoRoot);
+  assert.equal(workspace.boardGroups[0].items[0].id, "feature-a");
+  assert.equal(workspace.items["feature-a"].title, "Test item");
+
+  const item = await readItemById(repoRoot, "feature-a");
+  assert.equal(item.rawText.startsWith("---"), true);
+});
+
 test("loadWorkspace surfaces malformed items as parse errors", async () => {
   const repoRoot = await makeTempRepo();
   await fs.writeFile(path.join(repoRoot, "roadmap", "features", "feature-a.md"), "broken", "utf8");
