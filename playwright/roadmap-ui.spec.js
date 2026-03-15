@@ -34,6 +34,13 @@ function addExtraSection(text, heading, content) {
   return `${text.trimEnd()}\n\n## ${heading}\n\n${content}\n`;
 }
 
+function replaceSectionContent(text, heading, content) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const pattern = new RegExp(`## ${escapedHeading}\\r?\\n\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)`);
+  const normalizedContent = content.trim().replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, eol);
+  return text.replace(pattern, `## ${heading}${eol}${eol}${normalizedContent}${eol}`);
+}
 function addFrontmatterField(text, key, value) {
   if (new RegExp(`^${key}:`, "m").test(text)) {
     return text.replace(new RegExp(`^${key}:\\s*(?:".*"|.*)$`, "m"), `${key}: ${value}`);
@@ -503,6 +510,32 @@ test("read mode shows the full item and reflects the current edit state", async 
   await expect(page.locator('#save-button')).toBeHidden();
 });
 
+test("renders nested and wrapped markdown list content in read mode", async ({ page }) => {
+  const nestedInScope = [
+    "- add automatic suspicious-case detectors over live/debug traces",
+    "  - generic summary selected while sharper active memory exists in scope",
+    "  - same-thread continuation with sufficient local context still injecting",
+    "- add one replay-promotion tool or workflow that turns a captured miss bundle",
+    "  into a benchmark-ready scenario skeleton with fields for:",
+    "  - prior events",
+    "  - current thread context",
+  ].join("\n");
+
+  await fs.writeFile(featurePath, replaceSectionContent(originalFeatureText, "In Scope", nestedInScope), "utf8");
+
+  await page.goto("/#item=feature-setup-guidance");
+  await page.locator("#refresh-button").click();
+
+  const section = page.locator(".preview-section", { has: page.locator("h3", { hasText: "In Scope" }) });
+  const html = await section.locator(".preview-markdown").innerHTML();
+  expect(html).toContain("<ul>");
+  expect(html).toContain("add automatic suspicious-case detectors over live/debug traces");
+  expect(html).toContain("same-thread continuation with sufficient local context still injecting");
+  expect(html).toContain("captured miss bundle into a benchmark-ready scenario skeleton with fields for:");
+  expect(html).toContain("<ul><li>prior events</li><li>current thread context</li></ul>");
+  expect(html).not.toContain("</ul><p>");
+  expect(html).not.toContain("</li><p>prior events</p>");
+});
 test("prompts before discarding unsaved structured changes when switching items from the board", async ({ page }) => {
   await page.goto('/#item=feature-setup-guidance&mode=structured');
   await openMetadataDetails(page);
