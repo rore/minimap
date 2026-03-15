@@ -2,7 +2,9 @@
 
 Planning that lives with the repo, not in chat history.
 
-Minimap is a repo-local roadmap workspace for teams that want humans and AI agents to work from the same source of truth. In practice, that usually means roadmap items and feature plans are written through conversations with an agent, while minimap gives the human a fast way to inspect the resulting roadmap, verify it, and make targeted changes when needed. The files stay canonical and git stays the history.
+Minimap is a local UI for repo roadmap files. It lets humans and AI agents plan against the same canonical markdown instead of scattering roadmap state across chat threads, ad hoc docs, and separate PM tools.
+
+In practice, that usually means an agent drafts or updates roadmap state through normal repo conversations, then a human opens minimap to review the board, scope, and item detail together, make any needed corrections, and commit the resulting markdown changes. The files stay canonical and git stays the history.
 
 This repo dogfoods the packaged app in `package/minimap/`, so the screenshots below are the real product as it exists here today.
 
@@ -17,6 +19,21 @@ It gives you a lightweight middle ground:
 - humans get a local UI to review what the agent wrote, understand the current plan, and adjust it if needed
 - both sides work against the same canonical files instead of a second hidden system
 - repo-specific structure still works without forcing a heavy PM tool or custom backend
+
+## One Example
+
+Before:
+
+- roadmap updates happen in agent chats
+- the actual plan is split across markdown files, chat memory, and ad hoc notes
+- a human has to reconstruct the current state by hand
+
+After:
+
+1. Ask an agent to draft a feature or update roadmap files.
+2. Open minimap and inspect the board, scope, and selected item together.
+3. Fix a title, priority, group, or section if needed.
+4. Commit the markdown change like any other repo change.
 
 ## What It Looks Like
 
@@ -38,15 +55,28 @@ Every item opens in read-first mode, then you can switch to structured editing f
 
 ![Minimap editor view](docs/images/minimap-item-editor.png)
 
+## Why Not Just Markdown Or GitHub Projects?
+
+Why not just markdown files?
+
+Because raw files are a good canonical format, but a poor live planning surface. Minimap keeps markdown as the source of truth while making it much easier to review, navigate, regroup, and lightly edit roadmap state.
+
+Why not just ask the agent for a summary when needed?
+
+Because summaries are helpful, but they are ephemeral. Minimap gives the human a stable visible view over the actual files the agent wrote, so the shared roadmap does not depend on reconstructing state from a conversation.
+
+Why not GitHub Projects, Linear, or another PM tool?
+
+Because many agent-heavy repo workflows already keep planning in markdown and git. Minimap is for the case where you want that planning to remain in-repo, visible, and editable without introducing a second planning system with its own hidden state.
+
 ## What You Get
 
-- Read-first roadmap browsing with both list and columns layouts.
-- Search, filters, and alternate grouping lenses derived from metadata the repo already uses.
-- Structured editing for common roadmap fields, plus raw markdown for repo-specific shapes.
-- Board and scope editing that writes back to `board.md` and `scope.md`.
-- Non-destructive saves that preserve unknown frontmatter keys and extra markdown sections.
-- Setup guidance when a repo is missing a roadmap workspace or has an invalid path.
-- A portable package that can be copied into another repo.
+- A fast human review layer over roadmap files the agent wrote.
+- One visible source of truth in the repo instead of split state across chat and docs.
+- Lightweight editing without abandoning markdown as the canonical format.
+- Search, filters, regrouping, and multiple browse layouts over metadata the repo already has.
+- No database, sync layer, or UI-only board state.
+- A portable package you can copy into another repo.
 
 ## How It Works
 
@@ -84,6 +114,18 @@ Optional repo-root config:
 3. Open minimap to quickly see the current roadmap, review what changed, and understand the plan in context.
 4. Make lightweight human corrections in the UI when needed, or leave the files as the agent wrote them.
 5. Commit the resulting file changes like any other repo change.
+
+## Best Fit
+
+- Repos where roadmap or feature planning already lives in files.
+- Teams using agents to draft or update roadmap content.
+- Developers who want git-native planning without a hosted PM backend.
+
+## Not Best Fit
+
+- Teams that want enterprise workflow automation or heavy process enforcement.
+- Org-wide planning across many repos with centralized reporting needs.
+- Teams already happy with GitHub Projects, Linear, or another dedicated PM system.
 
 ## Portable Package
 
@@ -134,3 +176,4 @@ First-time browser setup:
 ```bash
 npx playwright install chromium
 ```
+
