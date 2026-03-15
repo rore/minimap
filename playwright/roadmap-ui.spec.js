@@ -1003,6 +1003,8 @@ test("switches to columns layout, keeps the lens, and restores from the URL", as
 test("dragging between board columns rewrites the canonical board groups", async ({ page }) => {
   await page.goto("/");
   await page.locator("#board-layout-columns").click();
+  await expect(page.locator('[data-drag-item-id="idea-parent-grouping-overview"]')).toBeVisible();
+  await expect(page.locator('[data-board-drop-group-index="1"]').first()).toBeVisible();
 
   await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '[data-board-drop-group-index="1"]');
 
@@ -1015,11 +1017,44 @@ test("dragging between board columns rewrites the canonical board groups", async
   expect(updatedBoard).toMatch(/# Next[\s\S]*idea-parent-grouping-overview/);
 });
 
+test("dragging within a board column reprioritizes items in canonical board order", async ({ page }) => {
+  const customBoard = `# Now
+- feature-search-and-filters
+- feature-setup-guidance
+
+# Next
+- feature-card-preview-and-overview
+
+# Ideas
+- idea-create-items
+
+# Done
+`;
+  await fs.writeFile(boardPath, customBoard, "utf8");
+
+  await page.goto("/");
+  await page.locator("#refresh-button").click();
+  await page.locator("#board-layout-columns").click();
+  await expect(page.locator('[data-drag-item-id="feature-setup-guidance"]')).toBeVisible();
+  await expect(page.locator('[data-board-drop-before-id="feature-search-and-filters"]')).toBeVisible();
+
+  await dragRoadmapElement(page, '[data-drag-item-id="feature-setup-guidance"]', '[data-board-drop-before-id="feature-search-and-filters"]');
+
+  await expect(page.locator("#status-banner")).toContainText("Board updated.");
+  await expect(page.locator('.board-column').first().locator('.board-column-card').nth(0)).toContainText("Setup guidance and empty-state workflow");
+  await expect(page.locator('.board-column').first().locator('.board-column-card').nth(1)).toContainText("Search and dynamic roadmap filters");
+
+  const updatedBoard = await fs.readFile(boardPath, "utf8");
+  expect(updatedBoard).toMatch(/# Now\s*- feature-setup-guidance\s*- feature-search-and-filters/);
+});
+
 test("dragging between status columns uses the handle and updates the canonical frontmatter", async ({ page }) => {
   await page.goto("/");
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="status"]').click();
+  await expect(page.locator('[data-drag-item-id="idea-parent-grouping-overview"]')).toBeVisible();
+  await expect(page.locator('[data-lens-drop-value="done"]').first()).toBeVisible();
 
   await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '[data-lens-drop-value="done"]');
 
