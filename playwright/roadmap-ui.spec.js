@@ -510,6 +510,29 @@ test("read mode shows the full item and reflects the current edit state", async 
   await expect(page.locator('#save-button')).toBeHidden();
 });
 
+test("renders and edits generic scalar metadata fields like lane", async ({ page }) => {
+  await fs.writeFile(featurePath, addFrontmatterField(originalFeatureText, "lane", "integration-feedback"), "utf8");
+
+  await page.goto('/#item=feature-setup-guidance');
+  await page.locator('#refresh-button').click();
+
+  const boardCard = page.locator('[data-item-id="feature-setup-guidance"]').first();
+  await expect(boardCard).toContainText('Lane: integration-feedback');
+  await expect(page.locator('#item-preview .preview-meta')).toContainText('Lane: integration-feedback');
+
+  await page.locator('#tab-structured').click();
+  await openMetadataDetails(page);
+  const laneField = page.locator('[data-extra-metadata-key="lane"]');
+  await expect(laneField).toHaveValue('integration-feedback');
+  await laneField.fill('stabilization-foundation');
+  await page.locator('#save-button').click();
+  await page.locator('#tab-preview').click();
+
+  await expect(page.locator('#item-preview .preview-meta')).toContainText('Lane: stabilization-foundation');
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]').first()).toContainText('Lane: stabilization-foundation');
+  await expect.poll(async () => fs.readFile(featurePath, 'utf8')).toContain('lane: stabilization-foundation');
+});
+
 test("renders nested and wrapped markdown list content in read mode", async ({ page }) => {
   const nestedInScope = [
     "- add automatic suspicious-case detectors over live/debug traces",
