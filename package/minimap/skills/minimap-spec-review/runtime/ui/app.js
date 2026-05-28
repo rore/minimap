@@ -63,6 +63,8 @@ const state = {
     commentAnchorMode: "global",
     suggestionComposerOpen: false,
     suggestionAnchorMode: "quote",
+    previewSuggestionId: "",
+    suggestionPreview: null,
     filesCollapsed: loadStoredSpecFilesPreference(),
     commentsWidth: loadStoredSpecCommentsWidth(),
     resizingComments: false,
@@ -3424,6 +3426,7 @@ function renderSpecSuggestions(suggestions) {
   specCommentsListElement.innerHTML = suggestions.map((suggestion) => {
     const pending = suggestion.status === "pending";
     const content = suggestion.kind === "delete" && !suggestion.content ? "(delete anchored content)" : suggestion.content;
+    const activePreview = state.spec.previewSuggestionId === suggestion.id ? state.spec.suggestionPreview : null;
     return `
     <article class="spec-comment-card ${state.spec.activeAnchorCommentId === `suggestion:${suggestion.id}` ? "is-active-anchor" : ""}" data-suggestion-id="${escapeHtml(suggestion.id)}" title="Click to jump to anchor">
       <div class="spec-comment-header">
@@ -3437,12 +3440,22 @@ function renderSpecSuggestions(suggestions) {
       <p class="spec-suggestion-content">${escapeHtml(content)}</p>
       ${suggestion.rationale ? `<p class="spec-comment-text">${escapeHtml(suggestion.rationale)}</p>` : ""}
       <p class="spec-comment-status muted">${escapeHtml(suggestion.anchorStatus?.status || "")}${suggestion.anchorStatus?.strategy ? ` via ${escapeHtml(suggestion.anchorStatus.strategy)}` : ""}</p>
+      ${activePreview ? `
+        <div class="spec-suggestion-preview">
+          <strong>Preview</strong>
+          <pre>${escapeHtml(activePreview.diff || "")}</pre>
+        </div>
+      ` : ""}
       <div class="spec-comment-actions">
         <span class="muted">${pending ? "Awaiting review" : "Reviewed"}</span>
-        ${pending ? `
+        ${suggestion.status !== "applied" ? `
           <div class="spec-form-button-row">
-            <button class="ghost-button" type="button" data-suggestion-action="reject">Reject</button>
-            <button class="ghost-button" type="button" data-suggestion-action="accept">Accept</button>
+            ${pending ? `
+              <button class="ghost-button" type="button" data-suggestion-action="reject">Reject</button>
+              <button class="ghost-button" type="button" data-suggestion-action="accept">Accept</button>
+            ` : ""}
+            <button class="ghost-button" type="button" data-suggestion-action="preview">Preview</button>
+            ${activePreview ? `<button class="primary-button" type="button" data-suggestion-action="apply">Apply</button>` : ""}
           </div>
         ` : ""}
       </div>
@@ -3474,6 +3487,8 @@ async function loadSpecSession(filePath) {
   const content = await fetchJson(`/api/spec-sessions/by-file/content?path=${specPathParam(filePath)}`);
   state.spec.context = context;
   state.spec.content = content.content || "";
+  state.spec.previewSuggestionId = "";
+  state.spec.suggestionPreview = null;
   renderSpecSessions();
   renderSpecFile();
   renderSpecComments();
@@ -3603,6 +3618,39 @@ async function setSpecSuggestionStatus(suggestionId, action) {
   });
   await loadSpecSession(state.spec.selectedPath);
   setBanner(action === "accept" ? "Suggestion accepted." : "Suggestion rejected.", "success");
+}
+
+async function previewSpecSuggestion(suggestionId) {
+  const result = await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file: state.spec.selectedPath,
+    }),
+  });
+  state.spec.previewSuggestionId = suggestionId;
+  state.spec.suggestionPreview = result.preview;
+  renderSpecComments();
+  setBanner("Suggestion preview ready.", "success");
+}
+
+async function applySpecSuggestion(suggestionId) {
+  if (!window.confirm("Apply this suggestion to the target file?")) {
+    return;
+  }
+
+  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file: state.spec.selectedPath,
+      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+    }),
+  });
+  state.spec.previewSuggestionId = "";
+  state.spec.suggestionPreview = null;
+  await loadSpecSession(state.spec.selectedPath);
+  setBanner("Suggestion applied.", "success");
 }
 
 async function switchAppMode(nextMode) {
@@ -4226,6 +4274,18 @@ specCommentsListElement.addEventListener("click", (event) => {
   if (suggestionCard) {
     if (!suggestionButton) {
       focusSpecSuggestionAnchor(suggestionCard.dataset.suggestionId);
+      return;
+    }
+    if (suggestionButton.dataset.suggestionAction === "preview") {
+      void previewSpecSuggestion(suggestionCard.dataset.suggestionId).catch((error) => {
+        setBanner(error.message, "error");
+      });
+      return;
+    }
+    if (suggestionButton.dataset.suggestionAction === "apply") {
+      void applySpecSuggestion(suggestionCard.dataset.suggestionId).catch((error) => {
+        setBanner(error.message, "error");
+      });
       return;
     }
     void setSpecSuggestionStatus(suggestionCard.dataset.suggestionId, suggestionButton.dataset.suggestionAction).catch((error) => {

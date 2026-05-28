@@ -710,6 +710,22 @@ h3 {
   white-space: pre-wrap;
 }
 
+.spec-suggestion-preview {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(21, 32, 51, 0.045);
+}
+
+.spec-suggestion-preview pre {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .spec-comment-collapsed-summary {
   margin: 0;
   color: var(--muted);
