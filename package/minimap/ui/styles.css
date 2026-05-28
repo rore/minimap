@@ -601,6 +601,18 @@ h3 {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.spec-comment-card:hover,
+.spec-comment-card.is-active-anchor {
+  border-color: rgba(44, 108, 255, 0.32);
+  box-shadow: var(--shadow);
+}
+
+.spec-comment-card.is-active-anchor {
+  transform: translateY(-1px);
 }
 
 .spec-comment-header {
@@ -636,6 +648,13 @@ h3 {
 .spec-reply-form {
   display: grid;
   gap: 6px;
+}
+
+.is-spec-anchor-highlight {
+  border-radius: 10px;
+  background: rgba(255, 214, 102, 0.28);
+  box-shadow: 0 0 0 6px rgba(255, 214, 102, 0.18);
+  transition: background 180ms ease, box-shadow 180ms ease;
 }
 
 body[data-app-mode="spec"] .topbar {

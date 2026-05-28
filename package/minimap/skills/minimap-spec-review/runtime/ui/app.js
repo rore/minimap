@@ -51,6 +51,8 @@ const state = {
     commentComposerOpen: false,
     replyComposerCommentId: "",
     selectedQuote: "",
+    activeAnchorCommentId: "",
+    anchorHighlightTimer: null,
     filesCollapsed: loadStoredSpecFilesPreference(),
     commentsWidth: loadStoredSpecCommentsWidth(),
     resizingComments: false,
@@ -2979,6 +2981,112 @@ function renderSpecSelectedQuoteState() {
   specNewCommentButton.title = hasSelection ? "Add a comment anchored to the selected text" : "Add a comment";
 }
 
+function normalizeVisibleText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function specBlockCandidates() {
+  return Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre"));
+}
+
+function headingElementForPath(headingPath = []) {
+  if (!headingPath.length) {
+    return null;
+  }
+
+  const headings = Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+  const stack = [];
+
+  for (const heading of headings) {
+    const level = Number(heading.tagName.slice(1));
+    stack.length = level - 1;
+    stack[level - 1] = normalizeVisibleText(heading.textContent);
+    if (stack.length === headingPath.length && headingPath.every((part, index) => normalizeVisibleText(part) === stack[index])) {
+      return heading;
+    }
+  }
+
+  return null;
+}
+
+function blockElementForQuote(quote) {
+  const normalizedQuote = normalizeVisibleText(quote);
+  if (!normalizedQuote) {
+    return null;
+  }
+
+  return specBlockCandidates().find((element) => normalizeVisibleText(element.textContent).includes(normalizedQuote)) || null;
+}
+
+function clearSpecAnchorHighlight() {
+  if (state.spec.anchorHighlightTimer) {
+    window.clearTimeout(state.spec.anchorHighlightTimer);
+    state.spec.anchorHighlightTimer = null;
+  }
+  specFileContentElement.querySelectorAll(".is-spec-anchor-highlight").forEach((element) => {
+    element.classList.remove("is-spec-anchor-highlight");
+  });
+}
+
+function scrollSpecTargetIntoView(target) {
+  if (specFileContentElement.scrollHeight <= specFileContentElement.clientHeight + 1) {
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    return;
+  }
+
+  const contentRect = specFileContentElement.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const nextTop = specFileContentElement.scrollTop + targetRect.top - contentRect.top - 18;
+  specFileContentElement.scrollTo({
+    top: Math.max(0, nextTop),
+    behavior: "smooth",
+  });
+}
+
+function commentTargetElement(comment) {
+  const anchor = comment?.anchor || {};
+  if (anchor.scope === "global") {
+    return specFileContentElement.firstElementChild;
+  }
+  if (anchor.scope === "section") {
+    return headingElementForPath(anchor.headingPath || []);
+  }
+  return blockElementForQuote(anchor.quote);
+}
+
+function focusSpecCommentAnchor(commentId) {
+  const comment = (state.spec.context?.comments || []).find((candidate) => candidate.id === commentId);
+  if (!comment) {
+    return;
+  }
+
+  state.spec.activeAnchorCommentId = commentId;
+  clearSpecAnchorHighlight();
+  renderSpecComments();
+
+  if (comment.anchorStatus?.status && comment.anchorStatus.status !== "resolved") {
+    setBanner(`Anchor is ${comment.anchorStatus.status}; minimap cannot jump to a reliable target.`, "error");
+    return;
+  }
+
+  const target = commentTargetElement(comment);
+  if (!target) {
+    setBanner("Could not find the anchored text in the rendered file.", "error");
+    return;
+  }
+
+  target.classList.add("is-spec-anchor-highlight");
+  scrollSpecTargetIntoView(target);
+  state.spec.anchorHighlightTimer = window.setTimeout(() => {
+    target.classList.remove("is-spec-anchor-highlight");
+    state.spec.anchorHighlightTimer = null;
+  }, 2600);
+  setBanner("");
+}
+
 function formatRelativeTime(value) {
   if (!value) {
     return "";
@@ -3053,6 +3161,8 @@ function renderSpecFile() {
     ? renderMarkdownToHtml(state.spec.content)
     : `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
   state.spec.selectedQuote = "";
+  state.spec.activeAnchorCommentId = "";
+  clearSpecAnchorHighlight();
   renderSpecSelectedQuoteState();
 }
 
@@ -3084,7 +3194,7 @@ function renderSpecComments() {
   }
 
   specCommentsListElement.innerHTML = comments.map((comment) => `
-    <article class="spec-comment-card" data-comment-id="${escapeHtml(comment.id)}">
+    <article class="spec-comment-card ${state.spec.activeAnchorCommentId === comment.id ? "is-active-anchor" : ""}" data-comment-id="${escapeHtml(comment.id)}" title="Click to jump to anchor">
       <div class="spec-comment-header">
         <div>
           <strong>${escapeHtml(comment.kind)}</strong>
@@ -3781,11 +3891,13 @@ specCommentsListElement.addEventListener("submit", (event) => {
 
 specCommentsListElement.addEventListener("click", (event) => {
   const button = event.target instanceof Element ? event.target.closest("[data-comment-action]") : null;
-  if (!button) {
+  const commentCard = event.target instanceof Element ? event.target.closest("[data-comment-id]") : null;
+  if (!commentCard) {
     return;
   }
-  const commentCard = button.closest("[data-comment-id]");
-  if (!commentCard) {
+
+  if (!button) {
+    focusSpecCommentAnchor(commentCard.dataset.commentId);
     return;
   }
 
