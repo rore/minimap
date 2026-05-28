@@ -768,6 +768,84 @@ test("portable minimap package includes app, skills, and starter templates", asy
   }
 });
 
+test("self-contained spec-review skill runs when copied outside the repo", async () => {
+  const installRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-global-skill-"));
+  const workRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-work-repo-"));
+  const sourceSkill = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review");
+  const installedSkill = path.join(installRoot, "minimap-spec-review");
+  const specPath = path.join(workRoot, "feature-spec.md");
+
+  await fs.cp(sourceSkill, installedSkill, { recursive: true });
+  await fs.writeFile(specPath, "# Feature Spec\n\nThis spec needs review from multiple agents.\n", "utf8");
+
+  const env = { ...process.env, MINIMAP_HOME: path.join(workRoot, ".minimap-home") };
+  const cliPath = path.join(installedSkill, "scripts", "minimap.mjs");
+  const attach = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, "attach", "feature-spec.md", "--json"], {
+      cwd: workRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve(JSON.parse(stdout));
+        return;
+      }
+      reject(new Error(`Bundled CLI attach failed with ${code}\n${stdout}\n${stderr}`));
+    });
+  });
+
+  assert.equal(attach.targetFile, specPath.replaceAll("\\", "/"));
+
+  const serverPort = "4722";
+  const server = spawn(process.execPath, [path.join(installedSkill, "scripts", "start-server.mjs")], {
+    cwd: workRoot,
+    env: { ...env, PORT: serverPort },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      let output = "";
+      const timeout = setTimeout(() => reject(new Error(`Bundled server did not start. Output: ${output}`)), 5000);
+      server.stdout.on("data", (chunk) => {
+        output += String(chunk);
+        if (output.includes("Roadmap UI running")) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+      server.stderr.on("data", (chunk) => {
+        output += String(chunk);
+      });
+      server.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      server.on("exit", (code) => {
+        if (code !== null && code !== 0) {
+          clearTimeout(timeout);
+          reject(new Error(`Bundled server exited early with ${code}. Output: ${output}`));
+        }
+      });
+    });
+
+    const health = await fetch(`http://localhost:${serverPort}/health`);
+    assert.deepEqual(await health.json(), { ok: true });
+  } finally {
+    server.kill();
+  }
+});
+
 test("resolveMinimapHome supports test override and platform defaults", () => {
   assert.equal(resolveMinimapHome({ MINIMAP_HOME: "C:\\tmp\\mini" }, "win32"), path.resolve("C:\\tmp\\mini"));
   assert.equal(resolveMinimapHome({ LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" }, "win32"), path.join("C:\\Users\\me\\AppData\\Local", "minimap"));
