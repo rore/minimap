@@ -19,8 +19,10 @@ import {
   getFileSessionContext,
   getFileSessionFileContent,
   getFileSession,
+  applyFileSessionSuggestion,
   listFileSessions,
   moveFileSession,
+  previewFileSessionSuggestion,
   updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
@@ -226,6 +228,23 @@ async function handleApi(request, response, requestUrl) {
 
     const status = suggestionStatusMatch[2] === "accept" ? "accepted" : "rejected";
     const result = await updateFileSessionSuggestionStatus(body.file, decodeURIComponent(suggestionStatusMatch[1]), status, body, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  const suggestionPreviewApplyMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/(preview|apply)$/);
+  if (request.method === "POST" && suggestionPreviewApplyMatch) {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Suggestion preview/apply requires a file path.", 400, "bad_request");
+    }
+
+    const suggestionId = decodeURIComponent(suggestionPreviewApplyMatch[1]);
+    const result = suggestionPreviewApplyMatch[2] === "apply"
+      ? await applyFileSessionSuggestion(body.file, suggestionId, body, { cwd: repoRoot })
+      : await previewFileSessionSuggestion(body.file, suggestionId, { cwd: repoRoot });
     sendJson(response, 200, result);
     return true;
   }

@@ -23,6 +23,7 @@ import {
   addFileSessionComment,
   addFileSessionCommentReply,
   addFileSessionSuggestion,
+  applyFileSessionSuggestion,
   attachFileSession,
   createTextAnchor,
   getFileSessionContext,
@@ -30,6 +31,7 @@ import {
   listFileSessions,
   moveFileSession,
   parseMarkdownOutline,
+  previewFileSessionSuggestion,
   resolveTextAnchor,
   resolveMinimapHome,
   updateFileSessionCommentStatus,
@@ -1176,6 +1178,117 @@ test("file session suggestions reject invalid input and global anchors", async (
   );
 });
 
+test("file session suggestion preview and apply mutate only after explicit apply", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-suggestion-apply-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  const originalText = "# Feature\r\n\r\nOld line.\r\nKeep line.\r\n";
+  await fs.writeFile(specPath, originalText, "utf8");
+  await attachFileSession(specPath, { minimapHome });
+  const added = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "replace",
+    quote: "Old line.",
+    content: "New line.",
+    rationale: "Use the current wording.",
+  }, { minimapHome });
+
+  const preview = await previewFileSessionSuggestion(specPath, added.suggestion.id, { minimapHome });
+  assert.equal(preview.preview.kind, "replace");
+  assert.equal(preview.preview.before, "Old line.");
+  assert.equal(preview.preview.after, "New line.");
+  assert.match(preview.preview.diff, /-Old line\./);
+  assert.match(preview.preview.diff, /\+New line\./);
+  assert.equal(await fs.readFile(specPath, "utf8"), originalText);
+
+  const applied = await applyFileSessionSuggestion(specPath, added.suggestion.id, {
+    by: "human:local",
+  }, { minimapHome });
+  assert.equal(applied.suggestion.status, "applied");
+  assert.equal(applied.suggestion.statusBy, "human:local");
+  assert.equal(await fs.readFile(specPath, "utf8"), "# Feature\r\n\r\nNew line.\r\nKeep line.\r\n");
+
+  const context = await getFileSessionContext(specPath, { minimapHome });
+  assert.equal(context.suggestions[0].status, "applied");
+  assert.equal(context.suggestions[0].anchorStatus.status, "orphaned");
+  assert.match(context.session.contentHash, /^sha256:/);
+
+  await assert.rejects(
+    () => applyFileSessionSuggestion(specPath, added.suggestion.id, {
+      by: "human:local",
+    }, { minimapHome }),
+    (error) => error.code === "conflict",
+  );
+
+  const insert = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "insert_after",
+    quote: "Keep line.",
+    content: "\nNext line.\nMore.",
+  }, { minimapHome });
+  await applyFileSessionSuggestion(specPath, insert.suggestion.id, {
+    by: "human:local",
+  }, { minimapHome });
+  assert.equal(await fs.readFile(specPath, "utf8"), "# Feature\r\n\r\nNew line.\r\nKeep line.\r\nNext line.\r\nMore.\r\n");
+
+  const eventsPath = path.join(minimapHome, "sessions", context.session.id, "events.jsonl");
+  const events = (await fs.readFile(eventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  assert.equal(events.filter((event) => event.type === "suggestion_applied").length, 2);
+});
+
+test("file session suggestion preview blocks stale anchors and unsupported section edits", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-suggestion-preview-invalid-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nOld line.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+  const stale = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "delete",
+    quote: "Old line.",
+  }, { minimapHome });
+  await fs.writeFile(specPath, "# Feature\n\nChanged line.\n", "utf8");
+
+  await assert.rejects(
+    () => previewFileSessionSuggestion(specPath, stale.suggestion.id, { minimapHome }),
+    (error) => error.code === "anchor_orphaned",
+  );
+
+  const section = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "replace",
+    scope: "section",
+    headingPath: ["Feature"],
+    content: "# Better Feature",
+  }, { minimapHome });
+
+  await assert.rejects(
+    () => previewFileSessionSuggestion(specPath, section.suggestion.id, { minimapHome }),
+    (error) => error.code === "unsupported_suggestion_anchor",
+  );
+
+  const rejected = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "replace",
+    quote: "Changed line.",
+    content: "Better line.",
+  }, { minimapHome });
+  await updateFileSessionSuggestionStatus(specPath, rejected.suggestion.id, "rejected", {
+    by: "human:local",
+  }, { minimapHome });
+  await assert.rejects(
+    () => applyFileSessionSuggestion(specPath, rejected.suggestion.id, {
+      by: "human:local",
+    }, { minimapHome }),
+    (error) => error.code === "conflict",
+  );
+
+  const context = await getFileSessionContext(specPath, { minimapHome });
+  const eventsPath = path.join(minimapHome, "sessions", context.session.id, "events.jsonl");
+  const events = (await fs.readFile(eventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  assert.equal(events.some((event) => event.type === "suggestion_status_updated" && event.toStatus === "rejected"), true);
+});
+
 test("comment replies and status updates reject missing comments and missing actors", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-comment-thread-invalid-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
@@ -1427,6 +1540,35 @@ test("minimap CLI attaches files and returns JSON context", async () => {
   assert.equal(suggestionContextPayload.suggestions.length, 1);
   assert.equal(suggestionContextPayload.suggestions[0].content, "Specific Feature");
   assert.equal(await fs.readFile(path.join(repoRoot, "renamed.md"), "utf8"), "# Renamed\n");
+
+  const preview = await runCli([
+    "suggest",
+    "preview",
+    "renamed.md",
+    "sug_000001",
+    "--json",
+  ], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(preview.exitCode, 0, preview.stderr);
+  assert.match(JSON.parse(preview.stdout).preview.diff, /\+Specific Feature/);
+
+  const apply = await runCli([
+    "suggest",
+    "apply",
+    "renamed.md",
+    "sug_000001",
+    "--by",
+    "human:local",
+    "--json",
+  ], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(apply.exitCode, 0, apply.stderr);
+  assert.equal(JSON.parse(apply.stdout).suggestion.status, "applied");
+  assert.equal(await fs.readFile(path.join(repoRoot, "renamed.md"), "utf8"), "# Specific Feature\n");
 });
 
 

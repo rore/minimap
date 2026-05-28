@@ -4,10 +4,12 @@ import {
   addFileSessionSuggestion,
   addFileSessionComment,
   addFileSessionCommentReply,
+  applyFileSessionSuggestion,
   attachFileSession,
   getFileSessionContext,
   listFileSessions,
   moveFileSession,
+  previewFileSessionSuggestion,
   updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
@@ -42,6 +44,8 @@ function usage() {
   minimap suggest add <file> --by <actor> --kind <replace|insert_after|delete> --quote <text> --content <text> [--rationale <text>] [--json]
   minimap suggest accept <file> <suggestion-id> --by <actor> [--json]
   minimap suggest reject <file> <suggestion-id> --by <actor> [--json]
+  minimap suggest preview <file> <suggestion-id> [--json]
+  minimap suggest apply <file> <suggestion-id> --by <actor> [--json]
   minimap session list [--json]
   minimap session move <from-file> <to-file> [--json]
 `;
@@ -215,6 +219,26 @@ async function main(argv) {
     }
 
     process.stdout.write(`${subcommand === "accept" ? "Accepted" : "Rejected"} suggestion ${suggestionId}\n`);
+    return;
+  }
+
+  if (command === "suggest" && (subcommand === "preview" || subcommand === "apply")) {
+    const { flags, positional } = parseFlags(rest);
+    const file = requireFile(positional, `suggest ${subcommand}`);
+    const suggestionId = positional[1];
+    if (!suggestionId) {
+      throw new AppError(`suggest ${subcommand} requires a suggestion id.`, 400, "bad_request");
+    }
+
+    const result = subcommand === "apply"
+      ? await applyFileSessionSuggestion(file, suggestionId, { by: valueAfter(rest, "--by") })
+      : await previewFileSessionSuggestion(file, suggestionId);
+    if (flags.has("--json")) {
+      printJson(result);
+      return;
+    }
+
+    process.stdout.write(`${subcommand === "apply" ? "Applied" : "Previewed"} suggestion ${suggestionId}\n${result.preview.diff}\n`);
     return;
   }
 

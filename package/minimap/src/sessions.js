@@ -48,6 +48,14 @@ function hashText(value) {
   return `sha256:${crypto.createHash("sha256").update(String(value)).digest("hex")}`;
 }
 
+function detectLineEnding(text) {
+  return String(text).includes("\r\n") ? "\r\n" : "\n";
+}
+
+function normalizeSuggestionContent(content, lineEnding) {
+  return String(content || "").replace(/\r\n|\r|\n/g, lineEnding);
+}
+
 function slugifyBasename(filePath) {
   const parsed = path.parse(filePath);
   const source = parsed.name || parsed.base || "file";
@@ -444,6 +452,13 @@ function requireNonEmptyString(value, message) {
   return value.trim();
 }
 
+function requireNonBlankString(value, message) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new AppError(message, 400, "bad_request");
+  }
+  return value;
+}
+
 function validateCommentKind(kind) {
   const normalized = requireNonEmptyString(kind, "Comment kind is required.");
   if (!COMMENT_KINDS.has(normalized)) {
@@ -574,6 +589,19 @@ async function saveSuggestionMutation(paths, session, suggestions, timestamp) {
     ...session,
     lastActiveAt: timestamp,
   });
+}
+
+async function refreshSessionMetadataForTarget(session, targetPath, timestamp) {
+  const { buffer } = await readTextTarget(targetPath);
+  return {
+    ...session,
+    lastActiveAt: timestamp,
+    ...(await buildTargetMetadata(targetPath, buffer)),
+  };
+}
+
+async function appendSessionEvent(paths, event) {
+  await appendJsonLine(paths.eventsJsonl, event);
 }
 
 export function resolveMinimapHome(env = process.env, platform = process.platform) {
@@ -838,7 +866,7 @@ export async function addFileSessionSuggestion(filePath, input = {}, options = {
     kind,
     status: "pending",
     anchor: makeSuggestionAnchor(text, input),
-    content: kind === "delete" ? String(input.content || "") : requireNonEmptyString(input.content, "Suggestion content is required."),
+    content: kind === "delete" ? String(input.content || "") : requireNonBlankString(input.content, "Suggestion content is required."),
     rationale: typeof input.rationale === "string" ? input.rationale.trim() : "",
     confidence: typeof input.confidence === "string" ? input.confidence.trim() : "",
     createdAt: timestamp,
@@ -866,6 +894,7 @@ export async function updateFileSessionSuggestionStatus(filePath, suggestionId, 
   }
 
   const timestamp = nowIso();
+  const previousStatus = suggestions[index].status;
   const suggestion = {
     ...suggestions[index],
     status: validateSuggestionStatus(status),
@@ -874,9 +903,194 @@ export async function updateFileSessionSuggestionStatus(filePath, suggestionId, 
   };
   suggestions[index] = suggestion;
   await saveSuggestionMutation(paths, session, suggestions, timestamp);
+  await appendSessionEvent(paths, {
+    type: "suggestion_status_updated",
+    suggestionId,
+    fromStatus: previousStatus,
+    toStatus: suggestion.status,
+    by: suggestion.statusBy,
+    createdAt: timestamp,
+  });
 
   return {
     suggestion: withSuggestionAnchorStatus(suggestion, text),
+  };
+}
+
+function findQuoteRangeForSuggestion(text, suggestion, resolved) {
+  const quote = String(suggestion.anchor?.quote || "");
+  if (!quote) {
+    throw new AppError("Suggestion preview requires a quote anchor for this edit.", 422, "unsupported_suggestion_anchor");
+  }
+
+  const matches = findQuoteOccurrences(text, quote).filter((occurrence) => (
+    !resolved.lineStart || (occurrence.lineStart === resolved.lineStart && occurrence.lineEnd === resolved.lineEnd)
+  ));
+
+  if (matches.length !== 1) {
+    throw new AppError("Suggestion anchor no longer resolves to one quote.", 422, matches.length === 0 ? "anchor_orphaned" : "anchor_ambiguous");
+  }
+
+  return {
+    start: matches[0].offset,
+    end: matches[0].offset + quote.length,
+    before: quote,
+  };
+}
+
+function headingLineRangeForSuggestion(text, suggestion, resolved) {
+  if (suggestion.anchor?.scope !== "section" || !resolved.lineStart) {
+    throw new AppError("Suggestion preview requires a quote anchor for this edit.", 422, "unsupported_suggestion_anchor");
+  }
+
+  const lines = splitLinesPreserveText(text);
+  const lineEnding = detectLineEnding(text);
+  const previousLines = lines.slice(0, resolved.lineStart - 1);
+  const start = previousLines.length === 0 ? 0 : previousLines.join(lineEnding).length + lineEnding.length;
+  const lineText = lines[resolved.lineStart - 1] || "";
+  return {
+    start,
+    end: start + lineText.length,
+    before: lineText,
+  };
+}
+
+function buildSuggestionEdit(text, suggestion) {
+  const resolved = resolveTextAnchor(text, suggestion.anchor);
+  if (resolved.status !== "resolved") {
+    throw new AppError(`Suggestion anchor is ${resolved.status}.`, 422, resolved.status === "ambiguous" ? "anchor_ambiguous" : "anchor_orphaned");
+  }
+
+  if (suggestion.anchor?.scope === "section" && suggestion.kind !== "insert_after") {
+    throw new AppError("Only insert_after is supported for section suggestions.", 422, "unsupported_suggestion_anchor");
+  }
+
+  const content = normalizeSuggestionContent(suggestion.content, detectLineEnding(text));
+  const range = suggestion.anchor?.scope === "section"
+    ? headingLineRangeForSuggestion(text, suggestion, resolved)
+    : findQuoteRangeForSuggestion(text, suggestion, resolved);
+
+  if (suggestion.kind === "replace") {
+    return {
+      resolved,
+      before: range.before,
+      after: content,
+      nextText: `${text.slice(0, range.start)}${content}${text.slice(range.end)}`,
+    };
+  }
+
+  if (suggestion.kind === "delete") {
+    return {
+      resolved,
+      before: range.before,
+      after: "",
+      nextText: `${text.slice(0, range.start)}${text.slice(range.end)}`,
+    };
+  }
+
+  if (suggestion.kind === "insert_after") {
+    return {
+      resolved,
+      before: "",
+      after: content,
+      nextText: `${text.slice(0, range.end)}${content}${text.slice(range.end)}`,
+    };
+  }
+
+  throw new AppError(`Unsupported suggestion kind: ${suggestion.kind}`, 400, "bad_request");
+}
+
+function buildSuggestionDiff(before, after) {
+  const beforeLines = splitLinesPreserveText(before);
+  const afterLines = splitLinesPreserveText(after);
+  return [
+    ...beforeLines.filter((line) => line !== "").map((line) => `-${line}`),
+    ...afterLines.filter((line) => line !== "").map((line) => `+${line}`),
+  ].join("\n");
+}
+
+export async function previewFileSessionSuggestion(filePath, suggestionId, options = {}) {
+  const { text, suggestions } = await loadSuggestionState(filePath, options);
+  const index = findSuggestionIndex(suggestions, suggestionId);
+
+  if (index === -1) {
+    throw new AppError(`Suggestion was not found: ${suggestionId}`, 404, "not_found");
+  }
+
+  const suggestion = suggestions[index];
+  const edit = buildSuggestionEdit(text, suggestion);
+
+  return {
+    suggestion: withSuggestionAnchorStatus(suggestion, text),
+    preview: {
+      kind: suggestion.kind,
+      before: edit.before,
+      after: edit.after,
+      diff: buildSuggestionDiff(edit.before, edit.after),
+      anchorStatus: edit.resolved,
+      willChange: edit.nextText !== text,
+    },
+  };
+}
+
+export async function applyFileSessionSuggestion(filePath, suggestionId, input = {}, options = {}) {
+  const { session, paths, text, suggestions } = await loadSuggestionState(filePath, options);
+  const index = findSuggestionIndex(suggestions, suggestionId);
+
+  if (index === -1) {
+    throw new AppError(`Suggestion was not found: ${suggestionId}`, 404, "not_found");
+  }
+
+  const actor = requireNonEmptyString(input.by, "Suggestion apply actor is required.");
+  const suggestion = suggestions[index];
+  if (suggestion.status === "applied") {
+    throw new AppError(`Suggestion is already applied: ${suggestionId}`, 409, "conflict");
+  }
+  if (suggestion.status === "rejected" || suggestion.status === "stale") {
+    throw new AppError(`Suggestion cannot be applied from status ${suggestion.status}: ${suggestionId}`, 409, "conflict");
+  }
+
+  const edit = buildSuggestionEdit(text, suggestion);
+  const timestamp = nowIso();
+  const targetPath = path.resolve(session.targetFile);
+  const beforeHash = hashText(text);
+  const afterHash = hashText(edit.nextText);
+
+  await fs.writeFile(targetPath, edit.nextText, "utf8");
+
+  const appliedSuggestion = {
+    ...suggestion,
+    status: "applied",
+    statusBy: actor,
+    appliedBy: actor,
+    appliedAt: timestamp,
+    updatedAt: timestamp,
+    beforeHash,
+    afterHash,
+  };
+  suggestions[index] = appliedSuggestion;
+  const refreshedSession = await refreshSessionMetadataForTarget(session, targetPath, timestamp);
+  await writeJsonLines(paths.suggestionsJsonl, suggestions);
+  await writeJson(paths.sessionJson, refreshedSession);
+  await appendSessionEvent(paths, {
+    type: "suggestion_applied",
+    suggestionId,
+    by: actor,
+    beforeHash,
+    afterHash,
+    createdAt: timestamp,
+  });
+
+  return {
+    suggestion: withSuggestionAnchorStatus(appliedSuggestion, edit.nextText),
+    preview: {
+      kind: suggestion.kind,
+      before: edit.before,
+      after: edit.after,
+      diff: buildSuggestionDiff(edit.before, edit.after),
+      anchorStatus: edit.resolved,
+      willChange: edit.nextText !== text,
+    },
   };
 }
 
