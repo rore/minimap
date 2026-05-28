@@ -1,9 +1,14 @@
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
 const SCOPE_WIDTH_STORAGE_KEY = "roadmap-ui.scope-width";
+const SPEC_FILES_COLLAPSED_STORAGE_KEY = "spec-sessions.files-collapsed";
+const SPEC_COMMENTS_WIDTH_STORAGE_KEY = "spec-sessions.comments-width";
 const DEFAULT_SCOPE_WIDTH = 272;
 const MIN_SCOPE_WIDTH = 240;
 const MAX_SCOPE_WIDTH = 440;
+const DEFAULT_SPEC_COMMENTS_WIDTH = 340;
+const MIN_SPEC_COMMENTS_WIDTH = 260;
+const MAX_SPEC_COMMENTS_WIDTH = 1200;
 const DEFAULT_LENS_KEY = "board";
 const DEFAULT_BOARD_LAYOUT = "list";
 const BOARD_LAYOUTS = new Set(["list", "columns"]);
@@ -12,6 +17,7 @@ const UNASSIGNED_GROUP_LABEL = "Unassigned";
 const EDITOR_MODES = new Set(["preview", "structured", "raw"]);
 
 const state = {
+  appMode: "roadmap",
   workspace: null,
   setupState: null,
   selectedItemId: null,
@@ -37,8 +43,41 @@ const state = {
   scopeEditMode: false,
   scopeDraft: "",
   scopeDirty: false,
+  spec: {
+    sessions: [],
+    selectedPath: "",
+    context: null,
+    content: "",
+    commentComposerOpen: false,
+    replyComposerCommentId: "",
+    filesCollapsed: loadStoredSpecFilesPreference(),
+    commentsWidth: loadStoredSpecCommentsWidth(),
+    resizingComments: false,
+  },
 };
 
+const roadmapModeButton = document.querySelector("#roadmap-mode-button");
+const specModeButton = document.querySelector("#spec-mode-button");
+const specWorkbenchElement = document.querySelector("#spec-workbench");
+const specFilesToggleButton = document.querySelector("#spec-files-toggle");
+const specAttachForm = document.querySelector("#spec-attach-form");
+const specAttachPathInput = document.querySelector("#spec-attach-path");
+const specSessionListElement = document.querySelector("#spec-session-list");
+const specFileTitleElement = document.querySelector("#spec-file-title");
+const specFileSubtitleElement = document.querySelector("#spec-file-subtitle");
+const specFileContentElement = document.querySelector("#spec-file-content");
+const specRefreshButton = document.querySelector("#spec-refresh-button");
+const specCommentsResizerElement = document.querySelector("#spec-comments-resizer");
+const specCommentsSubtitleElement = document.querySelector("#spec-comments-subtitle");
+const specNewCommentButton = document.querySelector("#spec-new-comment-button");
+const specCommentForm = document.querySelector("#spec-comment-form");
+const specCommentCancelButton = document.querySelector("#spec-comment-cancel-button");
+const specCommentByInput = document.querySelector("#spec-comment-by");
+const specCommentKindInput = document.querySelector("#spec-comment-kind");
+const specCommentAnchorInput = document.querySelector("#spec-comment-anchor");
+const specCommentTextInput = document.querySelector("#spec-comment-text");
+const specCommentGlobalInput = document.querySelector("#spec-comment-global");
+const specCommentsListElement = document.querySelector("#spec-comments-list");
 const layoutElement = document.querySelector("#layout-shell");
 const boardPanelElement = document.querySelector("#board-panel");
 const boardControlsElement = document.querySelector("#board-controls");
@@ -69,6 +108,8 @@ const jumpToEditorButton = document.querySelector("#jump-to-editor");
 const roadmapPathElement = document.querySelector("#roadmap-path");
 const workspaceSummaryElement = document.querySelector("#workspace-summary");
 const repoNameElement = document.querySelector("#repo-name");
+const modeTitleElement = document.querySelector("#mode-title");
+const modeEyebrowElement = document.querySelector("#mode-eyebrow");
 const editorTitleElement = document.querySelector("#editor-title");
 const editorSubtitleElement = document.querySelector("#editor-subtitle");
 const editorPanelElement = document.querySelector("#editor-panel");
@@ -135,6 +176,44 @@ function loadStoredScopeWidth() {
 function persistScopeWidth() {
   try {
     window.localStorage.setItem(SCOPE_WIDTH_STORAGE_KEY, String(state.scopeWidth));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function loadStoredSpecFilesPreference() {
+  try {
+    const stored = window.localStorage.getItem(SPEC_FILES_COLLAPSED_STORAGE_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
+
+function persistSpecFilesPreference() {
+  try {
+    window.localStorage.setItem(SPEC_FILES_COLLAPSED_STORAGE_KEY, String(state.spec.filesCollapsed));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function clampSpecCommentsWidth(width) {
+  return Math.max(MIN_SPEC_COMMENTS_WIDTH, Math.min(MAX_SPEC_COMMENTS_WIDTH, Math.round(width)));
+}
+
+function loadStoredSpecCommentsWidth() {
+  try {
+    const rawValue = Number(window.localStorage.getItem(SPEC_COMMENTS_WIDTH_STORAGE_KEY));
+    return Number.isFinite(rawValue) && rawValue > 0 ? clampSpecCommentsWidth(rawValue) : DEFAULT_SPEC_COMMENTS_WIDTH;
+  } catch {
+    return DEFAULT_SPEC_COMMENTS_WIDTH;
+  }
+}
+
+function persistSpecCommentsWidth() {
+  try {
+    window.localStorage.setItem(SPEC_COMMENTS_WIDTH_STORAGE_KEY, String(state.spec.commentsWidth));
   } catch {
     // Ignore storage failures.
   }
@@ -1008,6 +1087,8 @@ function readRouteState() {
   const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
   const params = new URLSearchParams(rawHash);
   return {
+    view: params.get("view") || "roadmap",
+    specFile: params.get("file") || "",
     itemId: params.get("item") || "",
     mode: normalizeEditorMode(params.get("mode") || "preview"),
     lens: params.get("lens") || DEFAULT_LENS_KEY,
@@ -1019,6 +1100,15 @@ function readRouteState() {
 
 function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) {
   const params = new URLSearchParams();
+
+  if (state.appMode === "spec") {
+    params.set("view", "spec");
+    if (state.spec.selectedPath) {
+      params.set("file", state.spec.selectedPath);
+    }
+    return `#${params.toString()}`;
+  }
+
   const persistSelectedItem = !shouldUseEditorOverlay() || state.editorOverlayOpen;
 
   if (persistSelectedItem && itemId) {
@@ -1400,6 +1490,7 @@ function syncWorkspaceChrome() {
   renderEditorPresentation();
   renderSetupView();
   syncMobileNavigation();
+  applyAppMode();
 }
 
 function toggleScopePanel() {
@@ -1410,6 +1501,48 @@ function toggleScopePanel() {
   state.scopeCollapsed = !state.scopeCollapsed;
   persistScopePreference();
   renderScopeChrome();
+}
+
+function toggleSpecFilesPanel() {
+  state.spec.filesCollapsed = !state.spec.filesCollapsed;
+  persistSpecFilesPreference();
+  applyAppMode();
+}
+
+function beginSpecCommentsResize(event) {
+  if (isStackedLayout()) {
+    return;
+  }
+
+  state.spec.resizingComments = true;
+  applyAppMode();
+  specCommentsResizerElement.setPointerCapture(event.pointerId);
+}
+
+function updateSpecCommentsResize(event) {
+  if (!state.spec.resizingComments) {
+    return;
+  }
+
+  const workbenchRect = specWorkbenchElement.getBoundingClientRect();
+  const availableWidth = Math.max(MIN_SPEC_COMMENTS_WIDTH, workbenchRect.width - (state.spec.filesCollapsed ? 32 : 260) - 24);
+  state.spec.commentsWidth = Math.min(clampSpecCommentsWidth(workbenchRect.right - event.clientX - 8), availableWidth);
+  applyAppMode();
+}
+
+function endSpecCommentsResize(event) {
+  if (!state.spec.resizingComments) {
+    return;
+  }
+
+  state.spec.resizingComments = false;
+  persistSpecCommentsWidth();
+  applyAppMode();
+  try {
+    specCommentsResizerElement.releasePointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture may already be released.
+  }
 }
 
 function beginScopeResize(event) {
@@ -2754,6 +2887,273 @@ async function fetchJson(url, options = {}) {
   return payload;
 }
 
+function specPathParam(filePath) {
+  return encodeURIComponent(filePath || state.spec.selectedPath || "");
+}
+
+function headingPathFromInput(value) {
+  return String(value || "").split(">").map((part) => part.trim()).filter(Boolean);
+}
+
+function formatRelativeTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function applyAppMode() {
+  const specMode = state.appMode === "spec";
+  document.body.dataset.appMode = state.appMode;
+  document.body.classList.toggle("is-resizing-spec-comments", state.spec.resizingComments);
+  layoutElement.hidden = specMode;
+  specWorkbenchElement.hidden = !specMode;
+  specWorkbenchElement.dataset.filesCollapsed = String(state.spec.filesCollapsed);
+  specWorkbenchElement.style.setProperty("--spec-comments-width", `${state.spec.commentsWidth}px`);
+  specFilesToggleButton.textContent = state.spec.filesCollapsed ? "Files" : "Collapse";
+  specFilesToggleButton.setAttribute("aria-expanded", state.spec.filesCollapsed ? "false" : "true");
+  roadmapModeButton.classList.toggle("is-active", !specMode);
+  specModeButton.classList.toggle("is-active", specMode);
+  roadmapModeButton.setAttribute("aria-selected", specMode ? "false" : "true");
+  specModeButton.setAttribute("aria-selected", specMode ? "true" : "false");
+  roadmapPathElement.hidden = specMode;
+  workspaceSummaryElement.hidden = specMode;
+  repoNameElement.hidden = specMode;
+  modeEyebrowElement.textContent = specMode ? "Local spec review workspace" : "Repo-local roadmap workspace";
+  modeTitleElement.textContent = specMode ? "Spec Sessions" : "Roadmap";
+}
+
+function renderSpecSessions() {
+  if (!state.spec.sessions.length) {
+    specSessionListElement.innerHTML = '<p class="spec-empty-inline">No attached files yet.</p>';
+    return;
+  }
+
+  specSessionListElement.innerHTML = state.spec.sessions.map((session) => {
+    const active = session.targetFile === state.spec.selectedPath;
+    return `
+      <button class="spec-session-row ${active ? "is-active" : ""}" type="button" data-spec-session-path="${escapeHtml(session.targetFile)}">
+        <span class="spec-session-title">${escapeHtml(session.title || session.targetFile)}</span>
+        <span class="spec-session-path">${escapeHtml(session.relativePath || session.targetFile)}</span>
+        <span class="spec-session-time">${escapeHtml(formatRelativeTime(session.lastActiveAt))}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderSpecFile() {
+  const context = state.spec.context;
+  if (!context) {
+    specFileTitleElement.textContent = "File";
+    specFileSubtitleElement.textContent = "Attach or choose a spec session.";
+    specFileContentElement.className = "spec-file-content spec-empty";
+    specFileContentElement.textContent = "No spec session selected.";
+    specCommentsSubtitleElement.textContent = "Discussion around the selected file";
+    return;
+  }
+
+  specFileTitleElement.textContent = context.session.title || "File";
+  specFileSubtitleElement.textContent = context.session.relativePath || context.session.targetFile;
+  specCommentsSubtitleElement.textContent = `${context.comments.length} comment${context.comments.length === 1 ? "" : "s"}`;
+  specFileContentElement.className = context.session.markdown ? "spec-file-content preview-surface spec-markdown-file" : "spec-file-content spec-plain-file";
+  specFileContentElement.innerHTML = context.session.markdown
+    ? renderMarkdownToHtml(state.spec.content)
+    : `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
+}
+
+function anchorLabel(comment) {
+  const anchor = comment.anchor || {};
+  if (anchor.scope === "global") {
+    return "Global";
+  }
+  if (anchor.scope === "section") {
+    return `Section: ${(anchor.headingPath || []).join(" > ")}`;
+  }
+  return anchor.quote ? `Quote: ${anchor.quote}` : "Anchor";
+}
+
+function renderSpecComments() {
+  const comments = state.spec.context?.comments || [];
+  if (!state.spec.context) {
+    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">Choose a spec session to review comments.</p>';
+    specCommentForm.hidden = true;
+    specNewCommentButton.disabled = true;
+    return;
+  }
+
+  specNewCommentButton.disabled = false;
+  specCommentForm.hidden = !state.spec.commentComposerOpen;
+  if (!comments.length) {
+    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">No comments yet.</p>';
+    return;
+  }
+
+  specCommentsListElement.innerHTML = comments.map((comment) => `
+    <article class="spec-comment-card" data-comment-id="${escapeHtml(comment.id)}">
+      <div class="spec-comment-header">
+        <div>
+          <strong>${escapeHtml(comment.kind)}</strong>
+          <span class="muted">${escapeHtml(comment.by)}</span>
+        </div>
+        <span class="badge ${comment.status === "resolved" ? "badge-tone-status-done" : "badge-tone-status-queued"}">${escapeHtml(comment.status)}</span>
+      </div>
+      <p class="spec-comment-anchor">${escapeHtml(anchorLabel(comment))}</p>
+      <p class="spec-comment-text">${escapeHtml(comment.text)}</p>
+      <p class="spec-comment-status muted">${escapeHtml(comment.anchorStatus?.status || "")}${comment.anchorStatus?.strategy ? ` via ${escapeHtml(comment.anchorStatus.strategy)}` : ""}</p>
+      ${(comment.replies || []).map((reply) => `
+        <div class="spec-reply">
+          <strong>${escapeHtml(reply.by)}</strong>
+          <p>${escapeHtml(reply.text)}</p>
+        </div>
+      `).join("")}
+      ${state.spec.replyComposerCommentId === comment.id ? `
+        <form class="spec-reply-form" data-comment-id="${escapeHtml(comment.id)}">
+          <textarea rows="2" placeholder="Reply"></textarea>
+          <div class="spec-comment-actions">
+            <button class="ghost-button" type="button" data-comment-action="cancel-reply">Cancel</button>
+            <button class="ghost-button" type="submit">Send</button>
+          </div>
+        </form>
+      ` : `
+        <div class="spec-comment-actions">
+          <button class="ghost-button" type="button" data-comment-action="reply">Reply</button>
+          <button class="ghost-button" type="button" data-comment-action="${comment.status === "resolved" ? "reopen" : "resolve"}">${comment.status === "resolved" ? "Reopen" : "Resolve"}</button>
+        </div>
+      `}
+    </article>
+  `).join("");
+}
+
+async function loadSpecSessions(options = {}) {
+  const payload = await fetchJson("/api/spec-sessions");
+  state.spec.sessions = payload.sessions || [];
+  if (!state.spec.selectedPath && state.spec.sessions.length > 0) {
+    state.spec.selectedPath = state.spec.sessions[0].targetFile;
+  }
+  renderSpecSessions();
+  applyAppMode();
+
+  if (state.spec.selectedPath && options.loadSelected !== false) {
+    await loadSpecSession(state.spec.selectedPath);
+  } else {
+    renderSpecFile();
+    renderSpecComments();
+  }
+}
+
+async function loadSpecSession(filePath) {
+  state.spec.selectedPath = filePath;
+  const context = await fetchJson(`/api/spec-sessions/by-file/context?path=${specPathParam(filePath)}`);
+  const content = await fetchJson(`/api/spec-sessions/by-file/content?path=${specPathParam(filePath)}`);
+  state.spec.context = context;
+  state.spec.content = content.content || "";
+  renderSpecSessions();
+  renderSpecFile();
+  renderSpecComments();
+  setBanner("");
+  syncRouteState({ replace: true });
+}
+
+async function attachSpecSession(filePath) {
+  const result = await fetchJson("/api/spec-sessions/attach", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file: filePath }),
+  });
+  state.spec.selectedPath = result.session.targetFile;
+  await loadSpecSessions();
+  syncRouteState({ replace: true });
+  setBanner(result.created ? "Spec session attached." : "Spec session reopened.", "success");
+}
+
+async function addSpecComment() {
+  if (!state.spec.selectedPath) {
+    return;
+  }
+  const anchorValue = specCommentAnchorInput.value.trim();
+  const global = specCommentGlobalInput.checked || !anchorValue;
+  const body = {
+    file: state.spec.selectedPath,
+    by: specCommentByInput.value,
+    kind: specCommentKindInput.value,
+    text: specCommentTextInput.value,
+  };
+
+  if (global) {
+    body.scope = "global";
+  } else if (anchorValue.includes(">")) {
+    body.scope = "section";
+    body.headingPath = headingPathFromInput(anchorValue);
+  } else {
+    body.quote = anchorValue;
+  }
+
+  await fetchJson("/api/spec-sessions/by-file/comments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  state.spec.commentComposerOpen = false;
+  specCommentAnchorInput.value = "";
+  specCommentTextInput.value = "";
+  await loadSpecSession(state.spec.selectedPath);
+  setBanner("Comment added.", "success");
+}
+
+async function replyToSpecComment(commentId, text) {
+  await fetchJson(`/api/spec-sessions/by-file/comments/${encodeURIComponent(commentId)}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file: state.spec.selectedPath,
+      by: specCommentByInput.value || "human:local",
+      text,
+    }),
+  });
+  state.spec.replyComposerCommentId = "";
+  await loadSpecSession(state.spec.selectedPath);
+  setBanner("Reply added.", "success");
+}
+
+async function setSpecCommentStatus(commentId, action) {
+  await fetchJson(`/api/spec-sessions/by-file/comments/${encodeURIComponent(commentId)}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file: state.spec.selectedPath,
+      by: specCommentByInput.value || "human:local",
+    }),
+  });
+  await loadSpecSession(state.spec.selectedPath);
+  setBanner(action === "resolve" ? "Comment resolved." : "Comment reopened.", "success");
+}
+
+async function switchAppMode(nextMode) {
+  state.appMode = nextMode;
+  applyAppMode();
+  if (nextMode === "spec") {
+    try {
+      await loadSpecSessions();
+      syncRouteState({ replace: true });
+    } catch (error) {
+      setBanner(error.message, "error");
+    }
+    return;
+  }
+
+  syncWorkspaceChrome();
+  syncRouteState({ replace: true });
+}
+
 function resetAncillaryEditModes() {
   state.boardEditMode = false;
   state.boardDraft = null;
@@ -2822,6 +3222,16 @@ async function syncVisibleSelection(options = {}) {
 
 async function applyRouteStateFromLocation() {
   const route = readRouteState();
+  if (route.view === "spec") {
+    state.appMode = "spec";
+    state.spec.selectedPath = route.specFile || state.spec.selectedPath;
+    applyAppMode();
+    await loadSpecSessions({ loadSelected: Boolean(state.spec.selectedPath) });
+    return;
+  }
+
+  state.appMode = "roadmap";
+  applyAppMode();
   state.activeLens = normalizeLensKey(route.lens);
   state.boardLayout = normalizeBoardLayout(route.layout);
   state.editorOverlayOpen = route.layout === "columns" && Boolean(route.itemId);
@@ -3173,9 +3583,125 @@ saveButton.addEventListener("click", () => {
 });
 
 refreshButton.addEventListener("click", () => {
+  if (state.appMode === "spec") {
+    void loadSpecSessions();
+    return;
+  }
+
   void loadWorkspace(state.selectedItemId, {
     forceReloadItem: Boolean(state.selectedItemId),
     replaceRoute: true,
+  });
+});
+
+roadmapModeButton.addEventListener("click", () => {
+  void switchAppMode("roadmap");
+});
+
+specModeButton.addEventListener("click", () => {
+  void switchAppMode("spec");
+});
+
+specRefreshButton.addEventListener("click", () => {
+  void loadSpecSessions();
+});
+
+specFilesToggleButton.addEventListener("click", () => {
+  toggleSpecFilesPanel();
+});
+
+specCommentsResizerElement.addEventListener("pointerdown", beginSpecCommentsResize);
+specCommentsResizerElement.addEventListener("pointermove", updateSpecCommentsResize);
+specCommentsResizerElement.addEventListener("pointerup", endSpecCommentsResize);
+specCommentsResizerElement.addEventListener("pointercancel", endSpecCommentsResize);
+
+specNewCommentButton.addEventListener("click", () => {
+  if (!state.spec.context) {
+    return;
+  }
+  state.spec.commentComposerOpen = true;
+  renderSpecComments();
+  specCommentTextInput.focus();
+});
+
+specCommentCancelButton.addEventListener("click", () => {
+  state.spec.commentComposerOpen = false;
+  specCommentTextInput.value = "";
+  specCommentAnchorInput.value = "";
+  renderSpecComments();
+});
+
+specAttachForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const filePath = specAttachPathInput.value.trim();
+  if (!filePath) {
+    setBanner("Enter a file path to attach.", "error");
+    return;
+  }
+  void attachSpecSession(filePath).catch((error) => {
+    setBanner(error.message, "error");
+  });
+});
+
+specSessionListElement.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-spec-session-path]") : null;
+  if (!target) {
+    return;
+  }
+  void loadSpecSession(target.dataset.specSessionPath).catch((error) => {
+    setBanner(error.message, "error");
+  });
+});
+
+specCommentForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void addSpecComment().catch((error) => {
+    setBanner(error.message, "error");
+  });
+});
+
+specCommentsListElement.addEventListener("submit", (event) => {
+  const formElement = event.target instanceof HTMLFormElement ? event.target : null;
+  if (!formElement?.classList.contains("spec-reply-form")) {
+    return;
+  }
+  event.preventDefault();
+  const textarea = formElement.querySelector("textarea");
+  const text = textarea?.value.trim() || "";
+  if (!text) {
+    setBanner("Reply text is required.", "error");
+    return;
+  }
+  void replyToSpecComment(formElement.dataset.commentId, text).catch((error) => {
+    setBanner(error.message, "error");
+  });
+});
+
+specCommentsListElement.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-comment-action]") : null;
+  if (!button) {
+    return;
+  }
+  const commentCard = button.closest("[data-comment-id]");
+  if (!commentCard) {
+    return;
+  }
+
+  if (button.dataset.commentAction === "reply") {
+    state.spec.replyComposerCommentId = commentCard.dataset.commentId;
+    renderSpecComments();
+    commentCard.querySelector("textarea")?.focus();
+    return;
+  }
+
+  if (button.dataset.commentAction === "cancel-reply") {
+    state.spec.replyComposerCommentId = "";
+    renderSpecComments();
+    return;
+  }
+
+  void setSpecCommentStatus(commentCard.dataset.commentId, button.dataset.commentAction).catch((error) => {
+    setBanner(error.message, "error");
   });
 });
 
@@ -3372,6 +3898,9 @@ stackedLayoutMedia.addEventListener("change", () => {
 });
 resetEditor();
 const initialRoute = readRouteState();
+state.appMode = initialRoute.view === "spec" ? "spec" : "roadmap";
+state.spec.selectedPath = initialRoute.specFile;
+applyAppMode();
 state.activeLens = initialRoute.lens;
 state.boardLayout = initialRoute.layout;
 state.editorMode = initialRoute.mode;
@@ -3380,12 +3909,17 @@ state.activeFilters = initialRoute.filters;
 state.filtersExpanded = Object.keys(initialRoute.filters).length > 0;
 renderScopeChrome();
 applyEditorMode();
-void loadWorkspace(initialRoute.itemId || state.selectedItemId, {
+void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state.selectedItemId), {
   preferredLens: initialRoute.lens,
   preferredLayout: initialRoute.layout,
   preferredMode: initialRoute.mode,
   syncRoute: false,
 }).then(() => {
+  if (initialRoute.view === "spec") {
+    void loadSpecSessions({ loadSelected: Boolean(initialRoute.specFile) });
+    return;
+  }
+
   if (initialRoute.itemId || initialRoute.mode !== "preview" || initialRoute.lens !== DEFAULT_LENS_KEY || initialRoute.layout !== DEFAULT_BOARD_LAYOUT || initialRoute.query || Object.keys(initialRoute.filters).length > 0) {
     void applyRouteStateFromLocation();
     return;

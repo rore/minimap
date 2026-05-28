@@ -19,6 +19,20 @@ import {
   serializeBoard,
   serializeItem,
 } from "../package/minimap/src/roadmap.js";
+import {
+  addFileSessionComment,
+  addFileSessionCommentReply,
+  attachFileSession,
+  createTextAnchor,
+  getFileSessionContext,
+  getFileSessionFileContent,
+  listFileSessions,
+  moveFileSession,
+  parseMarkdownOutline,
+  resolveTextAnchor,
+  resolveMinimapHome,
+  updateFileSessionCommentStatus,
+} from "../package/minimap/src/sessions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -115,6 +129,29 @@ async function makeTempRepo() {
 
 async function makeEmptyRepo() {
   return fs.mkdtemp(path.join(os.tmpdir(), "roadmap-ui-empty-"));
+}
+
+async function runCli(args, options = {}) {
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "cli.js"), ...args], {
+    cwd: options.cwd || projectRoot,
+    env: { ...process.env, ...(options.env || {}) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += String(chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+
+  const exitCode = await new Promise((resolve) => {
+    child.on("exit", resolve);
+  });
+
+  return { exitCode, stdout, stderr };
 }
 
 
@@ -469,6 +506,149 @@ test("server endpoints return workspace and allow board, scope, structured, and 
   }
 });
 
+test("server exposes global spec-session attach, list, and context APIs", async () => {
+  const repoRoot = await makeEmptyRepo();
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-api-home-"));
+  const specPath = path.join(repoRoot, "feature-spec.md");
+  const originalText = "# Feature Spec\n\nServer API spec.\n";
+  await fs.writeFile(specPath, originalText, "utf8");
+
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4612", MINIMAP_HOME: minimapHome },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4612")) {
+        clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.stderr.off("data", onErrorData);
+        child.off("exit", onExit);
+        resolve();
+      }
+    };
+    const onErrorData = (chunk) => {
+      clearTimeout(timeout);
+      reject(new Error(String(chunk)));
+    };
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited early with code ${code}.`));
+    };
+
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onErrorData);
+    child.on("exit", onExit);
+  });
+
+  try {
+    const attachResponse = await fetch("http://localhost:4612/api/spec-sessions/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: "feature-spec.md" }),
+    });
+    assert.equal(attachResponse.status, 200);
+    const attachPayload = await attachResponse.json();
+    assert.equal(attachPayload.created, true);
+    assert.equal(attachPayload.session.targetFile, specPath.replaceAll("\\", "/"));
+    assert.equal(attachPayload.session.markdown, true);
+
+    const contextUrl = new URL("http://localhost:4612/api/spec-sessions/by-file/context");
+    contextUrl.searchParams.set("path", "feature-spec.md");
+    const contextResponse = await fetch(contextUrl);
+    assert.equal(contextResponse.status, 200);
+    const contextPayload = await contextResponse.json();
+    assert.equal(contextPayload.session.id, attachPayload.session.id);
+    assert.equal(Object.hasOwn(contextPayload, "content"), false);
+    assert.deepEqual(contextPayload.outline, [
+      { level: 1, title: "Feature Spec", headingPath: ["Feature Spec"], lineStart: 1 },
+    ]);
+    assert.deepEqual(contextPayload.comments, []);
+    assert.deepEqual(contextPayload.suggestions, []);
+
+    const listResponse = await fetch("http://localhost:4612/api/spec-sessions");
+    assert.equal(listResponse.status, 200);
+    const listPayload = await listResponse.json();
+    assert.equal(listPayload.sessions.length, 1);
+    assert.equal(listPayload.sessions[0].id, attachPayload.session.id);
+
+    const movedPath = path.join(repoRoot, "renamed-spec.md");
+    await fs.writeFile(movedPath, "# Renamed Spec\n", "utf8");
+    const moveResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "feature-spec.md", to: "renamed-spec.md" }),
+    });
+    assert.equal(moveResponse.status, 200);
+    const movePayload = await moveResponse.json();
+    assert.equal(movePayload.session.id, attachPayload.session.id);
+    assert.equal(movePayload.session.targetFile, movedPath.replaceAll("\\", "/"));
+
+    const commentResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: "renamed-spec.md",
+        by: "ai:codex",
+        kind: "concern",
+        text: "The renamed spec needs a goal.",
+        scope: "global",
+      }),
+    });
+    assert.equal(commentResponse.status, 200);
+    const commentPayload = await commentResponse.json();
+    assert.equal(commentPayload.comment.id, "cmt_000001");
+
+    const movedContextUrl = new URL("http://localhost:4612/api/spec-sessions/by-file/context");
+    movedContextUrl.searchParams.set("path", "renamed-spec.md");
+    const movedContextResponse = await fetch(movedContextUrl);
+    assert.equal(movedContextResponse.status, 200);
+    const movedContextPayload = await movedContextResponse.json();
+    assert.equal(movedContextPayload.comments.length, 1);
+    assert.equal(movedContextPayload.comments[0].text, "The renamed spec needs a goal.");
+
+    const contentUrl = new URL("http://localhost:4612/api/spec-sessions/by-file/content");
+    contentUrl.searchParams.set("path", "renamed-spec.md");
+    const contentResponse = await fetch(contentUrl);
+    assert.equal(contentResponse.status, 200);
+    const contentPayload = await contentResponse.json();
+    assert.equal(contentPayload.content, "# Renamed Spec\n");
+    assert.equal(contentPayload.session.id, attachPayload.session.id);
+
+    const replyResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/comments/cmt_000001/reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: "renamed-spec.md",
+        by: "human:local",
+        text: "Use the first paragraph as the goal.",
+      }),
+    });
+    assert.equal(replyResponse.status, 200);
+    const replyPayload = await replyResponse.json();
+    assert.equal(replyPayload.comment.replies[0].id, "rpl_000001");
+
+    const resolveResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/comments/cmt_000001/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: "renamed-spec.md",
+        by: "human:local",
+      }),
+    });
+    assert.equal(resolveResponse.status, 200);
+    const resolvePayload = await resolveResponse.json();
+    assert.equal(resolvePayload.comment.status, "resolved");
+
+    assert.equal(await fs.readFile(specPath, "utf8"), originalText);
+  } finally {
+    child.kill();
+  }
+});
+
 test("server falls forward to the next free port when requested port is busy", async () => {
   const repoRoot = await makeTempRepo();
   const blocker = http.createServer((_request, response) => {
@@ -525,8 +705,10 @@ test("server falls forward to the next free port when requested port is busy", a
 test("portable minimap package includes app, skill, and starter templates", async () => {
   const requiredPaths = [
     ["package", "minimap", "package.json"],
+    ["package", "minimap", "cli.js"],
     ["package", "minimap", "server.js"],
     ["package", "minimap", "src", "roadmap.js"],
+    ["package", "minimap", "src", "sessions.js"],
     ["package", "minimap", "ui", "index.html"],
     ["package", "minimap", "ui", "app.js"],
     ["package", "minimap", "ui", "styles.css"],
@@ -550,7 +732,451 @@ test("portable minimap package includes app, skill, and starter templates", asyn
   );
 
   assert.equal(packageJson.type, "module");
+  assert.equal(packageJson.bin.minimap, "./cli.js");
   assert.equal(packageJson.scripts.start, "node server.js");
+});
+
+test("resolveMinimapHome supports test override and platform defaults", () => {
+  assert.equal(resolveMinimapHome({ MINIMAP_HOME: "C:\\tmp\\mini" }, "win32"), path.resolve("C:\\tmp\\mini"));
+  assert.equal(resolveMinimapHome({ LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" }, "win32"), path.join("C:\\Users\\me\\AppData\\Local", "minimap"));
+  assert.equal(resolveMinimapHome({}, "linux"), path.join(os.homedir(), ".minimap"));
+});
+
+test("attachFileSession creates one global session per target file without modifying the file", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "my-new-feature.md");
+  const originalText = "# My New Feature\n\nInitial spec.\n";
+  await fs.writeFile(specPath, originalText, "utf8");
+
+  const first = await attachFileSession("my-new-feature.md", { cwd: repoRoot, minimapHome });
+  const second = await attachFileSession(specPath, { cwd: os.tmpdir(), minimapHome });
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.session.id, first.session.id);
+  assert.equal(second.session.targetFile, specPath.replaceAll("\\", "/"));
+  assert.equal(second.session.markdown, true);
+  assert.equal(await fs.readFile(specPath, "utf8"), originalText);
+
+  const index = JSON.parse(await fs.readFile(path.join(minimapHome, "session-index.json"), "utf8"));
+  assert.equal(Object.values(index.files)[0], first.session.id);
+  await fs.access(path.join(minimapHome, "sessions", first.session.id, "session.json"));
+  await fs.access(path.join(minimapHome, "sessions", first.session.id, "comments.jsonl"));
+  await fs.access(path.join(minimapHome, "sessions", first.session.id, "suggestions.jsonl"));
+  await fs.access(path.join(minimapHome, "sessions", first.session.id, "events.jsonl"));
+});
+
+test("file session context returns collaboration state without target file content", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-context-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "notes.txt");
+  await fs.writeFile(specPath, "Plain text spec.\n", "utf8");
+  const attached = await attachFileSession(specPath, { minimapHome });
+  const beforeLastActiveAt = attached.session.lastActiveAt;
+
+  const context = await getFileSessionContext(specPath, { minimapHome });
+  const afterContextSession = await getFileSessionContext(specPath, { minimapHome });
+
+  assert.equal(context.session.id, attached.session.id);
+  assert.equal(context.session.fileKind, "text");
+  assert.equal(context.session.markdown, false);
+  assert.equal(context.session.targetFile, specPath.replaceAll("\\", "/"));
+  assert.match(context.session.contentHash, /^sha256:/);
+  assert.deepEqual(context.comments, []);
+  assert.deepEqual(context.suggestions, []);
+  assert.equal(Object.hasOwn(context, "content"), false);
+  assert.equal(afterContextSession.session.lastActiveAt, beforeLastActiveAt);
+});
+
+test("file session content is explicit and separate from default context", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-content-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "spec.md");
+  await fs.writeFile(specPath, "# Spec\n\nReadable in the UI.\n", "utf8");
+  const attached = await attachFileSession(specPath, { minimapHome });
+
+  const payload = await getFileSessionFileContent(specPath, { minimapHome });
+
+  assert.equal(payload.session.id, attached.session.id);
+  assert.equal(payload.content, "# Spec\n\nReadable in the UI.\n");
+  assert.deepEqual(payload.outline, [
+    { level: 1, title: "Spec", headingPath: ["Spec"], lineStart: 1 },
+  ]);
+});
+
+test("Markdown outline ignores fenced headings and preserves heading paths", () => {
+  const markdown = [
+    "# Memory Model",
+    "",
+    "Intro.",
+    "",
+    "## Visibility",
+    "",
+    "Visibility text.",
+    "",
+    "```",
+    "# Not A Heading",
+    "```",
+    "",
+    "### Private Scope",
+    "Details.",
+  ].join("\n");
+
+  assert.deepEqual(parseMarkdownOutline(markdown), [
+    { level: 1, title: "Memory Model", headingPath: ["Memory Model"], lineStart: 1 },
+    { level: 2, title: "Visibility", headingPath: ["Memory Model", "Visibility"], lineStart: 5 },
+    { level: 3, title: "Private Scope", headingPath: ["Memory Model", "Visibility", "Private Scope"], lineStart: 13 },
+  ]);
+});
+
+test("text anchors resolve after nearby line drift and flag ambiguous quotes", () => {
+  const original = [
+    "# Memory Model",
+    "",
+    "## Visibility",
+    "",
+    "Memory visibility is local-only by default.",
+    "",
+    "## Lifecycle",
+    "",
+    "Other text.",
+  ].join("\n");
+  const anchor = createTextAnchor(original, {
+    quote: "Memory visibility is local-only by default.",
+  });
+
+  assert.equal(anchor.scope, "anchor");
+  assert.deepEqual(anchor.headingPath, ["Memory Model", "Visibility"]);
+  assert.equal(anchor.lineStart, 5);
+
+  const drifted = original.replace("## Visibility", "Intro line.\n\n## Visibility");
+  const resolved = resolveTextAnchor(drifted, anchor);
+
+  assert.equal(resolved.status, "resolved");
+  assert.equal(resolved.strategy, "heading_quote");
+  assert.equal(resolved.lineStart, 7);
+
+  const ambiguousText = original.replace(anchor.quote, "Changed text.") + `\n\n${anchor.quote}\n\n${anchor.quote}\n`;
+  const ambiguous = resolveTextAnchor(ambiguousText, anchor);
+  assert.equal(ambiguous.status, "ambiguous");
+});
+
+test("addFileSessionComment stores global, section, and anchored comments in context", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-comments-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\n## Risks\n\nThis needs a rollback plan.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  const globalComment = await addFileSessionComment(specPath, {
+    by: "human:local",
+    kind: "instruction",
+    text: "Focus this review on failure modes.",
+    scope: "global",
+  }, { minimapHome });
+  const sectionComment = await addFileSessionComment(specPath, {
+    by: "ai:codex",
+    kind: "concern",
+    text: "This section needs concrete mitigations.",
+    scope: "section",
+    headingPath: ["Feature", "Risks"],
+  }, { minimapHome });
+  const anchoredComment = await addFileSessionComment(specPath, {
+    by: "ai:claude",
+    kind: "question",
+    text: "Who owns the rollback plan?",
+    quote: "This needs a rollback plan.",
+  }, { minimapHome });
+  const context = await getFileSessionContext(specPath, { minimapHome });
+
+  assert.equal(globalComment.comment.id, "cmt_000001");
+  assert.equal(sectionComment.comment.id, "cmt_000002");
+  assert.equal(anchoredComment.comment.id, "cmt_000003");
+  assert.equal(context.comments.length, 3);
+  assert.equal(context.comments[0].anchor.scope, "global");
+  assert.deepEqual(context.comments[1].anchor.headingPath, ["Feature", "Risks"]);
+  assert.equal(context.comments[1].anchorStatus.status, "resolved");
+  assert.equal(context.comments[2].anchor.quote, "This needs a rollback plan.");
+  assert.equal(context.comments[2].anchorStatus.status, "resolved");
+  assert.equal(context.comments[2].status, "open");
+  assert.deepEqual(context.comments[2].replies, []);
+  assert.deepEqual(context.suggestions, []);
+});
+
+test("addFileSessionComment rejects missing actor, invalid kinds, and ambiguous anchors", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-comments-invalid-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nRepeated.\n\nRepeated.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  await assert.rejects(
+    () => addFileSessionComment(specPath, {
+      kind: "concern",
+      text: "Missing actor.",
+      scope: "global",
+    }, { minimapHome }),
+    (error) => error.code === "bad_request",
+  );
+  await assert.rejects(
+    () => addFileSessionComment(specPath, {
+      by: "ai:codex",
+      kind: "nit",
+      text: "Invalid kind.",
+      scope: "global",
+    }, { minimapHome }),
+    (error) => error.code === "bad_request",
+  );
+  await assert.rejects(
+    () => addFileSessionComment(specPath, {
+      by: "ai:codex",
+      kind: "concern",
+      text: "Ambiguous.",
+      quote: "Repeated.",
+    }, { minimapHome }),
+    (error) => error.code === "anchor_ambiguous",
+  );
+});
+
+test("comment replies and status updates persist in context", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-comment-thread-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nNeeds review.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+  const added = await addFileSessionComment(specPath, {
+    by: "ai:codex",
+    kind: "concern",
+    text: "This needs a clearer success metric.",
+    scope: "global",
+  }, { minimapHome });
+
+  const replied = await addFileSessionCommentReply(specPath, added.comment.id, {
+    by: "human:local",
+    text: "Use adoption rate as the success metric.",
+  }, { minimapHome });
+  const resolved = await updateFileSessionCommentStatus(specPath, added.comment.id, "resolved", {
+    by: "human:local",
+  }, { minimapHome });
+  const context = await getFileSessionContext(specPath, { minimapHome });
+
+  assert.equal(replied.comment.replies.length, 1);
+  assert.equal(replied.comment.replies[0].id, "rpl_000001");
+  assert.equal(replied.comment.replies[0].by, "human:local");
+  assert.equal(resolved.comment.status, "resolved");
+  assert.equal(resolved.comment.statusBy, "human:local");
+  assert.equal(context.comments[0].status, "resolved");
+  assert.equal(context.comments[0].replies[0].text, "Use adoption rate as the success metric.");
+
+  const reopened = await updateFileSessionCommentStatus(specPath, added.comment.id, "open", {
+    by: "human:local",
+  }, { minimapHome });
+  assert.equal(reopened.comment.status, "open");
+});
+
+test("comment replies and status updates reject missing comments and missing actors", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-comment-thread-invalid-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nNeeds review.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+  const added = await addFileSessionComment(specPath, {
+    by: "ai:codex",
+    kind: "question",
+    text: "What is the metric?",
+    scope: "global",
+  }, { minimapHome });
+
+  await assert.rejects(
+    () => addFileSessionCommentReply(specPath, "cmt_missing", {
+      by: "human:local",
+      text: "No comment.",
+    }, { minimapHome }),
+    (error) => error.code === "not_found",
+  );
+  await assert.rejects(
+    () => addFileSessionCommentReply(specPath, added.comment.id, {
+      text: "Missing actor.",
+    }, { minimapHome }),
+    (error) => error.code === "bad_request",
+  );
+  await assert.rejects(
+    () => updateFileSessionCommentStatus(specPath, added.comment.id, "closed", {
+      by: "human:local",
+    }, { minimapHome }),
+    (error) => error.code === "bad_request",
+  );
+});
+
+test("attachFileSession rejects missing files, directories, and binary files", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-invalid-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const binaryPath = path.join(repoRoot, "image.bin");
+  await fs.writeFile(binaryPath, Buffer.from([0, 1, 2, 3, 4]));
+
+  await assert.rejects(
+    () => attachFileSession("missing.md", { cwd: repoRoot, minimapHome }),
+    (error) => error.code === "not_found",
+  );
+  await assert.rejects(
+    () => attachFileSession(repoRoot, { minimapHome }),
+    (error) => error.code === "invalid_target",
+  );
+  await assert.rejects(
+    () => attachFileSession(binaryPath, { minimapHome }),
+    (error) => error.code === "invalid_target",
+  );
+});
+
+test("file sessions list by last active time", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-list-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const firstPath = path.join(repoRoot, "a.md");
+  const secondPath = path.join(repoRoot, "b.md");
+  await fs.writeFile(firstPath, "# A\n", "utf8");
+  await fs.writeFile(secondPath, "# B\n", "utf8");
+
+  const first = await attachFileSession(firstPath, { minimapHome });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = await attachFileSession(secondPath, { minimapHome });
+  const sessions = await listFileSessions({ minimapHome });
+
+  assert.equal(sessions[0].id, second.session.id);
+  assert.equal(sessions[1].id, first.session.id);
+});
+
+test("moveFileSession retargets an existing session without moving files", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-move-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const oldPath = path.join(repoRoot, "old-name.md");
+  const newPath = path.join(repoRoot, "new-name.md");
+  await fs.writeFile(oldPath, "# Old\n", "utf8");
+  await fs.writeFile(newPath, "# New\n", "utf8");
+  const attached = await attachFileSession(oldPath, { minimapHome });
+
+  const moved = await moveFileSession(oldPath, newPath, { minimapHome });
+  const context = await getFileSessionContext(newPath, { minimapHome });
+
+  assert.equal(moved.session.id, attached.session.id);
+  assert.equal(moved.session.targetFile, newPath.replaceAll("\\", "/"));
+  assert.equal(context.session.id, attached.session.id);
+  assert.equal(await fs.readFile(oldPath, "utf8"), "# Old\n");
+  assert.equal(await fs.readFile(newPath, "utf8"), "# New\n");
+  await assert.rejects(
+    () => getFileSessionContext(oldPath, { minimapHome }),
+    (error) => error.code === "not_found",
+  );
+});
+
+test("moveFileSession rejects conflicts with another attached file", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-spec-move-conflict-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const firstPath = path.join(repoRoot, "first.md");
+  const secondPath = path.join(repoRoot, "second.md");
+  await fs.writeFile(firstPath, "# First\n", "utf8");
+  await fs.writeFile(secondPath, "# Second\n", "utf8");
+  await attachFileSession(firstPath, { minimapHome });
+  await attachFileSession(secondPath, { minimapHome });
+
+  await assert.rejects(
+    () => moveFileSession(firstPath, secondPath, { minimapHome }),
+    (error) => error.code === "conflict",
+  );
+});
+
+test("minimap CLI attaches files and returns JSON context", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(path.join(repoRoot, "feature.md"), "# Feature\n\nSpec body.\n", "utf8");
+
+  const attach = await runCli(["attach", "feature.md", "--json"], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(attach.exitCode, 0);
+  const attachPayload = JSON.parse(attach.stdout);
+  assert.equal(attachPayload.created, true);
+  assert.match(attachPayload.sessionId, /^feature-[a-f0-9]{8}$/);
+
+  const context = await runCli(["context", "feature.md", "--json"], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(context.exitCode, 0);
+  const contextPayload = JSON.parse(context.stdout);
+  assert.equal(contextPayload.session.id, attachPayload.sessionId);
+  assert.equal(contextPayload.session.markdown, true);
+  assert.equal(Object.hasOwn(contextPayload, "content"), false);
+
+  const list = await runCli(["session", "list", "--json"], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(list.exitCode, 0);
+  assert.equal(JSON.parse(list.stdout).sessions.length, 1);
+
+  await fs.writeFile(path.join(repoRoot, "renamed.md"), "# Renamed\n", "utf8");
+  const move = await runCli(["session", "move", "feature.md", "renamed.md", "--json"], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(move.exitCode, 0);
+  assert.equal(JSON.parse(move.stdout).session.id, attachPayload.sessionId);
+
+  const comment = await runCli([
+    "comment",
+    "add",
+    "renamed.md",
+    "--by",
+    "ai:codex",
+    "--kind",
+    "concern",
+    "--quote",
+    "Renamed",
+    "--text",
+    "This heading is too generic.",
+    "--json",
+  ], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(comment.exitCode, 0, comment.stderr);
+  const commentPayload = JSON.parse(comment.stdout);
+  assert.equal(commentPayload.comment.id, "cmt_000001");
+  assert.equal(commentPayload.comment.anchor.scope, "anchor");
+
+  const reply = await runCli([
+    "comment",
+    "reply",
+    "renamed.md",
+    "cmt_000001",
+    "--by",
+    "human:local",
+    "--text",
+    "Use a more specific heading.",
+    "--json",
+  ], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(reply.exitCode, 0, reply.stderr);
+  assert.equal(JSON.parse(reply.stdout).comment.replies[0].id, "rpl_000001");
+
+  const resolve = await runCli([
+    "comment",
+    "resolve",
+    "renamed.md",
+    "cmt_000001",
+    "--by",
+    "human:local",
+    "--json",
+  ], {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: minimapHome },
+  });
+  assert.equal(resolve.exitCode, 0, resolve.stderr);
+  assert.equal(JSON.parse(resolve.stdout).comment.status, "resolved");
 });
 
 

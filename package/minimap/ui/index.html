@@ -11,10 +11,14 @@
     <div class="app-shell">
       <header class="topbar">
         <div class="title-wrap">
-          <p class="eyebrow">Repo-local roadmap workspace</p>
-          <h1><span id="repo-name">__REPO_NAME__</span> Roadmap</h1>
+          <p id="mode-eyebrow" class="eyebrow">Repo-local roadmap workspace</p>
+          <h1><span id="repo-name">__REPO_NAME__</span> <span id="mode-title">Roadmap</span></h1>
         </div>
         <div class="topbar-meta">
+          <div class="app-mode-switcher" role="tablist" aria-label="Workspace mode">
+            <button id="roadmap-mode-button" class="ghost-button app-mode-button is-active" type="button" role="tab" aria-selected="true">Roadmap</button>
+            <button id="spec-mode-button" class="ghost-button app-mode-button" type="button" role="tab" aria-selected="false">Spec sessions</button>
+          </div>
           <span id="workspace-summary" class="chip chip-muted">Loading items...</span>
           <span id="roadmap-path" class="chip">Loading...</span>
           <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
@@ -22,6 +26,95 @@
       </header>
 
       <div id="status-banner" class="status-banner" hidden></div>
+
+      <section id="spec-workbench" class="spec-workbench" hidden>
+        <section class="panel spec-session-panel">
+          <div class="panel-header">
+            <div class="panel-header-main">
+              <h2>Files</h2>
+              <p class="muted">Recent sessions</p>
+            </div>
+            <div class="panel-actions">
+              <button id="spec-files-toggle" class="ghost-button" type="button" aria-expanded="true">Collapse</button>
+            </div>
+          </div>
+          <form id="spec-attach-form" class="spec-attach-form">
+            <label>
+              <span>Attach file</span>
+              <input id="spec-attach-path" type="text" placeholder="docs/my-new-feature.md" spellcheck="false" />
+            </label>
+            <button class="primary-button" type="submit">Attach</button>
+          </form>
+          <div id="spec-session-list" class="spec-session-list"></div>
+        </section>
+
+        <section class="panel spec-file-panel">
+          <div class="panel-header">
+            <div class="panel-header-main">
+              <h2 id="spec-file-title">File</h2>
+              <p id="spec-file-subtitle" class="muted">Attach or choose a spec session.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="spec-refresh-button" class="ghost-button" type="button">Refresh</button>
+            </div>
+          </div>
+          <div id="spec-file-content" class="spec-file-content spec-empty">No spec session selected.</div>
+        </section>
+
+        <div id="spec-comments-resizer" class="spec-comments-resizer" role="separator" aria-orientation="vertical" aria-label="Resize comments panel"></div>
+
+        <section class="panel spec-comments-panel">
+          <div class="panel-header">
+            <div class="panel-header-main">
+              <h2>Comments</h2>
+              <p id="spec-comments-subtitle" class="muted">Discussion around the selected file</p>
+            </div>
+            <div class="panel-actions">
+              <button id="spec-new-comment-button" class="ghost-button" type="button">Add</button>
+            </div>
+          </div>
+          <form id="spec-comment-form" class="spec-comment-form" hidden>
+            <label>
+              <span>Comment</span>
+              <textarea id="spec-comment-text" rows="4" placeholder="Add review feedback, a question, or an instruction."></textarea>
+            </label>
+            <div class="spec-form-grid">
+              <label>
+                <span>Actor</span>
+                <input id="spec-comment-by" type="text" value="human:local" spellcheck="false" />
+              </label>
+              <label>
+                <span>Kind</span>
+                <select id="spec-comment-kind">
+                  <option value="concern">concern</option>
+                  <option value="question">question</option>
+                  <option value="instruction">instruction</option>
+                  <option value="recommendation">recommendation</option>
+                  <option value="confirmation">confirmation</option>
+                  <option value="disagreement">disagreement</option>
+                  <option value="evidence">evidence</option>
+                  <option value="conclusion">conclusion</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>Quote or heading</span>
+              <input id="spec-comment-anchor" type="text" placeholder="Exact quote, or Heading > Subheading" spellcheck="false" />
+            </label>
+            <div class="spec-form-actions">
+              <label class="spec-global-toggle">
+                <input id="spec-comment-global" type="checkbox" />
+                <span>Global</span>
+              </label>
+              <div class="spec-form-button-row">
+                <button id="spec-comment-cancel-button" class="ghost-button" type="button">Cancel</button>
+                <button class="primary-button" type="submit">Add comment</button>
+              </div>
+            </div>
+          </form>
+          <div id="spec-comments-list" class="spec-comments-list"></div>
+        </section>
+      </section>
 
       <main class="layout" id="layout-shell" data-scope-collapsed="false">
         <section class="panel board-panel" id="board-panel">

@@ -11,6 +11,17 @@ import {
   saveItemById,
   saveScopeText,
 } from "./src/roadmap.js";
+import {
+  addFileSessionComment,
+  addFileSessionCommentReply,
+  attachFileSession,
+  getFileSessionContext,
+  getFileSessionFileContent,
+  getFileSession,
+  listFileSessions,
+  moveFileSession,
+  updateFileSessionCommentStatus,
+} from "./src/sessions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,9 +89,114 @@ function parseJsonBody(rawBody) {
   }
 }
 
-async function handleApi(request, response, pathname) {
+function requireQueryParam(requestUrl, name) {
+  const value = requestUrl.searchParams.get(name);
+  if (!value || value.trim() === "") {
+    throw new AppError(`Missing required query parameter "${name}".`, 400, "bad_request");
+  }
+  return value;
+}
+
+async function handleApi(request, response, requestUrl) {
+  const pathname = requestUrl.pathname;
+
   if (request.method === "GET" && pathname === "/health") {
     sendJson(response, 200, { ok: true });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/spec-sessions/attach") {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Spec-session attach requires a file path.", 400, "bad_request");
+    }
+
+    const result = await attachFileSession(body.file, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/spec-sessions") {
+    const sessions = await listFileSessions();
+    sendJson(response, 200, { sessions });
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/spec-sessions/by-file") {
+    const file = requireQueryParam(requestUrl, "path");
+    const session = await getFileSession(file, { cwd: repoRoot });
+    sendJson(response, 200, { session });
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/spec-sessions/by-file/context") {
+    const file = requireQueryParam(requestUrl, "path");
+    const context = await getFileSessionContext(file, { cwd: repoRoot });
+    sendJson(response, 200, context);
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/spec-sessions/by-file/content") {
+    const file = requireQueryParam(requestUrl, "path");
+    const content = await getFileSessionFileContent(file, { cwd: repoRoot });
+    sendJson(response, 200, content);
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/spec-sessions/by-file/move") {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.from !== "string" || body.from.trim() === "" || typeof body.to !== "string" || body.to.trim() === "") {
+      throw new AppError("Spec-session move requires from and to file paths.", 400, "bad_request");
+    }
+
+    const result = await moveFileSession(body.from, body.to, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/spec-sessions/by-file/comments") {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Comment creation requires a file path.", 400, "bad_request");
+    }
+
+    const result = await addFileSessionComment(body.file, body, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  const commentReplyMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/comments\/([^/]+)\/reply$/);
+  if (request.method === "POST" && commentReplyMatch) {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Comment reply requires a file path.", 400, "bad_request");
+    }
+
+    const result = await addFileSessionCommentReply(body.file, decodeURIComponent(commentReplyMatch[1]), body, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  const commentStatusMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/comments\/([^/]+)\/(resolve|reopen)$/);
+  if (request.method === "POST" && commentStatusMatch) {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Comment status update requires a file path.", 400, "bad_request");
+    }
+
+    const status = commentStatusMatch[2] === "resolve" ? "resolved" : "open";
+    const result = await updateFileSessionCommentStatus(body.file, decodeURIComponent(commentStatusMatch[1]), status, body, { cwd: repoRoot });
+    sendJson(response, 200, result);
     return true;
   }
 
@@ -147,7 +263,7 @@ async function requestListener(request, response) {
   const pathname = requestUrl.pathname;
 
   try {
-    const handled = await handleApi(request, response, pathname);
+    const handled = await handleApi(request, response, requestUrl);
 
     if (handled) {
       return;

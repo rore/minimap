@@ -26,6 +26,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -57,6 +61,11 @@ button {
 }
 
 body.is-resizing-scope {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.is-resizing-spec-comments {
   cursor: col-resize;
   user-select: none;
 }
@@ -136,6 +145,30 @@ h3 {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.app-mode-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(63, 82, 118, 0.08);
+}
+
+.app-mode-button {
+  min-height: 34px;
+  padding: 0.44rem 0.78rem;
+  box-shadow: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.app-mode-button.is-active {
+  border-color: rgba(44, 108, 255, 0.24);
+  background: rgba(44, 108, 255, 0.08);
+  color: var(--accent-strong);
 }
 
 .chip,
@@ -315,6 +348,302 @@ h3 {
   column-gap: 8px;
   row-gap: 14px;
   align-items: start;
+}
+
+.spec-workbench {
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) minmax(320px, 1fr) 8px minmax(260px, var(--spec-comments-width, 340px));
+  gap: 0 8px;
+  align-items: start;
+}
+
+.spec-workbench[data-files-collapsed="true"] {
+  grid-template-columns: 0 minmax(280px, 1fr) 8px minmax(260px, var(--spec-comments-width, 340px));
+}
+
+.spec-workbench[hidden] {
+  display: none;
+}
+
+.spec-session-panel,
+.spec-file-panel,
+.spec-comments-panel {
+  min-height: calc(100vh - 112px);
+}
+
+.spec-session-panel,
+.spec-comments-panel {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+}
+
+.spec-comments-resizer {
+  position: sticky;
+  top: 18px;
+  height: calc(100vh - 36px);
+  align-self: stretch;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.spec-comments-resizer::before {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 100%;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(44, 108, 255, 0.08), rgba(44, 108, 255, 0.18), rgba(44, 108, 255, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(63, 82, 118, 0.08);
+}
+
+.spec-workbench[data-files-collapsed="true"] .spec-session-panel {
+  border: 0;
+  min-width: 0;
+  width: 0;
+  min-height: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  z-index: 10;
+}
+
+.spec-workbench[data-files-collapsed="true"] .spec-session-panel .panel-header {
+  position: fixed;
+  top: 16px;
+  left: 14px;
+  z-index: 40;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.spec-workbench[data-files-collapsed="true"] .spec-session-panel .panel-header-main,
+.spec-workbench[data-files-collapsed="true"] .spec-attach-form,
+.spec-workbench[data-files-collapsed="true"] .spec-session-list {
+  display: none;
+}
+
+.spec-workbench[data-files-collapsed="true"] #spec-files-toggle {
+  min-width: 0;
+  width: 60px;
+  height: 42px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow);
+}
+
+.spec-workbench[data-files-collapsed="true"] .spec-file-panel > .panel-header {
+  padding-left: 84px;
+}
+
+.spec-attach-form,
+.spec-comment-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(250, 252, 255, 0.72);
+}
+
+.spec-comment-form[hidden] {
+  display: none;
+}
+
+.spec-attach-form label,
+.spec-comment-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.spec-attach-form input,
+.spec-comment-form input,
+.spec-comment-form select,
+.spec-comment-form textarea,
+.spec-reply-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(63, 82, 118, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  padding: 0.56rem 0.68rem;
+  outline: none;
+}
+
+.spec-comment-form textarea,
+.spec-reply-form textarea {
+  resize: vertical;
+}
+
+.spec-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(104px, 0.62fr);
+  gap: 8px;
+}
+
+.spec-form-actions,
+.spec-comment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.spec-form-button-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.spec-global-toggle {
+  display: inline-flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: start;
+  gap: 6px !important;
+}
+
+.spec-global-toggle input {
+  width: auto;
+}
+
+.spec-session-list,
+.spec-comments-list,
+.spec-file-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.spec-session-list {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.spec-session-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid rgba(63, 82, 118, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 9px 10px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+
+.spec-session-row.is-active {
+  border-color: rgba(44, 108, 255, 0.3);
+  background: rgba(244, 248, 255, 0.98);
+}
+
+.spec-session-title {
+  font-weight: 760;
+}
+
+.spec-session-path,
+.spec-session-time,
+.spec-comment-anchor,
+.spec-comment-status {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.spec-file-content {
+  flex: 1;
+  padding: 20px 24px;
+  line-height: 1.66;
+  overflow-wrap: anywhere;
+}
+
+.spec-file-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.spec-empty,
+.spec-empty-inline {
+  color: var(--muted);
+}
+
+.spec-empty-inline {
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.spec-comments-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.spec-comment-card {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(63, 82, 118, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-soft);
+}
+
+.spec-comment-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.spec-comment-text,
+.spec-comment-anchor,
+.spec-comment-status,
+.spec-reply p {
+  margin: 0;
+}
+
+.spec-comment-text {
+  line-height: 1.48;
+}
+
+.spec-reply {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(21, 32, 51, 0.045);
+}
+
+.spec-reply strong {
+  font-size: 0.78rem;
+}
+
+.spec-reply-form {
+  display: grid;
+  gap: 6px;
+}
+
+body[data-app-mode="spec"] .topbar {
+  margin-bottom: 10px;
+}
+
+body[data-app-mode="spec"] h1 {
+  font-size: clamp(1.8rem, 3vw, 2.55rem);
 }
 
 .layout[data-scope-collapsed="true"] {
@@ -1357,6 +1686,29 @@ textarea {
 }
 
 @media (max-width: 1320px) {
+  .spec-workbench {
+    grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  }
+
+  .spec-workbench[data-files-collapsed="true"] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .spec-comments-resizer {
+    display: none;
+  }
+
+  .spec-comments-panel {
+    grid-column: 1 / -1;
+    position: static;
+    max-height: none;
+    min-height: auto;
+  }
+
+  .spec-comments-list {
+    max-height: 420px;
+  }
+
   .layout,
   .layout[data-scope-collapsed="true"] {
     grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
@@ -1412,6 +1764,59 @@ textarea {
 }
 
 @media (max-width: 980px) {
+  .spec-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .spec-workbench[data-files-collapsed="true"] {
+    grid-template-columns: 1fr;
+  }
+
+  .spec-session-panel,
+  .spec-file-panel,
+  .spec-comments-panel {
+    min-height: auto;
+    max-height: none;
+    position: static;
+  }
+
+  .spec-session-panel {
+    order: 1;
+  }
+
+  .spec-workbench[data-files-collapsed="true"] .spec-session-panel .panel-header-main {
+    display: grid;
+  }
+
+  .spec-workbench[data-files-collapsed="true"] .spec-session-panel .panel-header {
+    position: static;
+    width: auto;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(245, 248, 255, 0.98));
+  }
+
+  .spec-workbench[data-files-collapsed="true"] .spec-session-panel {
+    width: auto;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+
+  .spec-comments-panel {
+    order: 2;
+  }
+
+  .spec-file-panel {
+    order: 3;
+  }
+
+  .spec-file-content,
+  .spec-session-list,
+  .spec-comments-list {
+    overflow: visible;
+  }
+
   .layout,
   .layout[data-scope-collapsed="true"] {
     grid-template-columns: 1fr;

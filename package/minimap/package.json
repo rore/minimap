@@ -2,6 +2,9 @@
   "name": "minimap-package",
   "private": true,
   "type": "module",
+  "bin": {
+    "minimap": "./cli.js"
+  },
   "scripts": {
     "start": "node server.js"
   }
