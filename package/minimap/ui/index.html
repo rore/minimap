@@ -66,12 +66,16 @@
         <section class="panel spec-comments-panel">
           <div class="panel-header">
             <div class="panel-header-main">
-              <h2>Comments</h2>
+              <h2>Review</h2>
               <p id="spec-comments-subtitle" class="muted">Discussion around the selected file</p>
             </div>
             <div class="panel-actions">
               <button id="spec-new-comment-button" class="ghost-button" type="button">Add</button>
             </div>
+          </div>
+          <div class="spec-review-tabs" role="tablist" aria-label="Spec review type">
+            <button class="spec-review-tab is-active" type="button" data-spec-review-tab="comments" role="tab" aria-selected="true">Comments</button>
+            <button class="spec-review-tab" type="button" data-spec-review-tab="suggestions" role="tab" aria-selected="false">Suggestions</button>
           </div>
           <div class="spec-comment-filters" role="tablist" aria-label="Comment filter">
             <button class="spec-comment-filter is-active" type="button" data-comment-filter="open" role="tab" aria-selected="true">Open</button>
@@ -119,6 +123,44 @@
               <div class="spec-form-button-row">
                 <button id="spec-comment-cancel-button" class="ghost-button" type="button">Cancel</button>
                 <button class="primary-button" type="submit">Add comment</button>
+              </div>
+            </div>
+          </form>
+          <form id="spec-suggestion-form" class="spec-comment-form spec-suggestion-form" hidden>
+            <div class="spec-form-grid">
+              <label>
+                <span>Actor</span>
+                <input id="spec-suggestion-by" type="text" value="human:local" spellcheck="false" />
+              </label>
+              <label>
+                <span>Change</span>
+                <select id="spec-suggestion-kind">
+                  <option value="replace">replace</option>
+                  <option value="insert_after">insert after</option>
+                  <option value="delete">delete</option>
+                </select>
+              </label>
+            </div>
+            <div class="spec-anchor-mode" role="tablist" aria-label="Suggestion anchor mode">
+              <button class="spec-anchor-mode-button is-active" type="button" data-suggestion-anchor-mode="quote" role="tab" aria-selected="true">Quote</button>
+              <button class="spec-anchor-mode-button" type="button" data-suggestion-anchor-mode="section" role="tab" aria-selected="false">Section</button>
+            </div>
+            <label>
+              <span id="spec-suggestion-anchor-label">Quote</span>
+              <input id="spec-suggestion-anchor" type="text" placeholder="Exact quote from the file" spellcheck="false" />
+            </label>
+            <label>
+              <span>Suggested content</span>
+              <textarea id="spec-suggestion-content" rows="4" placeholder="Replacement or inserted text. Leave empty for delete."></textarea>
+            </label>
+            <label>
+              <span>Rationale</span>
+              <textarea id="spec-suggestion-rationale" rows="2" placeholder="Why this change should be considered."></textarea>
+            </label>
+            <div class="spec-form-actions">
+              <div class="spec-form-button-row">
+                <button id="spec-suggestion-cancel-button" class="ghost-button" type="button">Cancel</button>
+                <button class="primary-button" type="submit">Add suggestion</button>
               </div>
             </div>
           </form>

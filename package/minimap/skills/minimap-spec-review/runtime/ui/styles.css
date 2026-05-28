@@ -453,15 +453,26 @@ h3 {
   background: rgba(250, 252, 255, 0.72);
 }
 
+.spec-review-tabs,
 .spec-comment-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   background: rgba(250, 252, 255, 0.74);
 }
 
+.spec-review-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+
+.spec-comment-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.spec-review-tab,
 .spec-comment-filter {
   min-width: 0;
   border: 1px solid rgba(63, 82, 118, 0.12);
@@ -474,6 +485,7 @@ h3 {
   cursor: pointer;
 }
 
+.spec-review-tab.is-active,
 .spec-comment-filter.is-active {
   border-color: rgba(44, 108, 255, 0.32);
   background: rgba(44, 108, 255, 0.09);
@@ -687,6 +699,15 @@ h3 {
 
 .spec-comment-text {
   line-height: 1.48;
+}
+
+.spec-suggestion-content {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(44, 108, 255, 0.07);
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .spec-comment-collapsed-summary {
