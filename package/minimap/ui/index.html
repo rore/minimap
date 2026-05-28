@@ -102,12 +102,17 @@
                 </select>
               </label>
             </div>
+            <div class="spec-anchor-mode" role="tablist" aria-label="Comment anchor mode">
+              <button class="spec-anchor-mode-button is-active" type="button" data-comment-anchor-mode="global" role="tab" aria-selected="true">Global</button>
+              <button class="spec-anchor-mode-button" type="button" data-comment-anchor-mode="section" role="tab" aria-selected="false">Section</button>
+              <button class="spec-anchor-mode-button" type="button" data-comment-anchor-mode="quote" role="tab" aria-selected="false">Quote</button>
+            </div>
             <label>
-              <span>Quote or heading</span>
+              <span id="spec-comment-anchor-label">Quote or heading</span>
               <input id="spec-comment-anchor" type="text" placeholder="Exact quote, or Heading > Subheading" spellcheck="false" />
             </label>
             <div class="spec-form-actions">
-              <label class="spec-global-toggle">
+              <label class="spec-global-toggle" hidden>
                 <input id="spec-comment-global" type="checkbox" />
                 <span>Global</span>
               </label>

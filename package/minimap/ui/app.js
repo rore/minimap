@@ -10,6 +10,7 @@ const DEFAULT_SPEC_COMMENTS_WIDTH = 340;
 const MIN_SPEC_COMMENTS_WIDTH = 260;
 const MAX_SPEC_COMMENTS_WIDTH = 1200;
 const SPEC_COMMENT_FILTERS = new Set(["open", "all", "resolved"]);
+const SPEC_COMMENT_ANCHOR_MODES = new Set(["global", "section", "quote"]);
 const DEFAULT_LENS_KEY = "board";
 const DEFAULT_BOARD_LAYOUT = "list";
 const BOARD_LAYOUTS = new Set(["list", "columns"]);
@@ -56,6 +57,7 @@ const state = {
     anchorHighlightTimer: null,
     commentFilter: "open",
     expandedResolvedCommentIds: new Set(),
+    commentAnchorMode: "global",
     filesCollapsed: loadStoredSpecFilesPreference(),
     commentsWidth: loadStoredSpecCommentsWidth(),
     resizingComments: false,
@@ -81,10 +83,12 @@ const specCommentCancelButton = document.querySelector("#spec-comment-cancel-but
 const specCommentByInput = document.querySelector("#spec-comment-by");
 const specCommentKindInput = document.querySelector("#spec-comment-kind");
 const specCommentAnchorInput = document.querySelector("#spec-comment-anchor");
+const specCommentAnchorLabelElement = document.querySelector("#spec-comment-anchor-label");
 const specCommentTextInput = document.querySelector("#spec-comment-text");
 const specCommentGlobalInput = document.querySelector("#spec-comment-global");
 const specCommentsListElement = document.querySelector("#spec-comments-list");
 const specCommentFilterButtons = Array.from(document.querySelectorAll("[data-comment-filter]"));
+const specCommentAnchorModeButtons = Array.from(document.querySelectorAll("[data-comment-anchor-mode]"));
 const layoutElement = document.querySelector("#layout-shell");
 const boardPanelElement = document.querySelector("#board-panel");
 const boardControlsElement = document.querySelector("#board-controls");
@@ -2902,6 +2906,17 @@ function headingPathFromInput(value) {
   return String(value || "").split(">").map((part) => part.trim()).filter(Boolean);
 }
 
+function sectionHeadingPathFromInput(value) {
+  const explicitPath = headingPathFromInput(value);
+  if (explicitPath.length !== 1) {
+    return explicitPath;
+  }
+
+  const normalizedInput = normalizeAnchorWhitespace(explicitPath[0]).toLowerCase();
+  const matches = (state.spec.context?.outline || []).filter((heading) => normalizeAnchorWhitespace(heading.title).toLowerCase() === normalizedInput);
+  return matches.length === 1 ? matches[0].headingPath : explicitPath;
+}
+
 function normalizeAnchorWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -2983,6 +2998,36 @@ function renderSpecSelectedQuoteState() {
   const hasSelection = Boolean(state.spec.selectedQuote);
   specNewCommentButton.textContent = hasSelection ? "Comment selection" : "Add";
   specNewCommentButton.title = hasSelection ? "Add a comment anchored to the selected text" : "Add a comment";
+}
+
+function setSpecCommentAnchorMode(mode) {
+  state.spec.commentAnchorMode = SPEC_COMMENT_ANCHOR_MODES.has(mode) ? mode : "global";
+  renderSpecCommentAnchorMode();
+}
+
+function renderSpecCommentAnchorMode() {
+  specCommentAnchorModeButtons.forEach((button) => {
+    const active = button.dataset.commentAnchorMode === state.spec.commentAnchorMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+
+  const globalMode = state.spec.commentAnchorMode === "global";
+  specCommentGlobalInput.checked = globalMode;
+  specCommentAnchorInput.closest("label").hidden = globalMode;
+  if (globalMode) {
+    specCommentAnchorInput.value = "";
+    return;
+  }
+
+  if (state.spec.commentAnchorMode === "section") {
+    specCommentAnchorLabelElement.textContent = "Section";
+    specCommentAnchorInput.placeholder = "Heading > Subheading";
+    return;
+  }
+
+  specCommentAnchorLabelElement.textContent = "Quote";
+  specCommentAnchorInput.placeholder = "Exact quote from the file";
 }
 
 function normalizeVisibleText(value) {
@@ -3325,7 +3370,6 @@ async function addSpecComment() {
     return;
   }
   const anchorValue = specCommentAnchorInput.value.trim();
-  const global = specCommentGlobalInput.checked || !anchorValue;
   const body = {
     file: state.spec.selectedPath,
     by: specCommentByInput.value,
@@ -3333,11 +3377,11 @@ async function addSpecComment() {
     text: specCommentTextInput.value,
   };
 
-  if (global) {
+  if (state.spec.commentAnchorMode === "global") {
     body.scope = "global";
-  } else if (anchorValue.includes(">")) {
+  } else if (state.spec.commentAnchorMode === "section") {
     body.scope = "section";
-    body.headingPath = headingPathFromInput(anchorValue);
+    body.headingPath = sectionHeadingPathFromInput(anchorValue);
   } else {
     body.quote = anchorValue;
   }
@@ -3349,6 +3393,7 @@ async function addSpecComment() {
   });
   state.spec.commentComposerOpen = false;
   state.spec.selectedQuote = "";
+  setSpecCommentAnchorMode("global");
   specCommentAnchorInput.value = "";
   specCommentTextInput.value = "";
   await loadSpecSession(state.spec.selectedPath);
@@ -3867,10 +3912,10 @@ specNewCommentButton.addEventListener("click", () => {
   }
   captureSpecSelectedQuote();
   state.spec.commentComposerOpen = true;
+  setSpecCommentAnchorMode(state.spec.selectedQuote ? "quote" : "global");
   renderSpecComments();
   if (state.spec.selectedQuote) {
     specCommentAnchorInput.value = state.spec.selectedQuote;
-    specCommentGlobalInput.checked = false;
   }
   specCommentTextInput.focus();
 });
@@ -3880,8 +3925,21 @@ specCommentCancelButton.addEventListener("click", () => {
   state.spec.selectedQuote = "";
   specCommentTextInput.value = "";
   specCommentAnchorInput.value = "";
+  setSpecCommentAnchorMode("global");
   renderSpecSelectedQuoteState();
   renderSpecComments();
+});
+
+specCommentAnchorModeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setSpecCommentAnchorMode(button.dataset.commentAnchorMode);
+    if (state.spec.commentAnchorMode === "quote" && state.spec.selectedQuote) {
+      specCommentAnchorInput.value = state.spec.selectedQuote;
+    }
+    if (state.spec.commentAnchorMode !== "global") {
+      specCommentAnchorInput.focus();
+    }
+  });
 });
 
 specFileContentElement.addEventListener("mouseup", () => {
@@ -4187,6 +4245,7 @@ const initialRoute = readRouteState();
 state.appMode = initialRoute.view === "spec" ? "spec" : "roadmap";
 state.spec.selectedPath = initialRoute.specFile;
 applyAppMode();
+renderSpecCommentAnchorMode();
 state.activeLens = initialRoute.lens;
 state.boardLayout = initialRoute.layout;
 state.editorMode = initialRoute.mode;

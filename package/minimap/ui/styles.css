@@ -519,6 +519,30 @@ h3 {
   gap: 8px;
 }
 
+.spec-anchor-mode {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.spec-anchor-mode-button {
+  min-width: 0;
+  border: 1px solid rgba(63, 82, 118, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--muted);
+  padding: 0.44rem 0.54rem;
+  font-size: 0.76rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.spec-anchor-mode-button.is-active {
+  border-color: rgba(44, 108, 255, 0.32);
+  background: rgba(44, 108, 255, 0.09);
+  color: var(--accent-strong);
+}
+
 .spec-form-actions,
 .spec-comment-actions {
   display: flex;
