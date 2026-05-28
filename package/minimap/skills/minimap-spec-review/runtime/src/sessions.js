@@ -20,6 +20,8 @@ const COMMENT_KINDS = new Set([
   "conclusion",
 ]);
 const COMMENT_STATUSES = new Set(["open", "resolved", "accepted", "rejected", "deferred", "stale"]);
+const SUGGESTION_KINDS = new Set(["replace", "insert_after", "delete"]);
+const SUGGESTION_STATUSES = new Set(["pending", "accepted", "rejected", "applied", "stale"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -426,6 +428,10 @@ function nextCommentId(comments) {
   return `cmt_${String(comments.length + 1).padStart(6, "0")}`;
 }
 
+function nextSuggestionId(suggestions) {
+  return `sug_${String(suggestions.length + 1).padStart(6, "0")}`;
+}
+
 function nextReplyId(comment) {
   const replies = Array.isArray(comment.replies) ? comment.replies : [];
   return `rpl_${String(replies.length + 1).padStart(6, "0")}`;
@@ -450,6 +456,22 @@ function validateCommentStatus(status) {
   const normalized = requireNonEmptyString(status, "Comment status is required.");
   if (!COMMENT_STATUSES.has(normalized)) {
     throw new AppError(`Unsupported comment status: ${normalized}`, 400, "bad_request");
+  }
+  return normalized;
+}
+
+function validateSuggestionKind(kind) {
+  const normalized = requireNonEmptyString(kind, "Suggestion kind is required.");
+  if (!SUGGESTION_KINDS.has(normalized)) {
+    throw new AppError(`Unsupported suggestion kind: ${normalized}`, 400, "bad_request");
+  }
+  return normalized;
+}
+
+function validateSuggestionStatus(status) {
+  const normalized = requireNonEmptyString(status, "Suggestion status is required.");
+  if (!SUGGESTION_STATUSES.has(normalized)) {
+    throw new AppError(`Unsupported suggestion status: ${normalized}`, 400, "bad_request");
   }
   return normalized;
 }
@@ -486,10 +508,25 @@ function makeCommentAnchor(text, input) {
   throw new AppError("Comments require scope=global, scope=section with headingPath, or quote.", 400, "bad_request");
 }
 
+function makeSuggestionAnchor(text, input) {
+  const anchor = makeCommentAnchor(text, input);
+  if (anchor.scope === "global") {
+    throw new AppError("Suggestions require a section or quote anchor.", 400, "bad_request");
+  }
+  return anchor;
+}
+
 function withAnchorStatus(comment, text) {
   return {
     ...comment,
     anchorStatus: resolveTextAnchor(text, comment.anchor),
+  };
+}
+
+function withSuggestionAnchorStatus(suggestion, text) {
+  return {
+    ...suggestion,
+    anchorStatus: resolveTextAnchor(text, suggestion.anchor),
   };
 }
 
@@ -504,12 +541,35 @@ async function loadCommentState(filePath, options) {
   return { session, paths, text, comments };
 }
 
+async function loadSuggestionState(filePath, options) {
+  const session = await getFileSession(filePath, options);
+  const minimapHome = options.minimapHome || resolveMinimapHome(options.env || process.env, options.platform || process.platform);
+  const paths = makeSessionPaths(minimapHome, session.id);
+  await ensureSessionFiles(paths);
+  const targetPath = path.resolve(session.targetFile);
+  const { text } = await readTextTarget(targetPath);
+  const suggestions = await readJsonLines(paths.suggestionsJsonl);
+  return { session, paths, text, suggestions };
+}
+
 function findCommentIndex(comments, commentId) {
   return comments.findIndex((comment) => comment.id === commentId);
 }
 
+function findSuggestionIndex(suggestions, suggestionId) {
+  return suggestions.findIndex((suggestion) => suggestion.id === suggestionId);
+}
+
 async function saveCommentMutation(paths, session, comments, timestamp) {
   await writeJsonLines(paths.commentsJsonl, comments);
+  await writeJson(paths.sessionJson, {
+    ...session,
+    lastActiveAt: timestamp,
+  });
+}
+
+async function saveSuggestionMutation(paths, session, suggestions, timestamp) {
+  await writeJsonLines(paths.suggestionsJsonl, suggestions);
   await writeJson(paths.sessionJson, {
     ...session,
     lastActiveAt: timestamp,
@@ -768,6 +828,58 @@ export async function updateFileSessionCommentStatus(filePath, commentId, status
   };
 }
 
+export async function addFileSessionSuggestion(filePath, input = {}, options = {}) {
+  const { session, paths, text, suggestions } = await loadSuggestionState(filePath, options);
+  const timestamp = nowIso();
+  const kind = validateSuggestionKind(input.kind);
+  const suggestion = {
+    id: nextSuggestionId(suggestions),
+    by: requireNonEmptyString(input.by, "Suggestion actor is required."),
+    kind,
+    status: "pending",
+    anchor: makeSuggestionAnchor(text, input),
+    content: kind === "delete" ? String(input.content || "") : requireNonEmptyString(input.content, "Suggestion content is required."),
+    rationale: typeof input.rationale === "string" ? input.rationale.trim() : "",
+    confidence: typeof input.confidence === "string" ? input.confidence.trim() : "",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    replies: [],
+  };
+
+  await appendJsonLine(paths.suggestionsJsonl, suggestion);
+  await writeJson(paths.sessionJson, {
+    ...session,
+    lastActiveAt: timestamp,
+  });
+
+  return {
+    suggestion: withSuggestionAnchorStatus(suggestion, text),
+  };
+}
+
+export async function updateFileSessionSuggestionStatus(filePath, suggestionId, status, input = {}, options = {}) {
+  const { session, paths, text, suggestions } = await loadSuggestionState(filePath, options);
+  const index = findSuggestionIndex(suggestions, suggestionId);
+
+  if (index === -1) {
+    throw new AppError(`Suggestion was not found: ${suggestionId}`, 404, "not_found");
+  }
+
+  const timestamp = nowIso();
+  const suggestion = {
+    ...suggestions[index],
+    status: validateSuggestionStatus(status),
+    updatedAt: timestamp,
+    statusBy: requireNonEmptyString(input.by, "Suggestion status actor is required."),
+  };
+  suggestions[index] = suggestion;
+  await saveSuggestionMutation(paths, session, suggestions, timestamp);
+
+  return {
+    suggestion: withSuggestionAnchorStatus(suggestion, text),
+  };
+}
+
 export async function getFileSessionContext(filePath, options = {}) {
   const session = await getFileSession(filePath, options);
   const minimapHome = options.minimapHome || resolveMinimapHome(options.env || process.env, options.platform || process.platform);
@@ -776,6 +888,7 @@ export async function getFileSessionContext(filePath, options = {}) {
   const { buffer, text } = await readTextTarget(targetPath);
   const currentMetadata = await buildTargetMetadata(targetPath, buffer);
   const comments = (await readJsonLines(paths.commentsJsonl)).map((comment) => withAnchorStatus(comment, text));
+  const suggestions = (await readJsonLines(paths.suggestionsJsonl)).map((suggestion) => withSuggestionAnchorStatus(suggestion, text));
 
   return {
     session: {
@@ -784,7 +897,7 @@ export async function getFileSessionContext(filePath, options = {}) {
     },
     outline: currentMetadata.markdown ? parseMarkdownOutline(text) : [],
     comments,
-    suggestions: [],
+    suggestions,
   };
 }
 

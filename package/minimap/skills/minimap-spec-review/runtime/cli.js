@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { AppError } from "./src/roadmap.js";
 import {
+  addFileSessionSuggestion,
   addFileSessionComment,
   addFileSessionCommentReply,
   attachFileSession,
   getFileSessionContext,
   listFileSessions,
   moveFileSession,
+  updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
 
@@ -37,6 +39,9 @@ function usage() {
   minimap comment reply <file> <comment-id> --by <actor> --text <text> [--json]
   minimap comment resolve <file> <comment-id> --by <actor> [--json]
   minimap comment reopen <file> <comment-id> --by <actor> [--json]
+  minimap suggest add <file> --by <actor> --kind <replace|insert_after|delete> --quote <text> --content <text> [--rationale <text>] [--json]
+  minimap suggest accept <file> <suggestion-id> --by <actor> [--json]
+  minimap suggest reject <file> <suggestion-id> --by <actor> [--json]
   minimap session list [--json]
   minimap session move <from-file> <to-file> [--json]
 `;
@@ -165,6 +170,51 @@ async function main(argv) {
     }
 
     process.stdout.write(`${subcommand === "resolve" ? "Resolved" : "Reopened"} comment ${commentId}\n`);
+    return;
+  }
+
+  if (command === "suggest" && subcommand === "add") {
+    const { flags, positional } = parseFlags(rest);
+    const file = requireFile(positional, "suggest add");
+    const headingPath = headingPathFromValue(valueAfter(rest, "--heading"));
+    const input = {
+      by: valueAfter(rest, "--by"),
+      kind: valueAfter(rest, "--kind"),
+      content: valueAfter(rest, "--content"),
+      rationale: valueAfter(rest, "--rationale"),
+      confidence: valueAfter(rest, "--confidence"),
+      quote: valueAfter(rest, "--quote"),
+      scope: headingPath.length > 0 ? "section" : "",
+      headingPath,
+    };
+
+    const result = await addFileSessionSuggestion(file, input);
+    if (flags.has("--json")) {
+      printJson(result);
+      return;
+    }
+
+    process.stdout.write(`Added suggestion ${result.suggestion.id} to ${file}\n`);
+    return;
+  }
+
+  if (command === "suggest" && (subcommand === "accept" || subcommand === "reject")) {
+    const { flags, positional } = parseFlags(rest);
+    const file = requireFile(positional, `suggest ${subcommand}`);
+    const suggestionId = positional[1];
+    if (!suggestionId) {
+      throw new AppError(`suggest ${subcommand} requires a suggestion id.`, 400, "bad_request");
+    }
+
+    const result = await updateFileSessionSuggestionStatus(file, suggestionId, subcommand === "accept" ? "accepted" : "rejected", {
+      by: valueAfter(rest, "--by"),
+    });
+    if (flags.has("--json")) {
+      printJson(result);
+      return;
+    }
+
+    process.stdout.write(`${subcommand === "accept" ? "Accepted" : "Rejected"} suggestion ${suggestionId}\n`);
     return;
   }
 

@@ -12,6 +12,7 @@ import {
   saveScopeText,
 } from "./src/roadmap.js";
 import {
+  addFileSessionSuggestion,
   addFileSessionComment,
   addFileSessionCommentReply,
   attachFileSession,
@@ -20,6 +21,7 @@ import {
   getFileSession,
   listFileSessions,
   moveFileSession,
+  updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
 
@@ -196,6 +198,34 @@ async function handleApi(request, response, requestUrl) {
 
     const status = commentStatusMatch[2] === "resolve" ? "resolved" : "open";
     const result = await updateFileSessionCommentStatus(body.file, decodeURIComponent(commentStatusMatch[1]), status, body, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/spec-sessions/by-file/suggestions") {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Suggestion creation requires a file path.", 400, "bad_request");
+    }
+
+    const result = await addFileSessionSuggestion(body.file, body, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  const suggestionStatusMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/(accept|reject)$/);
+  if (request.method === "POST" && suggestionStatusMatch) {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Suggestion status update requires a file path.", 400, "bad_request");
+    }
+
+    const status = suggestionStatusMatch[2] === "accept" ? "accepted" : "rejected";
+    const result = await updateFileSessionSuggestionStatus(body.file, decodeURIComponent(suggestionStatusMatch[1]), status, body, { cwd: repoRoot });
     sendJson(response, 200, result);
     return true;
   }
