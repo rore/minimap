@@ -38,6 +38,7 @@ Markdown is allowed inside every section, and minimap preserves unknown frontmat
       src/
       ui/
       SKILL.md
+      skills/
       CONTRACT.md
       templates/
   roadmap/
@@ -74,11 +75,21 @@ Add a short note to the host repo's `AGENTS.md` or equivalent:
 For roadmap planning and roadmap file updates, follow `tools/minimap/SKILL.md`.
 ```
 
+The package also includes two named skills:
+
+- `skills/minimap-roadmap/SKILL.md` for repos that host or use minimap roadmap files
+- `skills/minimap-spec-review/SKILL.md` for global review sessions around one arbitrary target file
+
+Both skills use progressive disclosure: the `SKILL.md` files hold trigger guidance and the quick workflow, while detailed contracts live under each skill's `references/` directory.
+
+The spec-review skill is self-contained. It includes its own runtime under `skills/minimap-spec-review/runtime/` and launchers under `skills/minimap-spec-review/scripts/`, so it can be installed globally and used from work repos that do not contain minimap.
+
 ## What Is Included
 
 - local UI/server app
 - roadmap parsing and file save logic
-- minimap skill instructions
+- minimap-roadmap and minimap-spec-review skill instructions
+- bundled spec-review runtime for global skill installs
 - starter roadmap templates
 - canonical contract documentation
 

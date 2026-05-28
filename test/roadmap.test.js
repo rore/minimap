@@ -702,7 +702,7 @@ test("server falls forward to the next free port when requested port is busy", a
   }
 });
 
-test("portable minimap package includes app, skill, and starter templates", async () => {
+test("portable minimap package includes app, skills, and starter templates", async () => {
   const requiredPaths = [
     ["package", "minimap", "package.json"],
     ["package", "minimap", "cli.js"],
@@ -713,6 +713,22 @@ test("portable minimap package includes app, skill, and starter templates", asyn
     ["package", "minimap", "ui", "app.js"],
     ["package", "minimap", "ui", "styles.css"],
     ["package", "minimap", "SKILL.md"],
+    ["package", "minimap", "skills", "minimap-roadmap", "SKILL.md"],
+    ["package", "minimap", "skills", "minimap-roadmap", "references", "roadmap-contract.md"],
+    ["package", "minimap", "skills", "minimap-spec-review", "SKILL.md"],
+    ["package", "minimap", "skills", "minimap-spec-review", "references", "server.md"],
+    ["package", "minimap", "skills", "minimap-spec-review", "references", "cli.md"],
+    ["package", "minimap", "skills", "minimap-spec-review", "references", "review-workflow.md"],
+    ["package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs"],
+    ["package", "minimap", "skills", "minimap-spec-review", "scripts", "minimap.mjs"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "package.json"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "server.js"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "cli.js"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "src", "sessions.js"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "src", "roadmap.js"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "ui", "index.html"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "ui", "app.js"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "ui", "styles.css"],
     ["package", "minimap", "CONTRACT.md"],
     ["package", "minimap", "README.md"],
     ["package", "minimap", "AGENTS_SNIPPET.md"],
@@ -734,6 +750,22 @@ test("portable minimap package includes app, skill, and starter templates", asyn
   assert.equal(packageJson.type, "module");
   assert.equal(packageJson.bin.minimap, "./cli.js");
   assert.equal(packageJson.scripts.start, "node server.js");
+
+  const bundledRuntimeFiles = [
+    ["server.js"],
+    ["cli.js"],
+    ["src", "roadmap.js"],
+    ["src", "sessions.js"],
+    ["ui", "index.html"],
+    ["ui", "app.js"],
+    ["ui", "styles.css"],
+  ];
+
+  for (const segments of bundledRuntimeFiles) {
+    const packageFile = await fs.readFile(path.join(projectRoot, "package", "minimap", ...segments), "utf8");
+    const runtimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "runtime", ...segments), "utf8");
+    assert.equal(runtimeFile, packageFile, `Bundled spec-review runtime is stale: ${segments.join("/")}`);
+  }
 });
 
 test("resolveMinimapHome supports test override and platform defaults", () => {

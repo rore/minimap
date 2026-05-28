@@ -21,8 +21,8 @@ The UI is only a lens over those files. Agents and humans must operate on the sa
 
 ## Load More When Needed
 
-- For ownership rules, item structure, board rules, and edit constraints, read [skills/minimap-roadmap/references/roadmap-contract.md](skills/minimap-roadmap/references/roadmap-contract.md).
-- `CONTRACT.md` contains the package-level product boundary.
+- For ownership rules, item structure, board rules, and edit constraints, read [references/roadmap-contract.md](references/roadmap-contract.md).
+- When using this skill from the packaged minimap folder, `../../CONTRACT.md` contains the package-level product boundary.
 
 ## Guardrails
 
