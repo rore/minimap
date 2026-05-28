@@ -453,6 +453,33 @@ h3 {
   background: rgba(250, 252, 255, 0.72);
 }
 
+.spec-comment-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(250, 252, 255, 0.74);
+}
+
+.spec-comment-filter {
+  min-width: 0;
+  border: 1px solid rgba(63, 82, 118, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--muted);
+  padding: 0.42rem 0.52rem;
+  font-size: 0.76rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.spec-comment-filter.is-active {
+  border-color: rgba(44, 108, 255, 0.32);
+  background: rgba(44, 108, 255, 0.09);
+  color: var(--accent-strong);
+}
+
 .spec-comment-form[hidden] {
   display: none;
 }
@@ -615,6 +642,11 @@ h3 {
   transform: translateY(-1px);
 }
 
+.spec-comment-card.is-collapsed-resolved {
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .spec-comment-header {
   display: flex;
   align-items: flex-start;
@@ -631,6 +663,16 @@ h3 {
 
 .spec-comment-text {
   line-height: 1.48;
+}
+
+.spec-comment-collapsed-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.38;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spec-reply {

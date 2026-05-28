@@ -73,6 +73,11 @@
               <button id="spec-new-comment-button" class="ghost-button" type="button">Add</button>
             </div>
           </div>
+          <div class="spec-comment-filters" role="tablist" aria-label="Comment filter">
+            <button class="spec-comment-filter is-active" type="button" data-comment-filter="open" role="tab" aria-selected="true">Open</button>
+            <button class="spec-comment-filter" type="button" data-comment-filter="all" role="tab" aria-selected="false">All</button>
+            <button class="spec-comment-filter" type="button" data-comment-filter="resolved" role="tab" aria-selected="false">Resolved</button>
+          </div>
           <form id="spec-comment-form" class="spec-comment-form" hidden>
             <label>
               <span>Comment</span>

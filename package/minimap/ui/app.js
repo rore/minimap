@@ -9,6 +9,7 @@ const MAX_SCOPE_WIDTH = 440;
 const DEFAULT_SPEC_COMMENTS_WIDTH = 340;
 const MIN_SPEC_COMMENTS_WIDTH = 260;
 const MAX_SPEC_COMMENTS_WIDTH = 1200;
+const SPEC_COMMENT_FILTERS = new Set(["open", "all", "resolved"]);
 const DEFAULT_LENS_KEY = "board";
 const DEFAULT_BOARD_LAYOUT = "list";
 const BOARD_LAYOUTS = new Set(["list", "columns"]);
@@ -53,6 +54,8 @@ const state = {
     selectedQuote: "",
     activeAnchorCommentId: "",
     anchorHighlightTimer: null,
+    commentFilter: "open",
+    expandedResolvedCommentIds: new Set(),
     filesCollapsed: loadStoredSpecFilesPreference(),
     commentsWidth: loadStoredSpecCommentsWidth(),
     resizingComments: false,
@@ -81,6 +84,7 @@ const specCommentAnchorInput = document.querySelector("#spec-comment-anchor");
 const specCommentTextInput = document.querySelector("#spec-comment-text");
 const specCommentGlobalInput = document.querySelector("#spec-comment-global");
 const specCommentsListElement = document.querySelector("#spec-comments-list");
+const specCommentFilterButtons = Array.from(document.querySelectorAll("[data-comment-filter]"));
 const layoutElement = document.querySelector("#layout-shell");
 const boardPanelElement = document.querySelector("#board-panel");
 const boardControlsElement = document.querySelector("#board-controls");
@@ -3177,24 +3181,60 @@ function anchorLabel(comment) {
   return anchor.quote ? `Quote: ${anchor.quote}` : "Anchor";
 }
 
+function commentMatchesFilter(comment) {
+  if (state.spec.commentFilter === "all") {
+    return true;
+  }
+  if (state.spec.commentFilter === "resolved") {
+    return comment.status === "resolved";
+  }
+  return comment.status !== "resolved";
+}
+
+function renderSpecCommentFilters(comments) {
+  const totalCount = comments.length;
+  const resolvedCount = comments.filter((comment) => comment.status === "resolved").length;
+  const openCount = totalCount - resolvedCount;
+  const counts = {
+    open: openCount,
+    all: totalCount,
+    resolved: resolvedCount,
+  };
+
+  specCommentFilterButtons.forEach((button) => {
+    const filter = button.dataset.commentFilter;
+    const active = filter === state.spec.commentFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.textContent = `${filter === "all" ? "All" : filter[0].toUpperCase() + filter.slice(1)} ${counts[filter] ?? 0}`;
+  });
+}
+
 function renderSpecComments() {
   const comments = state.spec.context?.comments || [];
   if (!state.spec.context) {
     specCommentsListElement.innerHTML = '<p class="spec-empty-inline">Choose a spec session to review comments.</p>';
     specCommentForm.hidden = true;
     specNewCommentButton.disabled = true;
+    renderSpecCommentFilters([]);
     return;
   }
 
   specNewCommentButton.disabled = false;
   specCommentForm.hidden = !state.spec.commentComposerOpen;
-  if (!comments.length) {
-    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">No comments yet.</p>';
+  renderSpecCommentFilters(comments);
+  const visibleComments = comments.filter(commentMatchesFilter);
+  if (!visibleComments.length) {
+    specCommentsListElement.innerHTML = comments.length
+      ? '<p class="spec-empty-inline">No comments match this filter.</p>'
+      : '<p class="spec-empty-inline">No comments yet.</p>';
     return;
   }
 
-  specCommentsListElement.innerHTML = comments.map((comment) => `
-    <article class="spec-comment-card ${state.spec.activeAnchorCommentId === comment.id ? "is-active-anchor" : ""}" data-comment-id="${escapeHtml(comment.id)}" title="Click to jump to anchor">
+  specCommentsListElement.innerHTML = visibleComments.map((comment) => {
+    const collapsedResolved = comment.status === "resolved" && !state.spec.expandedResolvedCommentIds.has(comment.id);
+    return `
+    <article class="spec-comment-card ${state.spec.activeAnchorCommentId === comment.id ? "is-active-anchor" : ""} ${collapsedResolved ? "is-collapsed-resolved" : ""}" data-comment-id="${escapeHtml(comment.id)}" title="Click to jump to anchor">
       <div class="spec-comment-header">
         <div>
           <strong>${escapeHtml(comment.kind)}</strong>
@@ -3203,6 +3243,13 @@ function renderSpecComments() {
         <span class="badge ${comment.status === "resolved" ? "badge-tone-status-done" : "badge-tone-status-queued"}">${escapeHtml(comment.status)}</span>
       </div>
       <p class="spec-comment-anchor">${escapeHtml(anchorLabel(comment))}</p>
+      ${collapsedResolved ? `
+        <p class="spec-comment-collapsed-summary">${escapeHtml(comment.text)}</p>
+        <div class="spec-comment-actions">
+          <button class="ghost-button" type="button" data-comment-action="toggle-resolved">Show</button>
+          <button class="ghost-button" type="button" data-comment-action="reopen">Reopen</button>
+        </div>
+      ` : `
       <p class="spec-comment-text">${escapeHtml(comment.text)}</p>
       <p class="spec-comment-status muted">${escapeHtml(comment.anchorStatus?.status || "")}${comment.anchorStatus?.strategy ? ` via ${escapeHtml(comment.anchorStatus.strategy)}` : ""}</p>
       ${(comment.replies || []).map((reply) => `
@@ -3225,8 +3272,10 @@ function renderSpecComments() {
           <button class="ghost-button" type="button" data-comment-action="${comment.status === "resolved" ? "reopen" : "resolve"}">${comment.status === "resolved" ? "Reopen" : "Resolve"}</button>
         </div>
       `}
+      `}
     </article>
-  `).join("");
+  `;
+  }).join("");
 }
 
 async function loadSpecSessions(options = {}) {
@@ -3914,8 +3963,31 @@ specCommentsListElement.addEventListener("click", (event) => {
     return;
   }
 
+  if (button.dataset.commentAction === "toggle-resolved") {
+    if (state.spec.expandedResolvedCommentIds.has(commentCard.dataset.commentId)) {
+      state.spec.expandedResolvedCommentIds.delete(commentCard.dataset.commentId);
+    } else {
+      state.spec.expandedResolvedCommentIds.add(commentCard.dataset.commentId);
+    }
+    renderSpecComments();
+    return;
+  }
+
   void setSpecCommentStatus(commentCard.dataset.commentId, button.dataset.commentAction).catch((error) => {
     setBanner(error.message, "error");
+  });
+});
+
+specCommentFilterButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextFilter = button.dataset.commentFilter;
+    if (!SPEC_COMMENT_FILTERS.has(nextFilter)) {
+      return;
+    }
+    state.spec.commentFilter = nextFilter;
+    state.spec.activeAnchorCommentId = "";
+    clearSpecAnchorHighlight();
+    renderSpecComments();
   });
 });
 
