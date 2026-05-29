@@ -321,12 +321,33 @@ h3 {
 }
 
 .status-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 14px;
   border-radius: 16px;
   padding: 0.82rem 0.96rem;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(63, 82, 118, 0.12);
   box-shadow: var(--shadow-soft);
+}
+
+.status-banner-message {
+  min-width: 0;
+}
+
+.status-banner-dismiss {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(63, 82, 118, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .status-banner[data-tone="error"] {
@@ -469,7 +490,7 @@ h3 {
 }
 
 .spec-comment-filters {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .spec-review-tab,

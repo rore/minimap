@@ -17,9 +17,9 @@
 2. Start or verify the minimap server.
 3. Attach the target file if needed.
 4. Read minimap context and the target file.
-5. Add comments or replies through minimap.
+5. Add comments, replies, or suggestions through minimap.
 6. Do not modify the target file unless explicitly asked.
-7. If asked to apply a change, edit the target file normally and mention which minimap comment it addresses.
+7. If asked to apply a minimap suggestion, preview it first and apply it through minimap only after explicit confirmation.
 
 ## Comment Kinds
 
@@ -45,3 +45,9 @@ When quote anchoring:
 - if the user selected text in the minimap UI, trust the UI-provided quote
 
 Spec-session comments are not decisions. They are review artifacts.
+
+## Refresh Behavior
+
+The minimap UI may refresh review state automatically so new comments and suggestions appear while a session is open.
+
+Refresh must not erase a human draft comment, draft suggestion, or active reply. If the user is reading the spec file itself, avoid changing the file viewer without an explicit refresh or apply action.

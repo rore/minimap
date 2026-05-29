@@ -70,6 +70,38 @@ Reopen:
 node <path-to-this-skill>/scripts/minimap.mjs comment reopen path/to/spec.md comment-id --by codex:local --json
 ```
 
+## Suggestions
+
+Use suggestions for exact proposed file edits. Suggestions are separate from comments and do not modify the target file until explicitly applied.
+
+Add a suggestion:
+
+```sh
+node <path-to-this-skill>/scripts/minimap.mjs suggest add path/to/spec.md --by codex:local --kind replace --quote "exact text from the file" --content "replacement text" --rationale "Why this edit helps." --json
+```
+
+Supported suggestion kinds:
+
+- `replace`
+- `insert_after`
+- `delete`
+
+Accept or reject a suggestion without changing the target file:
+
+```sh
+node <path-to-this-skill>/scripts/minimap.mjs suggest accept path/to/spec.md sug_000001 --by human:local --json
+node <path-to-this-skill>/scripts/minimap.mjs suggest reject path/to/spec.md sug_000001 --by human:local --json
+```
+
+Preview and apply:
+
+```sh
+node <path-to-this-skill>/scripts/minimap.mjs suggest preview path/to/spec.md sug_000001 --json
+node <path-to-this-skill>/scripts/minimap.mjs suggest apply path/to/spec.md sug_000001 --by human:local --json
+```
+
+Preview re-resolves the anchor and does not write the target file. Apply writes the target file and should only be used when the user explicitly asks.
+
 List sessions:
 
 ```sh

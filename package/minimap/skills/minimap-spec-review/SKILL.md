@@ -21,7 +21,8 @@ The target file stays canonical and keeps its own structure. Minimap owns only t
 4. Read context:
    `node <path-to-this-skill>/scripts/minimap.mjs context <file> --json`
 5. Read the target file directly before substantive review.
-6. Add comments or replies through minimap.
+6. Add comments, replies, or suggestions through minimap.
+7. Preview suggestions before applying them, and apply only when the user explicitly asks.
 
 ## Load More When Needed
 
@@ -35,4 +36,5 @@ The target file stays canonical and keeps its own structure. Minimap owns only t
 - Do not create minimap folders inside the work repo.
 - Do not edit the target file unless the user explicitly asks.
 - Prefer anchored comments over chat-only feedback for specific passages.
+- Use suggestions for exact proposed file edits; use comments for discussion, risks, questions, or instructions.
 - Treat the user as the merge authority.
