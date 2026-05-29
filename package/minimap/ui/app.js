@@ -3238,6 +3238,15 @@ function clearSpecAnchorHighlight() {
   });
 }
 
+function clearSpecSuggestionPreview() {
+  specFileContentElement.querySelectorAll(".spec-inline-preview").forEach((element) => {
+    element.remove();
+  });
+  specFileContentElement.querySelectorAll(".is-spec-suggestion-preview-anchor").forEach((element) => {
+    element.classList.remove("is-spec-suggestion-preview-anchor");
+  });
+}
+
 function scrollSpecTargetIntoView(target) {
   if (specFileContentElement.scrollHeight <= specFileContentElement.clientHeight + 1) {
     target.scrollIntoView({
@@ -3304,6 +3313,39 @@ function focusSpecCommentAnchor(commentId) {
 function focusSpecSuggestionAnchor(suggestionId) {
   const suggestion = (state.spec.context?.suggestions || []).find((candidate) => candidate.id === suggestionId);
   focusSpecAnchorItem(suggestion, `suggestion:${suggestionId}`);
+}
+
+function renderSpecInlineSuggestionPreview(suggestion, preview) {
+  clearSpecSuggestionPreview();
+  const target = anchorTargetElement(suggestion);
+  if (!target) {
+    return;
+  }
+
+  const beforeLabel = suggestion.kind === "insert_after" ? "Anchor" : "Current";
+  const afterLabel = suggestion.kind === "delete" ? "After apply" : "Preview";
+  const previewElement = document.createElement("div");
+  previewElement.className = "spec-inline-preview";
+  previewElement.dataset.suggestionPreviewId = suggestion.id;
+  previewElement.innerHTML = `
+    <div class="spec-inline-preview-header">
+      <strong>Preview only</strong>
+      <span>Not applied to the file</span>
+    </div>
+    <div class="spec-inline-preview-grid">
+      <div>
+        <span>${escapeHtml(beforeLabel)}</span>
+        <pre>${escapeHtml(preview.before || "")}</pre>
+      </div>
+      <div>
+        <span>${escapeHtml(afterLabel)}</span>
+        <pre>${escapeHtml(preview.after || "")}</pre>
+      </div>
+    </div>
+  `;
+  target.classList.add("is-spec-suggestion-preview-anchor");
+  target.insertAdjacentElement("afterend", previewElement);
+  scrollSpecTargetIntoView(previewElement);
 }
 
 function formatRelativeTime(value) {
@@ -3383,6 +3425,7 @@ function renderSpecFile() {
   state.spec.selectedQuote = "";
   state.spec.activeAnchorCommentId = "";
   clearSpecAnchorHighlight();
+  clearSpecSuggestionPreview();
   hideSpecContextToolbar();
   renderSpecSelectedQuoteState();
 }
@@ -3592,8 +3635,10 @@ function renderSpecSuggestions(suggestions) {
 
   specCommentsListElement.innerHTML = suggestions.map((suggestion) => {
     const pending = suggestion.status === "pending";
+    const reviewed = suggestion.status === "accepted" || suggestion.status === "rejected";
+    const canPreview = suggestion.status === "pending" || suggestion.status === "accepted";
     const content = suggestion.kind === "delete" && !suggestion.content ? "(delete anchored content)" : suggestion.content;
-    const activePreview = state.spec.previewSuggestionId === suggestion.id ? state.spec.suggestionPreview : null;
+    const activePreview = canPreview && state.spec.previewSuggestionId === suggestion.id ? state.spec.suggestionPreview : null;
     return `
     <article class="spec-comment-card ${state.spec.activeAnchorCommentId === `suggestion:${suggestion.id}` ? "is-active-anchor" : ""}" data-suggestion-id="${escapeHtml(suggestion.id)}" title="Click to jump to anchor">
       <div class="spec-comment-header">
@@ -3607,20 +3652,15 @@ function renderSpecSuggestions(suggestions) {
       <p class="spec-suggestion-content">${escapeHtml(content)}</p>
       ${suggestion.rationale ? `<p class="spec-comment-text">${escapeHtml(suggestion.rationale)}</p>` : ""}
       <p class="spec-comment-status muted">${escapeHtml(suggestion.anchorStatus?.status || "")}${suggestion.anchorStatus?.strategy ? ` via ${escapeHtml(suggestion.anchorStatus.strategy)}` : ""}</p>
-      ${activePreview ? `
-        <div class="spec-suggestion-preview">
-          <strong>Preview</strong>
-          <pre>${escapeHtml(activePreview.diff || "")}</pre>
-        </div>
-      ` : ""}
       <div class="spec-comment-actions">
-        <span class="muted">${pending ? "Needs review" : "Reviewed"}</span>
+        <span class="muted">${pending ? "Needs review" : suggestion.status === "applied" ? "Applied" : "Reviewed"}</span>
         ${suggestion.status !== "applied" ? `
           <div class="spec-form-button-row">
             ${pending ? `
               <button class="ghost-button" type="button" data-suggestion-action="reject">Dismiss</button>
             ` : ""}
-            <button class="ghost-button" type="button" data-suggestion-action="preview">Preview</button>
+            ${reviewed ? `<button class="ghost-button" type="button" data-suggestion-action="reopen">Reopen</button>` : ""}
+            ${canPreview ? `<button class="ghost-button ${activePreview ? "is-active" : ""}" type="button" data-suggestion-action="preview" aria-pressed="${activePreview ? "true" : "false"}">Preview</button>` : ""}
             ${activePreview ? `<button class="primary-button" type="button" data-suggestion-action="apply">Apply</button>` : ""}
           </div>
         ` : ""}
@@ -3807,6 +3847,11 @@ async function setSpecCommentStatus(commentId, action) {
 }
 
 async function setSpecSuggestionStatus(suggestionId, action) {
+  if (action !== "reopen") {
+    state.spec.previewSuggestionId = "";
+    state.spec.suggestionPreview = null;
+    clearSpecSuggestionPreview();
+  }
   await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -3816,10 +3861,19 @@ async function setSpecSuggestionStatus(suggestionId, action) {
     }),
   });
   await refreshSpecReviewState({ quiet: true });
-  setBanner(action === "accept" ? "Suggestion accepted." : "Suggestion dismissed.", "success");
+  setBanner(action === "accept" ? "Suggestion accepted." : action === "reopen" ? "Suggestion reopened." : "Suggestion dismissed.", "success");
 }
 
 async function previewSpecSuggestion(suggestionId) {
+  if (state.spec.previewSuggestionId === suggestionId) {
+    state.spec.previewSuggestionId = "";
+    state.spec.suggestionPreview = null;
+    clearSpecSuggestionPreview();
+    renderSpecComments();
+    setBanner("Suggestion preview hidden.", "success");
+    return;
+  }
+
   const result = await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -3829,8 +3883,9 @@ async function previewSpecSuggestion(suggestionId) {
   });
   state.spec.previewSuggestionId = suggestionId;
   state.spec.suggestionPreview = result.preview;
+  renderSpecInlineSuggestionPreview(result.suggestion, result.preview);
   renderSpecComments();
-  setBanner("Suggestion preview ready.", "success");
+  setBanner("Suggestion preview shown in the spec.", "success");
 }
 
 async function applySpecSuggestion(suggestionId) {
@@ -3848,6 +3903,7 @@ async function applySpecSuggestion(suggestionId) {
   });
   state.spec.previewSuggestionId = "";
   state.spec.suggestionPreview = null;
+  clearSpecSuggestionPreview();
   await loadSpecSession(state.spec.selectedPath);
   setBanner("Suggestion applied.", "success");
 }

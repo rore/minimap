@@ -647,6 +647,41 @@ test("server exposes global spec-session attach, list, and context APIs", async 
     const resolvePayload = await resolveResponse.json();
     assert.equal(resolvePayload.comment.status, "resolved");
 
+    const suggestionResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: "renamed-spec.md",
+        by: "ai:codex",
+        kind: "replace",
+        quote: "Renamed Spec",
+        content: "Specific Spec",
+      }),
+    });
+    assert.equal(suggestionResponse.status, 200);
+
+    const rejectResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/suggestions/sug_000001/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: "renamed-spec.md",
+        by: "human:local",
+      }),
+    });
+    assert.equal(rejectResponse.status, 200);
+    assert.equal((await rejectResponse.json()).suggestion.status, "rejected");
+
+    const reopenResponse = await fetch("http://localhost:4612/api/spec-sessions/by-file/suggestions/sug_000001/reopen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: "renamed-spec.md",
+        by: "human:local",
+      }),
+    });
+    assert.equal(reopenResponse.status, 200);
+    assert.equal((await reopenResponse.json()).suggestion.status, "pending");
+
     assert.equal(await fs.readFile(specPath, "utf8"), originalText);
   } finally {
     child.kill();
@@ -1118,6 +1153,9 @@ test("file session suggestions persist in context without mutating the target fi
   const accepted = await updateFileSessionSuggestionStatus(specPath, replace.suggestion.id, "accepted", {
     by: "human:local",
   }, { minimapHome });
+  const reopened = await updateFileSessionSuggestionStatus(specPath, replace.suggestion.id, "pending", {
+    by: "human:local",
+  }, { minimapHome });
   const context = await getFileSessionContext(specPath, { minimapHome });
 
   assert.equal(replace.suggestion.id, "sug_000001");
@@ -1125,6 +1163,7 @@ test("file session suggestions persist in context without mutating the target fi
   assert.equal(deletion.suggestion.id, "sug_000003");
   assert.equal(accepted.suggestion.status, "accepted");
   assert.equal(accepted.suggestion.statusBy, "human:local");
+  assert.equal(reopened.suggestion.status, "pending");
   assert.equal(context.suggestions.length, 3);
   assert.equal(context.suggestions[0].kind, "replace");
   assert.equal(context.suggestions[0].anchorStatus.status, "resolved");

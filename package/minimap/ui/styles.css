@@ -277,6 +277,12 @@ h3 {
   box-shadow: var(--shadow-soft);
 }
 
+.ghost-button.is-active {
+  border-color: rgba(44, 108, 255, 0.34);
+  background: rgba(44, 108, 255, 0.11);
+  color: var(--accent-strong);
+}
+
 .mobile-nav-button {
   display: none;
   padding: 0.62rem 0.9rem;
@@ -827,6 +833,61 @@ h3 {
   background: rgba(255, 214, 102, 0.28);
   box-shadow: 0 0 0 6px rgba(255, 214, 102, 0.18);
   transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.is-spec-suggestion-preview-anchor {
+  border-radius: 10px;
+  background: rgba(44, 108, 255, 0.08);
+  box-shadow: 0 0 0 6px rgba(44, 108, 255, 0.08);
+}
+
+.spec-inline-preview {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 18px;
+  padding: 12px;
+  border: 1px solid rgba(44, 108, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(248, 251, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(31, 43, 67, 0.08);
+}
+
+.spec-inline-preview-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+}
+
+.spec-inline-preview-header span,
+.spec-inline-preview-grid span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.spec-inline-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.spec-inline-preview-grid > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.spec-inline-preview pre {
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(21, 32, 51, 0.045);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 body[data-app-mode="spec"] .topbar {

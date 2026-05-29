@@ -217,7 +217,7 @@ async function handleApi(request, response, requestUrl) {
     return true;
   }
 
-  const suggestionStatusMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/(accept|reject)$/);
+  const suggestionStatusMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/(accept|reject|reopen)$/);
   if (request.method === "POST" && suggestionStatusMatch) {
     const rawBody = await readRequestBody(request);
     const body = parseJsonBody(rawBody);
@@ -226,7 +226,12 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Suggestion status update requires a file path.", 400, "bad_request");
     }
 
-    const status = suggestionStatusMatch[2] === "accept" ? "accepted" : "rejected";
+    const statusByAction = {
+      accept: "accepted",
+      reject: "rejected",
+      reopen: "pending",
+    };
+    const status = statusByAction[suggestionStatusMatch[2]];
     const result = await updateFileSessionSuggestionStatus(body.file, decodeURIComponent(suggestionStatusMatch[1]), status, body, { cwd: repoRoot });
     sendJson(response, 200, result);
     return true;

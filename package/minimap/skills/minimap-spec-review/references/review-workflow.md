@@ -53,7 +53,10 @@ The minimap UI keeps human review lightweight:
 - the top Add action creates a global comment unless text is selected
 - suggestions should be started from selected text or a paragraph action so the proposed edit has a clear anchor
 - actor, kind, and raw anchor controls are operational details and should not be exposed as the primary human workflow
-- dismissing a suggestion means it is rejected; applying a suggestion should still go through Preview first
+- dismissing a suggestion means it is rejected, and rejected or accepted suggestions can be reopened if the review was accidental
+- applying a suggestion changes the target file and is not treated as a reversible review action
+- Preview is a toggle that should show the proposed change in the spec pane itself; turning it off should remove the preview without changing the file
+- applying a suggestion should still go through Preview first
 
 Spec-session comments are not decisions. They are review artifacts.
 
