@@ -4373,6 +4373,7 @@ specCommentsListElement.addEventListener("input", (event) => {
 specCommentsListElement.addEventListener("click", (event) => {
   const button = event.target instanceof Element ? event.target.closest("[data-comment-action]") : null;
   const commentCard = event.target instanceof Element ? event.target.closest("[data-comment-id]") : null;
+  const replyForm = event.target instanceof Element ? event.target.closest(".spec-reply-form") : null;
   const suggestionButton = event.target instanceof Element ? event.target.closest("[data-suggestion-action]") : null;
   const suggestionCard = event.target instanceof Element ? event.target.closest("[data-suggestion-id]") : null;
   if (button || suggestionButton) {
@@ -4403,6 +4404,10 @@ specCommentsListElement.addEventListener("click", (event) => {
   }
 
   if (!commentCard) {
+    return;
+  }
+
+  if (replyForm && !button) {
     return;
   }
 
