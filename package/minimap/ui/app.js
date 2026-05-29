@@ -3346,10 +3346,12 @@ function renderSpecCommentFilters(comments) {
 
   specCommentSortButton.textContent = state.spec.commentSort === "newest" ? "Newest" : "Oldest";
   specCommentSortButton.setAttribute("aria-label", state.spec.commentSort === "newest" ? "Newest comments first" : "Oldest comments first");
+  specCommentSortButton.classList.add("is-active");
+  specCommentSortButton.setAttribute("aria-pressed", "true");
 }
 
 function specCommentTimestamp(comment) {
-  return Date.parse(comment.updatedAt || comment.createdAt || "") || 0;
+  return Date.parse(comment.createdAt || "") || 0;
 }
 
 function sortedSpecComments(comments) {
@@ -3381,6 +3383,21 @@ function focusActiveSpecReplyDraft() {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }
+}
+
+function scrollSpecReviewCardIntoView(cardId, type = "comment") {
+  const selector = type === "suggestion"
+    ? `[data-suggestion-id="${CSS.escape(cardId)}"]`
+    : `[data-comment-id="${CSS.escape(cardId)}"]`;
+  const card = specCommentsListElement.querySelector(selector);
+  if (!card) {
+    return;
+  }
+
+  card.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
 }
 
 function renderSpecComments() {
@@ -3679,6 +3696,7 @@ async function replyToSpecComment(commentId, text) {
   state.spec.replyComposerCommentId = "";
   state.spec.replyDrafts.delete(commentId);
   await refreshSpecReviewState({ quiet: true });
+  scrollSpecReviewCardIntoView(commentId);
   setBanner("Reply added.", "success");
 }
 
