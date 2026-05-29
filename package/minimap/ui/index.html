@@ -60,6 +60,10 @@
           </div>
           <div id="spec-file-content" class="spec-file-content spec-empty">No spec session selected.</div>
         </section>
+        <div id="spec-context-toolbar" class="spec-context-toolbar" hidden>
+          <button type="button" data-spec-context-action="comment">Comment</button>
+          <button type="button" data-spec-context-action="suggest">Suggest</button>
+        </div>
 
         <div id="spec-comments-resizer" class="spec-comments-resizer" role="separator" aria-orientation="vertical" aria-label="Resize comments panel"></div>
 
@@ -84,11 +88,12 @@
             <button id="spec-comment-sort-button" class="spec-comment-filter" type="button">Newest</button>
           </div>
           <form id="spec-comment-form" class="spec-comment-form" hidden>
+            <p id="spec-comment-anchor-summary" class="spec-anchor-summary">Global comment</p>
             <label>
               <span>Comment</span>
               <textarea id="spec-comment-text" rows="4" placeholder="Add review feedback, a question, or an instruction."></textarea>
             </label>
-            <div class="spec-form-grid">
+            <div class="spec-form-grid spec-advanced-fields" hidden>
               <label>
                 <span>Actor</span>
                 <input id="spec-comment-by" type="text" value="human:local" spellcheck="false" />
@@ -107,12 +112,12 @@
                 </select>
               </label>
             </div>
-            <div class="spec-anchor-mode" role="tablist" aria-label="Comment anchor mode">
+            <div class="spec-anchor-mode spec-advanced-fields" role="tablist" aria-label="Comment anchor mode" hidden>
               <button class="spec-anchor-mode-button is-active" type="button" data-comment-anchor-mode="global" role="tab" aria-selected="true">Global</button>
               <button class="spec-anchor-mode-button" type="button" data-comment-anchor-mode="section" role="tab" aria-selected="false">Section</button>
               <button class="spec-anchor-mode-button" type="button" data-comment-anchor-mode="quote" role="tab" aria-selected="false">Quote</button>
             </div>
-            <label>
+            <label class="spec-advanced-fields" hidden>
               <span id="spec-comment-anchor-label">Quote or heading</span>
               <input id="spec-comment-anchor" type="text" placeholder="Exact quote, or Heading > Subheading" spellcheck="false" />
             </label>
@@ -128,8 +133,9 @@
             </div>
           </form>
           <form id="spec-suggestion-form" class="spec-comment-form spec-suggestion-form" hidden>
+            <p id="spec-suggestion-anchor-summary" class="spec-anchor-summary">Anchored to selected text</p>
             <div class="spec-form-grid">
-              <label>
+              <label class="spec-advanced-fields" hidden>
                 <span>Actor</span>
                 <input id="spec-suggestion-by" type="text" value="human:local" spellcheck="false" />
               </label>
@@ -142,11 +148,11 @@
                 </select>
               </label>
             </div>
-            <div class="spec-anchor-mode" role="tablist" aria-label="Suggestion anchor mode">
+            <div class="spec-anchor-mode spec-advanced-fields" role="tablist" aria-label="Suggestion anchor mode" hidden>
               <button class="spec-anchor-mode-button is-active" type="button" data-suggestion-anchor-mode="quote" role="tab" aria-selected="true">Quote</button>
               <button class="spec-anchor-mode-button" type="button" data-suggestion-anchor-mode="section" role="tab" aria-selected="false">Section</button>
             </div>
-            <label>
+            <label class="spec-advanced-fields" hidden>
               <span id="spec-suggestion-anchor-label">Quote</span>
               <input id="spec-suggestion-anchor" type="text" placeholder="Exact quote from the file" spellcheck="false" />
             </label>

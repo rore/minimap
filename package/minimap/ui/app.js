@@ -84,6 +84,7 @@ const specSessionListElement = document.querySelector("#spec-session-list");
 const specFileTitleElement = document.querySelector("#spec-file-title");
 const specFileSubtitleElement = document.querySelector("#spec-file-subtitle");
 const specFileContentElement = document.querySelector("#spec-file-content");
+const specContextToolbarElement = document.querySelector("#spec-context-toolbar");
 const specRefreshButton = document.querySelector("#spec-refresh-button");
 const specCommentsResizerElement = document.querySelector("#spec-comments-resizer");
 const specCommentsSubtitleElement = document.querySelector("#spec-comments-subtitle");
@@ -94,6 +95,7 @@ const specCommentByInput = document.querySelector("#spec-comment-by");
 const specCommentKindInput = document.querySelector("#spec-comment-kind");
 const specCommentAnchorInput = document.querySelector("#spec-comment-anchor");
 const specCommentAnchorLabelElement = document.querySelector("#spec-comment-anchor-label");
+const specCommentAnchorSummaryElement = document.querySelector("#spec-comment-anchor-summary");
 const specCommentTextInput = document.querySelector("#spec-comment-text");
 const specCommentGlobalInput = document.querySelector("#spec-comment-global");
 const specSuggestionForm = document.querySelector("#spec-suggestion-form");
@@ -102,6 +104,7 @@ const specSuggestionByInput = document.querySelector("#spec-suggestion-by");
 const specSuggestionKindInput = document.querySelector("#spec-suggestion-kind");
 const specSuggestionAnchorInput = document.querySelector("#spec-suggestion-anchor");
 const specSuggestionAnchorLabelElement = document.querySelector("#spec-suggestion-anchor-label");
+const specSuggestionAnchorSummaryElement = document.querySelector("#spec-suggestion-anchor-summary");
 const specSuggestionContentInput = document.querySelector("#spec-suggestion-content");
 const specSuggestionRationaleInput = document.querySelector("#spec-suggestion-rationale");
 const specCommentsListElement = document.querySelector("#spec-comments-list");
@@ -3022,12 +3025,26 @@ function captureSpecSelectedQuote() {
 function renderSpecSelectedQuoteState() {
   const hasSelection = Boolean(state.spec.selectedQuote);
   if (state.spec.reviewTab === "suggestions") {
-    specNewCommentButton.textContent = hasSelection ? "Suggest edit" : "Add";
-    specNewCommentButton.title = hasSelection ? "Suggest an edit anchored to the selected text" : "Add a suggestion";
+    specNewCommentButton.textContent = hasSelection ? "Suggest edit" : "Suggest";
+    specNewCommentButton.title = hasSelection ? "Suggest an edit anchored to the selected text" : "Select text or use a paragraph action to suggest";
     return;
   }
   specNewCommentButton.textContent = hasSelection ? "Comment selection" : "Add";
   specNewCommentButton.title = hasSelection ? "Add a comment anchored to the selected text" : "Add a comment";
+}
+
+function specAnchorSummary(mode, value) {
+  if (mode === "global") {
+    return "Global comment";
+  }
+  if (mode === "section") {
+    return value ? `Anchored to section: ${value}` : "Anchored to section";
+  }
+  if (!value) {
+    return "Anchored to selected text";
+  }
+  const normalized = normalizeVisibleText(value);
+  return `Anchored to: ${normalized.length > 96 ? `${normalized.slice(0, 96)}...` : normalized}`;
 }
 
 function setSpecReviewTab(tab) {
@@ -3062,6 +3079,7 @@ function renderSpecCommentAnchorMode() {
   const globalMode = state.spec.commentAnchorMode === "global";
   specCommentGlobalInput.checked = globalMode;
   specCommentAnchorInput.closest("label").hidden = globalMode;
+  specCommentAnchorSummaryElement.textContent = specAnchorSummary(state.spec.commentAnchorMode, specCommentAnchorInput.value);
   if (globalMode) {
     specCommentAnchorInput.value = "";
     return;
@@ -3092,11 +3110,13 @@ function renderSpecSuggestionAnchorMode() {
   if (state.spec.suggestionAnchorMode === "section") {
     specSuggestionAnchorLabelElement.textContent = "Section";
     specSuggestionAnchorInput.placeholder = "Heading > Subheading";
+    specSuggestionAnchorSummaryElement.textContent = specAnchorSummary("section", specSuggestionAnchorInput.value);
     return;
   }
 
   specSuggestionAnchorLabelElement.textContent = "Quote";
   specSuggestionAnchorInput.placeholder = "Exact quote from the file";
+  specSuggestionAnchorSummaryElement.textContent = specAnchorSummary("quote", specSuggestionAnchorInput.value);
 }
 
 function normalizeVisibleText(value) {
@@ -3105,6 +3125,78 @@ function normalizeVisibleText(value) {
 
 function specBlockCandidates() {
   return Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre"));
+}
+
+function quoteForSpecBlock(element) {
+  const visibleText = normalizeVisibleText(element?.textContent || "");
+  return visibleText ? sourceQuoteForRenderedSelection(visibleText) : "";
+}
+
+function hideSpecContextToolbar() {
+  specContextToolbarElement.hidden = true;
+  specContextToolbarElement.dataset.quote = "";
+}
+
+function showSpecContextToolbar(quote, rect) {
+  if (!quote || !rect || !state.spec.context) {
+    hideSpecContextToolbar();
+    return;
+  }
+  const toolbarWidth = 168;
+  const left = Math.min(Math.max(12, rect.right - toolbarWidth), window.innerWidth - toolbarWidth - 12);
+  const top = Math.min(Math.max(12, rect.top + 8), window.innerHeight - 56);
+  specContextToolbarElement.dataset.quote = quote;
+  specContextToolbarElement.style.left = `${left}px`;
+  specContextToolbarElement.style.top = `${top}px`;
+  specContextToolbarElement.hidden = false;
+}
+
+function selectedSpecRangeRect() {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+  return rect.width || rect.height ? rect : null;
+}
+
+function showSpecToolbarForSelection() {
+  captureSpecSelectedQuote();
+  const rect = selectedSpecRangeRect();
+  if (!state.spec.selectedQuote || !rect) {
+    return false;
+  }
+  showSpecContextToolbar(state.spec.selectedQuote, rect);
+  return true;
+}
+
+function openSpecComposer(kind, quote = "") {
+  const cleanQuote = quote.trim();
+  if (kind === "suggestion") {
+    if (!cleanQuote) {
+      setBanner("Select text or use a paragraph action to suggest an edit.", "error");
+      return;
+    }
+    state.spec.selectedQuote = cleanQuote;
+    state.spec.reviewTab = "suggestions";
+    state.spec.commentComposerOpen = false;
+    state.spec.suggestionComposerOpen = true;
+    specSuggestionAnchorInput.value = cleanQuote;
+    setSpecSuggestionAnchorMode("quote");
+    renderSpecComments();
+    specSuggestionContentInput.focus();
+    return;
+  }
+
+  state.spec.selectedQuote = cleanQuote;
+  state.spec.reviewTab = "comments";
+  state.spec.suggestionComposerOpen = false;
+  state.spec.commentComposerOpen = true;
+  specCommentAnchorInput.value = cleanQuote;
+  setSpecCommentAnchorMode(cleanQuote ? "quote" : "global");
+  renderSpecComments();
+  specCommentTextInput.focus();
 }
 
 function headingElementForPath(headingPath = []) {
@@ -3277,6 +3369,7 @@ function renderSpecFile() {
     specFileContentElement.className = "spec-file-content spec-empty";
     specFileContentElement.textContent = "No spec session selected.";
     specCommentsSubtitleElement.textContent = "Review around the selected file";
+    hideSpecContextToolbar();
     return;
   }
 
@@ -3290,6 +3383,7 @@ function renderSpecFile() {
   state.spec.selectedQuote = "";
   state.spec.activeAnchorCommentId = "";
   clearSpecAnchorHighlight();
+  hideSpecContextToolbar();
   renderSpecSelectedQuoteState();
 }
 
@@ -3520,12 +3614,11 @@ function renderSpecSuggestions(suggestions) {
         </div>
       ` : ""}
       <div class="spec-comment-actions">
-        <span class="muted">${pending ? "Awaiting review" : "Reviewed"}</span>
+        <span class="muted">${pending ? "Needs review" : "Reviewed"}</span>
         ${suggestion.status !== "applied" ? `
           <div class="spec-form-button-row">
             ${pending ? `
-              <button class="ghost-button" type="button" data-suggestion-action="reject">Reject</button>
-              <button class="ghost-button" type="button" data-suggestion-action="accept">Accept</button>
+              <button class="ghost-button" type="button" data-suggestion-action="reject">Dismiss</button>
             ` : ""}
             <button class="ghost-button" type="button" data-suggestion-action="preview">Preview</button>
             ${activePreview ? `<button class="primary-button" type="button" data-suggestion-action="apply">Apply</button>` : ""}
@@ -3723,7 +3816,7 @@ async function setSpecSuggestionStatus(suggestionId, action) {
     }),
   });
   await refreshSpecReviewState({ quiet: true });
-  setBanner(action === "accept" ? "Suggestion accepted." : "Suggestion rejected.", "success");
+  setBanner(action === "accept" ? "Suggestion accepted." : "Suggestion dismissed.", "success");
 }
 
 async function previewSpecSuggestion(suggestionId) {
@@ -4249,24 +4342,7 @@ specNewCommentButton.addEventListener("click", () => {
     return;
   }
   captureSpecSelectedQuote();
-  if (state.spec.reviewTab === "suggestions") {
-    state.spec.suggestionComposerOpen = true;
-    setSpecSuggestionAnchorMode(state.spec.selectedQuote ? "quote" : "section");
-    renderSpecComments();
-    if (state.spec.selectedQuote) {
-      specSuggestionAnchorInput.value = state.spec.selectedQuote;
-    }
-    specSuggestionContentInput.focus();
-    return;
-  }
-
-  state.spec.commentComposerOpen = true;
-  setSpecCommentAnchorMode(state.spec.selectedQuote ? "quote" : "global");
-  renderSpecComments();
-  if (state.spec.selectedQuote) {
-    specCommentAnchorInput.value = state.spec.selectedQuote;
-  }
-  specCommentTextInput.focus();
+  openSpecComposer(state.spec.reviewTab === "suggestions" ? "suggestion" : "comment", state.spec.selectedQuote);
 });
 
 specReviewTabButtons.forEach((button) => {
@@ -4319,11 +4395,49 @@ specSuggestionAnchorModeButtons.forEach((button) => {
 });
 
 specFileContentElement.addEventListener("mouseup", () => {
-  captureSpecSelectedQuote();
+  if (!showSpecToolbarForSelection()) {
+    captureSpecSelectedQuote();
+  }
 });
 
 specFileContentElement.addEventListener("keyup", () => {
-  captureSpecSelectedQuote();
+  if (!showSpecToolbarForSelection()) {
+    captureSpecSelectedQuote();
+  }
+});
+
+specFileContentElement.addEventListener("pointermove", (event) => {
+  if (state.spec.selectedQuote || !state.spec.context) {
+    return;
+  }
+  const target = event.target instanceof Element ? event.target.closest("h1, h2, h3, h4, h5, h6, p, li, pre") : null;
+  if (!target || !specFileContentElement.contains(target)) {
+    return;
+  }
+  const quote = quoteForSpecBlock(target);
+  if (!quote) {
+    return;
+  }
+  showSpecContextToolbar(quote, target.getBoundingClientRect());
+});
+
+specFileContentElement.addEventListener("mouseleave", (event) => {
+  if (event.relatedTarget instanceof Node && specContextToolbarElement.contains(event.relatedTarget)) {
+    return;
+  }
+  if (!state.spec.selectedQuote) {
+    hideSpecContextToolbar();
+  }
+});
+
+specContextToolbarElement.addEventListener("click", (event) => {
+  const action = event.target instanceof Element ? event.target.closest("[data-spec-context-action]") : null;
+  if (!action) {
+    return;
+  }
+  const quote = specContextToolbarElement.dataset.quote || state.spec.selectedQuote;
+  hideSpecContextToolbar();
+  openSpecComposer(action.dataset.specContextAction === "suggest" ? "suggestion" : "comment", quote);
 });
 
 specAttachForm.addEventListener("submit", (event) => {

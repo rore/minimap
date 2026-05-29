@@ -44,6 +44,17 @@ When quote anchoring:
 - if a quote is ambiguous, use a heading anchor or global comment
 - if the user selected text in the minimap UI, trust the UI-provided quote
 
+## Human UI Behavior
+
+The minimap UI keeps human review lightweight:
+
+- selecting text or hovering a paragraph exposes Comment and Suggest actions in the spec itself
+- comments created from the file view are anchored automatically to the selected text or paragraph
+- the top Add action creates a global comment unless text is selected
+- suggestions should be started from selected text or a paragraph action so the proposed edit has a clear anchor
+- actor, kind, and raw anchor controls are operational details and should not be exposed as the primary human workflow
+- dismissing a suggestion means it is rejected; applying a suggestion should still go through Preview first
+
 Spec-session comments are not decisions. They are review artifacts.
 
 ## Refresh Behavior
