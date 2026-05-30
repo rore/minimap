@@ -639,10 +639,7 @@ h3 {
 
 .spec-session-row-wrap {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: stretch;
+  display: block;
 }
 
 .spec-session-row {
@@ -660,25 +657,32 @@ h3 {
 }
 
 .spec-session-remove-button {
-  align-self: stretch;
-  min-width: 70px;
-  border: 1px solid rgba(204, 70, 70, 0.16);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.76);
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(204, 70, 70, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
   color: #9f3434;
   cursor: pointer;
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 1.08rem;
   font-weight: 800;
+  line-height: 1;
   opacity: 0;
-  transform: translateX(4px);
+  transform: translateY(-2px);
   transition: opacity 140ms ease, transform 140ms ease, border-color 140ms ease, background 140ms ease;
+  box-shadow: 0 8px 20px rgba(31, 43, 67, 0.12);
 }
 
 .spec-session-row-wrap:hover .spec-session-remove-button,
 .spec-session-row-wrap:focus-within .spec-session-remove-button {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0);
 }
 
 .spec-session-remove-button:hover {

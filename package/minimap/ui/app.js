@@ -3507,7 +3507,7 @@ function renderSpecSessions() {
           <span class="spec-session-path">${escapeHtml(session.relativePath || session.targetFile)}</span>
           <span class="spec-session-time">${escapeHtml(formatRelativeTime(session.lastActiveAt))}</span>
         </button>
-        <button class="spec-session-remove-button" type="button" data-spec-session-remove="${escapeHtml(session.targetFile)}" aria-label="Remove ${escapeHtml(session.title || session.targetFile)} session">Remove</button>
+        <button class="spec-session-remove-button" type="button" data-spec-session-remove="${escapeHtml(session.targetFile)}" aria-label="Remove ${escapeHtml(session.title || session.targetFile)} session" title="Remove session">×</button>
       </div>
     `;
   }).join("");
