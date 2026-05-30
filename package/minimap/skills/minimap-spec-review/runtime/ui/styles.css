@@ -637,6 +637,14 @@ h3 {
   padding: 10px;
 }
 
+.spec-session-row-wrap {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
 .spec-session-row {
   display: grid;
   gap: 4px;
@@ -649,6 +657,33 @@ h3 {
   text-align: left;
   cursor: pointer;
   box-shadow: var(--shadow-soft);
+}
+
+.spec-session-remove-button {
+  align-self: stretch;
+  min-width: 70px;
+  border: 1px solid rgba(204, 70, 70, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #9f3434;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity 140ms ease, transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.spec-session-row-wrap:hover .spec-session-remove-button,
+.spec-session-row-wrap:focus-within .spec-session-remove-button {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.spec-session-remove-button:hover {
+  border-color: rgba(204, 70, 70, 0.32);
+  background: rgba(255, 244, 244, 0.9);
 }
 
 .spec-session-row.is-active {
@@ -684,6 +719,42 @@ h3 {
   color: var(--text);
   font-size: 0.96rem;
   line-height: 1.62;
+}
+
+.spec-file-error {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 24px;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.92), rgba(255, 255, 255, 0));
+}
+
+.spec-file-error-card {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 560px);
+  padding: 18px;
+  border: 1px solid rgba(204, 70, 70, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-soft);
+}
+
+.spec-file-error-card h2,
+.spec-file-error-card p {
+  margin: 0;
+}
+
+.spec-file-error-card h2 {
+  font-size: 1.2rem;
+}
+
+.spec-file-error-kicker {
+  color: #9f3434;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .spec-markdown-file > :first-child {

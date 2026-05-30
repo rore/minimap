@@ -295,7 +295,12 @@ export function resolveTextAnchor(text, anchor = {}) {
 }
 
 async function readTextTarget(filePath) {
-  const buffer = await fs.readFile(filePath);
+  const buffer = await fs.readFile(filePath).catch((error) => {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      throw new AppError(`Attached file no longer exists: ${normalizeDisplayPath(filePath)}`, 404, "target_missing");
+    }
+    throw error;
+  });
   if (!isKnownTextExtension(filePath) && looksBinary(buffer)) {
     throw new AppError("Attached file must be a text file.", 422, "invalid_target");
   }
@@ -774,6 +779,33 @@ export async function getFileSession(filePath, options = {}) {
   }
 
   return session;
+}
+
+export async function removeFileSession(filePath, options = {}) {
+  const cwd = options.cwd || process.cwd();
+  const minimapHome = options.minimapHome || resolveMinimapHome(options.env || process.env, options.platform || process.platform);
+  const targetPath = path.resolve(cwd, filePath);
+  const fileKey = normalizeFileKey(targetPath, options.platform || process.platform);
+  const index = await loadSessionIndex(minimapHome);
+  const sessionId = index.files[fileKey];
+
+  if (!sessionId) {
+    throw new AppError(`No minimap session is attached for ${filePath}.`, 404, "not_found");
+  }
+
+  const paths = makeSessionPaths(minimapHome, sessionId);
+  const session = await readJson(paths.sessionJson, null);
+  delete index.files[fileKey];
+  await saveSessionIndex(minimapHome, index);
+  await fs.rm(paths.sessionDir, { recursive: true, force: true });
+
+  return {
+    removed: true,
+    session: session || {
+      id: sessionId,
+      targetFile: normalizeDisplayPath(targetPath),
+    },
+  };
 }
 
 export async function addFileSessionComment(filePath, input = {}, options = {}) {

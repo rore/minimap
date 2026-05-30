@@ -63,6 +63,7 @@ const state = {
     commentSort: "newest",
     expandedResolvedCommentIds: new Set(),
     replyDrafts: new Map(),
+    loadError: null,
     commentAnchorMode: "global",
     suggestionComposerOpen: false,
     suggestionAnchorMode: "quote",
@@ -3028,6 +3029,14 @@ function specPathParam(filePath) {
   return encodeURIComponent(filePath || state.spec.selectedPath || "");
 }
 
+function normalizeSpecUiPath(filePath) {
+  return String(filePath || "").replaceAll("\\", "/").toLowerCase();
+}
+
+function sameSpecUiPath(left, right) {
+  return normalizeSpecUiPath(left) === normalizeSpecUiPath(right);
+}
+
 function headingPathFromInput(value) {
   return String(value || "").split(">").map((part) => part.trim()).filter(Boolean);
 }
@@ -3490,19 +3499,41 @@ function renderSpecSessions() {
   }
 
   specSessionListElement.innerHTML = state.spec.sessions.map((session) => {
-    const active = session.targetFile === state.spec.selectedPath;
+    const active = sameSpecUiPath(session.targetFile, state.spec.selectedPath);
     return `
-      <button class="spec-session-row ${active ? "is-active" : ""}" type="button" data-spec-session-path="${escapeHtml(session.targetFile)}">
-        <span class="spec-session-title">${escapeHtml(session.title || session.targetFile)}</span>
-        <span class="spec-session-path">${escapeHtml(session.relativePath || session.targetFile)}</span>
-        <span class="spec-session-time">${escapeHtml(formatRelativeTime(session.lastActiveAt))}</span>
-      </button>
+      <div class="spec-session-row-wrap ${active ? "is-active" : ""}">
+        <button class="spec-session-row ${active ? "is-active" : ""}" type="button" data-spec-session-path="${escapeHtml(session.targetFile)}">
+          <span class="spec-session-title">${escapeHtml(session.title || session.targetFile)}</span>
+          <span class="spec-session-path">${escapeHtml(session.relativePath || session.targetFile)}</span>
+          <span class="spec-session-time">${escapeHtml(formatRelativeTime(session.lastActiveAt))}</span>
+        </button>
+        <button class="spec-session-remove-button" type="button" data-spec-session-remove="${escapeHtml(session.targetFile)}" aria-label="Remove ${escapeHtml(session.title || session.targetFile)} session">Remove</button>
+      </div>
     `;
   }).join("");
 }
 
 function renderSpecFile() {
   const context = state.spec.context;
+  if (state.spec.loadError) {
+    const session = state.spec.sessions.find((candidate) => candidate.targetFile === state.spec.selectedPath);
+    const missingTarget = state.spec.loadError.code === "target_missing";
+    specFileTitleElement.textContent = session?.title || "Missing file";
+    specFileSubtitleElement.textContent = session?.relativePath || session?.targetFile || state.spec.selectedPath || "Attached file";
+    specFileContentElement.className = "spec-file-content spec-file-error";
+    specFileContentElement.innerHTML = `
+      <div class="spec-file-error-card">
+        <p class="spec-file-error-kicker">${missingTarget ? "File no longer exists" : "Could not load file"}</p>
+        <h2>${escapeHtml(missingTarget ? "This attached file is missing." : "This session could not be loaded.")}</h2>
+        <p>${escapeHtml(state.spec.loadError.message || "The file could not be loaded.")}</p>
+        <button class="ghost-button" type="button" data-spec-missing-remove="${escapeHtml(state.spec.selectedPath)}">Remove session</button>
+      </div>
+    `;
+    specCommentsSubtitleElement.textContent = "Review unavailable";
+    hideSpecContextToolbar();
+    return;
+  }
+
   if (!context) {
     specFileTitleElement.textContent = "File";
     specFileSubtitleElement.textContent = "Attach or choose a spec session.";
@@ -3639,6 +3670,16 @@ function renderSpecComments() {
   const comments = state.spec.context?.comments || [];
   const suggestions = state.spec.context?.suggestions || [];
   renderSpecReviewTabs();
+  if (state.spec.loadError) {
+    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">Remove this stale session or restore the missing file to continue reviewing.</p>';
+    specCommentForm.hidden = true;
+    specSuggestionForm.hidden = true;
+    specNewCommentButton.disabled = true;
+    specCommentFiltersElement.hidden = state.spec.reviewTab !== "comments";
+    renderSpecCommentFilters([]);
+    return;
+  }
+
   if (!state.spec.context) {
     specCommentsListElement.innerHTML = '<p class="spec-empty-inline">Choose a spec session to review.</p>';
     specCommentForm.hidden = true;
@@ -3771,6 +3812,12 @@ function renderSpecSuggestions(suggestions) {
 async function loadSpecSessions(options = {}) {
   const payload = await fetchJson("/api/spec-sessions");
   state.spec.sessions = payload.sessions || [];
+  if (state.spec.selectedPath && !state.spec.sessions.some((session) => sameSpecUiPath(session.targetFile, state.spec.selectedPath))) {
+    state.spec.selectedPath = "";
+    state.spec.context = null;
+    state.spec.content = "";
+    state.spec.loadError = null;
+  }
   if (!state.spec.selectedPath && state.spec.sessions.length > 0) {
     state.spec.selectedPath = state.spec.sessions[0].targetFile;
   }
@@ -3778,7 +3825,7 @@ async function loadSpecSessions(options = {}) {
   applyAppMode();
 
   if (state.spec.selectedPath && options.loadSelected !== false) {
-    await loadSpecSession(state.spec.selectedPath);
+    await loadSpecSession(state.spec.selectedPath, { clearBanner: options.clearBanner });
   } else {
     renderSpecFile();
     renderSpecComments();
@@ -3790,10 +3837,34 @@ async function loadSpecSession(filePath, options = {}) {
   const shouldRestoreReplyFocus = Boolean(activeReplyId && specCommentsListElement.contains(document.activeElement));
   captureSpecReplyDraft();
   state.spec.selectedPath = filePath;
-  const context = await fetchJson(`/api/spec-sessions/by-file/context?path=${specPathParam(filePath)}`);
-  const content = await fetchJson(`/api/spec-sessions/by-file/content?path=${specPathParam(filePath)}`);
+  state.spec.loadError = null;
+  let context;
+  let content;
+  try {
+    context = await fetchJson(`/api/spec-sessions/by-file/context?path=${specPathParam(filePath)}`);
+    content = await fetchJson(`/api/spec-sessions/by-file/content?path=${specPathParam(filePath)}`);
+  } catch (error) {
+    state.spec.context = null;
+    state.spec.content = "";
+    state.spec.previewSuggestionId = "";
+    state.spec.suggestionPreview = null;
+    state.spec.loadError = {
+      code: error.code,
+      message: error.message,
+      statusCode: error.statusCode,
+    };
+    renderSpecSessions();
+    renderSpecFile();
+    renderSpecComments();
+    syncRouteState({ replace: true });
+    if (options.clearBanner !== false) {
+      setBanner(error.code === "target_missing" ? "Attached file no longer exists. Remove the session or restore the file." : error.message, "error");
+    }
+    return;
+  }
   state.spec.context = context;
   state.spec.content = content.content || "";
+  state.spec.loadError = null;
   state.spec.previewSuggestionId = "";
   state.spec.suggestionPreview = null;
   renderSpecSessions();
@@ -3806,6 +3877,38 @@ async function loadSpecSession(filePath, options = {}) {
     setBanner("");
   }
   syncRouteState({ replace: true });
+}
+
+async function removeSpecSession(filePath) {
+  if (!filePath) {
+    return;
+  }
+
+  const session = state.spec.sessions.find((candidate) => sameSpecUiPath(candidate.targetFile, filePath));
+  const label = session?.title || filePath;
+  if (!window.confirm(`Remove minimap session for ${label}? This does not delete the file.`)) {
+    return;
+  }
+
+  await fetchJson(`/api/spec-sessions/by-file?path=${specPathParam(filePath)}`, {
+    method: "DELETE",
+  });
+
+  state.spec.sessions = state.spec.sessions.filter((candidate) => !sameSpecUiPath(candidate.targetFile, filePath));
+  if (sameSpecUiPath(state.spec.selectedPath, filePath)) {
+    state.spec.selectedPath = state.spec.sessions[0]?.targetFile || "";
+    state.spec.context = null;
+    state.spec.content = "";
+    state.spec.loadError = null;
+  }
+
+  await loadSpecSessions({ loadSelected: Boolean(state.spec.selectedPath), clearBanner: false });
+  if (!state.spec.selectedPath) {
+    renderSpecFile();
+    renderSpecComments();
+    syncRouteState({ replace: true });
+  }
+  setBanner("Spec session removed.", "success");
 }
 
 async function refreshSpecReviewState(options = {}) {
@@ -4607,11 +4710,32 @@ specAttachForm.addEventListener("submit", (event) => {
 });
 
 specSessionListElement.addEventListener("click", (event) => {
+  const removeButton = event.target instanceof Element ? event.target.closest("[data-spec-session-remove]") : null;
+  if (removeButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    void removeSpecSession(removeButton.dataset.specSessionRemove).catch((error) => {
+      setBanner(error.message, "error");
+    });
+    return;
+  }
+
   const target = event.target instanceof Element ? event.target.closest("[data-spec-session-path]") : null;
   if (!target) {
     return;
   }
   void loadSpecSession(target.dataset.specSessionPath).catch((error) => {
+    setBanner(error.message, "error");
+  });
+});
+
+specFileContentElement.addEventListener("click", (event) => {
+  const removeButton = event.target instanceof Element ? event.target.closest("[data-spec-missing-remove]") : null;
+  if (!removeButton) {
+    return;
+  }
+
+  void removeSpecSession(removeButton.dataset.specMissingRemove).catch((error) => {
     setBanner(error.message, "error");
   });
 });

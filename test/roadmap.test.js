@@ -36,6 +36,7 @@ import {
   resolveMinimapHome,
   updateFileSessionCommentStatus,
   updateFileSessionSuggestionStatus,
+  removeFileSession,
 } from "../package/minimap/src/sessions.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -682,6 +683,19 @@ test("server exposes global spec-session attach, list, and context APIs", async 
     assert.equal(reopenResponse.status, 200);
     assert.equal((await reopenResponse.json()).suggestion.status, "pending");
 
+    await fs.rm(movedPath, { force: true });
+    const missingContextUrl = new URL("http://localhost:4612/api/spec-sessions/by-file/context");
+    missingContextUrl.searchParams.set("path", "renamed-spec.md");
+    const missingContextResponse = await fetch(missingContextUrl);
+    assert.equal(missingContextResponse.status, 404);
+    assert.equal((await missingContextResponse.json()).error.code, "target_missing");
+
+    const removeResponse = await fetch(missingContextUrl, {
+      method: "DELETE",
+    });
+    assert.equal(removeResponse.status, 200);
+    assert.equal((await removeResponse.json()).removed, true);
+
     assert.equal(await fs.readFile(specPath, "utf8"), originalText);
   } finally {
     child.kill();
@@ -1122,6 +1136,25 @@ test("comment replies and status updates persist in context", async () => {
     by: "human:local",
   }, { minimapHome });
   assert.equal(reopened.comment.status, "open");
+});
+
+test("missing target files return a domain error and sessions can be removed", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-missing-target-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nNeeds review.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+  await fs.rm(specPath);
+
+  await assert.rejects(
+    () => getFileSessionContext(specPath, { minimapHome }),
+    (error) => error.code === "target_missing" && error.statusCode === 404,
+  );
+
+  const removed = await removeFileSession(specPath, { minimapHome });
+  const sessions = await listFileSessions({ minimapHome });
+  assert.equal(removed.removed, true);
+  assert.equal(sessions.length, 0);
 });
 
 test("file session suggestions persist in context without mutating the target file", async () => {

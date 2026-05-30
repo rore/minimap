@@ -23,6 +23,7 @@ import {
   listFileSessions,
   moveFileSession,
   previewFileSessionSuggestion,
+  removeFileSession,
   updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
@@ -146,6 +147,13 @@ async function handleApi(request, response, requestUrl) {
     const file = requireQueryParam(requestUrl, "path");
     const content = await getFileSessionFileContent(file, { cwd: repoRoot });
     sendJson(response, 200, content);
+    return true;
+  }
+
+  if (request.method === "DELETE" && (pathname === "/api/spec-sessions/by-file" || pathname === "/api/spec-sessions/by-file/context")) {
+    const file = requireQueryParam(requestUrl, "path");
+    const result = await removeFileSession(file, { cwd: repoRoot });
+    sendJson(response, 200, result);
     return true;
   }
 
