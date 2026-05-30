@@ -318,6 +318,84 @@ function renderMarkdownToHtml(markdown) {
     return null;
   }
 
+  function isHorizontalRule(value) {
+    return /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/.test(value);
+  }
+
+  function splitTableRow(value) {
+    const trimmed = String(value || "").trim();
+    const withoutEdges = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+    return withoutEdges.split("|").map((cell) => cell.trim());
+  }
+
+  function isTableDelimiterLine(value) {
+    const cells = splitTableRow(value);
+    return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+  }
+
+  function tableAlignments(value) {
+    return splitTableRow(value).map((cell) => {
+      const left = cell.startsWith(":");
+      const right = cell.endsWith(":");
+      if (left && right) {
+        return "center";
+      }
+      if (right) {
+        return "right";
+      }
+      return "left";
+    });
+  }
+
+  function isTableStart(index) {
+    return index + 1 < sourceLines.length
+      && sourceLines[index].includes("|")
+      && isTableDelimiterLine(sourceLines[index + 1]);
+  }
+
+  function parseTable(startIndex) {
+    const headerCells = splitTableRow(sourceLines[startIndex]);
+    const alignments = tableAlignments(sourceLines[startIndex + 1]);
+    const rows = [];
+    let index = startIndex + 2;
+
+    while (index < sourceLines.length && sourceLines[index].trim() && sourceLines[index].includes("|")) {
+      rows.push(splitTableRow(sourceLines[index]));
+      index += 1;
+    }
+
+    const alignStyle = (cellIndex) => ` style="text-align: ${alignments[cellIndex] || "left"}"`;
+    const header = `<thead><tr>${headerCells.map((cell, cellIndex) => `<th${alignStyle(cellIndex)}>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead>`;
+    const body = rows.length
+      ? `<tbody>${rows.map((row) => `<tr>${headerCells.map((_, cellIndex) => `<td${alignStyle(cellIndex)}>${renderInlineMarkdown(row[cellIndex] || "")}</td>`).join("")}</tr>`).join("")}</tbody>`
+      : "";
+
+    return {
+      html: `<div class="markdown-table-wrap"><table>${header}${body}</table></div>`,
+      nextIndex: index,
+    };
+  }
+
+  function parseBlockquote(startIndex) {
+    const quoteLines = [];
+    let index = startIndex;
+
+    while (index < sourceLines.length) {
+      const match = sourceLines[index].match(/^>\s?(.*)$/);
+      if (!match) {
+        break;
+      }
+      quoteLines.push(match[1]);
+      index += 1;
+    }
+
+    const quoteHtml = renderMarkdownToHtml(quoteLines.join("\n"));
+    return {
+      html: `<blockquote>${quoteHtml}</blockquote>`,
+      nextIndex: index,
+    };
+  }
+
   function parseCodeBlock(startIndex) {
     const codeLines = [];
     let index = startIndex + 1;
@@ -347,7 +425,7 @@ function renderMarkdownToHtml(markdown) {
       if (!trimmed) {
         break;
       }
-      if (trimmed.startsWith("```") || trimmed.match(/^(#{1,6})\s+(.+)$/) || getListMarker(rawLine)) {
+      if (trimmed.startsWith("```") || trimmed.startsWith(">") || trimmed.match(/^(#{1,6})\s+(.+)$/) || getListMarker(rawLine) || isHorizontalRule(trimmed) || isTableStart(index)) {
         break;
       }
 
@@ -466,6 +544,13 @@ function renderMarkdownToHtml(markdown) {
       continue;
     }
 
+    if (trimmed.startsWith(">")) {
+      const parsedQuote = parseBlockquote(index);
+      blocks.push(parsedQuote.html);
+      index = parsedQuote.nextIndex;
+      continue;
+    }
+
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
@@ -479,6 +564,19 @@ function renderMarkdownToHtml(markdown) {
       const parsedList = parseList(index, listMarker.indent, listMarker.ordered);
       blocks.push(parsedList.html);
       index = parsedList.nextIndex;
+      continue;
+    }
+
+    if (isHorizontalRule(trimmed)) {
+      blocks.push("<hr />");
+      index += 1;
+      continue;
+    }
+
+    if (isTableStart(index)) {
+      const parsedTable = parseTable(index);
+      blocks.push(parsedTable.html);
+      index = parsedTable.nextIndex;
       continue;
     }
 
@@ -3124,7 +3222,7 @@ function normalizeVisibleText(value) {
 }
 
 function specBlockCandidates() {
-  return Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre"));
+  return Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre, th, td"));
 }
 
 function quoteForSpecBlock(element) {

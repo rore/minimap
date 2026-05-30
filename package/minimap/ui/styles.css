@@ -677,6 +677,151 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+.spec-file-content.spec-markdown-file {
+  display: block;
+  padding: 22px 32px 36px;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.92), rgba(255, 255, 255, 0));
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.62;
+}
+
+.spec-markdown-file > :first-child {
+  margin-top: 0;
+}
+
+.spec-markdown-file > :last-child {
+  margin-bottom: 0;
+}
+
+.spec-markdown-file h1,
+.spec-markdown-file h2,
+.spec-markdown-file h3,
+.spec-markdown-file h4,
+.spec-markdown-file h5,
+.spec-markdown-file h6 {
+  max-width: 980px;
+  letter-spacing: 0;
+  line-height: 1.16;
+}
+
+.spec-markdown-file h1 {
+  margin: 0 0 1rem;
+  font-size: 2.55rem;
+}
+
+.spec-markdown-file h2 {
+  margin: 2rem 0 0.72rem;
+  font-size: 1.54rem;
+}
+
+.spec-markdown-file h3 {
+  margin: 1.52rem 0 0.58rem;
+  font-size: 1.18rem;
+}
+
+.spec-markdown-file h4,
+.spec-markdown-file h5,
+.spec-markdown-file h6 {
+  margin: 1.18rem 0 0.48rem;
+  font-size: 1rem;
+}
+
+.spec-markdown-file p,
+.spec-markdown-file ul,
+.spec-markdown-file ol,
+.spec-markdown-file pre,
+.spec-markdown-file blockquote,
+.spec-markdown-file .markdown-table-wrap {
+  max-width: 980px;
+  margin: 0 0 0.88rem;
+}
+
+.spec-markdown-file p {
+  line-height: 1.62;
+}
+
+.spec-markdown-file ul,
+.spec-markdown-file ol {
+  padding-left: 1.35rem;
+}
+
+.spec-markdown-file li + li {
+  margin-top: 0.2rem;
+}
+
+.spec-markdown-file li > p {
+  margin: 0;
+}
+
+.spec-markdown-file hr {
+  max-width: 980px;
+  height: 1px;
+  margin: 1.3rem 0;
+  border: 0;
+  background: rgba(63, 82, 118, 0.14);
+}
+
+.spec-markdown-file code {
+  padding: 0.08rem 0.3rem;
+  border-radius: 6px;
+  background: rgba(21, 32, 51, 0.07);
+  font-size: 0.9em;
+}
+
+.spec-markdown-file pre {
+  overflow: auto;
+  padding: 0.86rem 0.92rem;
+  border-radius: 8px;
+  background: #172033;
+  color: #f4f7ff;
+}
+
+.spec-markdown-file pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.spec-markdown-file blockquote {
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  border-left: 3px solid rgba(44, 108, 255, 0.24);
+  color: var(--muted);
+}
+
+.markdown-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(63, 82, 118, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.spec-markdown-file table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.42;
+}
+
+.spec-markdown-file th,
+.spec-markdown-file td {
+  padding: 0.62rem 0.72rem;
+  border-bottom: 1px solid rgba(63, 82, 118, 0.1);
+  vertical-align: top;
+}
+
+.spec-markdown-file th {
+  background: rgba(44, 108, 255, 0.06);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.spec-markdown-file tr:last-child td {
+  border-bottom: 0;
+}
+
 .spec-context-toolbar {
   position: fixed;
   z-index: 80;
