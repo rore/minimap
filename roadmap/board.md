@@ -3,12 +3,11 @@
 # Next
 
 # Ideas
-- idea-timeline-view
 - idea-board-management
 - idea-create-items
 - idea-custom-fields-and-templates
-- idea-parent-grouping-overview
 - idea-history-and-recent-changes
+- idea-timeline-view
 
 # Done
 - foundation-local-server
@@ -21,3 +20,4 @@
 - feature-derived-roadmap-lenses
 - feature-card-preview-and-overview
 - feature-column-board-view
+- idea-parent-grouping-overview
