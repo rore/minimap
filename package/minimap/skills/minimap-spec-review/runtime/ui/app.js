@@ -3835,7 +3835,13 @@ function renderSpecComments() {
   captureSpecReplyDraft();
 
   const comments = (ctx.comments || []).filter(commentMatchesFilter);
-  const suggestions = (ctx.suggestions || []).filter((s) => state.spec.showResolved || s.status !== "rejected");
+  // Active vs. resolved bucket: pending suggestions stay in the active
+  // margin; applied/rejected get tucked under the Resolved toggle so the
+  // active list focuses on what still needs attention.
+  const suggestions = (ctx.suggestions || []).filter((s) => {
+    if (s.status === "pending" || s.status === "accepted") return true;
+    return state.spec.showResolved;
+  });
   const showComments = state.spec.showComments;
   const showSuggestions = state.spec.showSuggestions;
 
@@ -3908,6 +3914,9 @@ function renderMarginCommentCard(comment) {
   const orphanWarning = comment.anchorStatus && comment.anchorStatus.status && comment.anchorStatus.status !== "resolved"
     ? `<p class="spec-card-orphan">Anchor ${escapeHtml(comment.anchorStatus.status)}</p>`
     : "";
+  const anchorRewritten = comment.anchorRewrittenAt && !orphanWarning
+    ? `<p class="spec-card-anchor-rewritten">Anchor updated after edit</p>`
+    : "";
 
   const dataAnchorId = isFile ? "__file" : `comment:${comment.id}`;
   // Note: the schema still carries comment.kind (concern/question/etc.)
@@ -3939,6 +3948,7 @@ function renderMarginCommentCard(comment) {
         <p class="spec-card-text">${escapeHtml(comment.text)}</p>
         ${replies ? `<div class="spec-card-replies">${replies}</div>` : ""}
         ${orphanWarning}
+        ${anchorRewritten}
         ${isReplying ? replyForm : `
           <div class="spec-card-actions">
             <button class="spec-card-action" type="button" data-comment-action="reply">Reply</button>
@@ -3982,8 +3992,11 @@ function renderMarginSuggestionCard(suggestion) {
   const actions = [];
   if (!applied) {
     if (pending) {
+      // Two-action lifecycle: Dismiss removes from review; Apply writes
+      // the change to the file. The legacy `accepted` state still exists
+      // in the schema but no longer has a UI affordance — pending →
+      // applied/rejected is the only path you can take from here.
       actions.push('<button class="spec-card-action is-danger" type="button" data-suggestion-action="reject">Dismiss</button>');
-      actions.push('<button class="spec-card-action" type="button" data-suggestion-action="accept">Accept</button>');
     }
     if (reviewed) {
       actions.push('<button class="spec-card-action" type="button" data-suggestion-action="reopen">Reopen</button>');
@@ -3995,15 +4008,28 @@ function renderMarginSuggestionCard(suggestion) {
 
   const rationale = suggestion.rationale ? `<p class="spec-card-text">${escapeHtml(suggestion.rationale)}</p>` : "";
 
+  // Status appears in the kind tag only when it's something the user
+  // should notice: "applied" or "rejected" reach a terminal state worth
+  // calling out; "pending" is the default and adds no information; the
+  // legacy "accepted" status no longer has a UI authoring path.
+  const showStatusInTag = status === "applied" || status === "rejected";
+  const kindTag = showStatusInTag
+    ? `${escapeHtml(suggestion.kind)} · ${escapeHtml(status)}`
+    : escapeHtml(suggestion.kind);
+  const anchorRewritten = suggestion.anchorRewrittenAt
+    ? `<p class="spec-card-anchor-rewritten">Anchor updated after edit</p>`
+    : "";
+
   return `
     <article class="${cls}" data-suggestion-id="${escapeHtml(suggestion.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to jump to anchor">
       <header class="spec-card-head">
         <span class="spec-card-author">${escapeHtml(suggestion.by)}</span>
-        <span class="spec-card-anchor-tag is-suggestion">${escapeHtml(suggestion.kind)} · ${escapeHtml(status)}</span>
+        <span class="spec-card-anchor-tag is-suggestion">${kindTag}</span>
         <span class="spec-card-when">${escapeHtml(formatRelativeTime(suggestion.createdAt))}</span>
       </header>
       ${rationale}
       ${orphanWarning}
+      ${anchorRewritten}
       ${anchorTag ? `<p class="spec-card-anchor-quote">${escapeHtml(truncate(anchorTag, 120))}</p>` : ""}
       ${actions.length ? `<div class="spec-card-actions">${actions.join("")}</div>` : ""}
     </article>`;
@@ -4037,7 +4063,9 @@ function renderSpecDiffBlocks() {
   if (!state.spec.showSuggestions) return;
 
   for (const suggestion of state.spec.context?.suggestions || []) {
-    if (suggestion.status === "rejected" && !state.spec.showResolved) continue;
+    // Resolved suggestions (applied / rejected) only show their inline
+    // diff when the user explicitly opts in via the Resolved toggle.
+    if ((suggestion.status === "rejected" || suggestion.status === "applied") && !state.spec.showResolved) continue;
     insertSpecDiffBlock(suggestion);
   }
 }
@@ -4523,10 +4551,6 @@ async function previewSpecSuggestion(suggestionId) {
 }
 
 async function applySpecSuggestion(suggestionId) {
-  if (!window.confirm("Apply this suggestion to the target file?")) {
-    return;
-  }
-
   await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

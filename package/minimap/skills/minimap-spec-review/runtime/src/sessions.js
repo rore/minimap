@@ -1105,6 +1105,39 @@ export async function applyFileSessionSuggestion(filePath, suggestionId, input =
 
   await fs.writeFile(targetPath, edit.nextText, "utf8");
 
+  // Re-anchor logic for `replace`:
+  //   The original quote no longer exists in the file — it's been replaced
+  //   by `edit.after`. Without re-anchoring, the applied suggestion would
+  //   show as orphaned even though it succeeded, and any other comments or
+  //   suggestions anchored to the same old quote would also go orphan.
+  //   Repoint them to the new content so the conversation stays connected
+  //   to the spec at the location it lives.
+  //
+  //   `delete` and `insert_after` don't need this:
+  //   - delete: the text is genuinely gone; orphan is the right state.
+  //   - insert_after: anchor wasn't modified.
+  const isReplaceSuggestion = suggestion.kind === "replace"
+    && suggestion.anchor?.scope === "anchor"
+    && typeof suggestion.anchor?.quote === "string"
+    && typeof edit.after === "string"
+    && edit.after.length > 0;
+
+  let updatedAnchor = suggestion.anchor;
+  if (isReplaceSuggestion) {
+    const newQuote = edit.after;
+    const occurrences = findQuoteOccurrences(edit.nextText, newQuote);
+    if (occurrences.length === 1) {
+      updatedAnchor = {
+        ...suggestion.anchor,
+        quote: newQuote,
+        lineStart: occurrences[0].lineStart,
+        lineEnd: occurrences[0].lineEnd,
+        selectedHash: hashText(newQuote),
+        fileHash: afterHash,
+      };
+    }
+  }
+
   const appliedSuggestion = {
     ...suggestion,
     status: "applied",
@@ -1112,12 +1145,50 @@ export async function applyFileSessionSuggestion(filePath, suggestionId, input =
     appliedBy: actor,
     appliedAt: timestamp,
     updatedAt: timestamp,
+    anchor: updatedAnchor,
     beforeHash,
     afterHash,
   };
   suggestions[index] = appliedSuggestion;
+  // Also re-anchor any OTHER suggestions in the same file that were anchored
+  // to the same old quote (e.g. a follow-up suggestion against the same
+  // sentence). Match by exact quote string under the same scope.
+  if (isReplaceSuggestion) {
+    const oldQuote = suggestion.anchor.quote;
+    for (let i = 0; i < suggestions.length; i += 1) {
+      if (i === index) continue;
+      const other = suggestions[i];
+      if (other.anchor?.scope !== "anchor" || other.anchor?.quote !== oldQuote) continue;
+      suggestions[i] = {
+        ...other,
+        anchor: { ...other.anchor, ...updatedAnchor, quote: updatedAnchor.quote },
+        anchorRewrittenAt: timestamp,
+      };
+    }
+  }
+
+  // And update comments anchored to the same quote.
+  const comments = await readJsonLines(paths.commentsJsonl);
+  let commentsChanged = false;
+  if (isReplaceSuggestion) {
+    const oldQuote = suggestion.anchor.quote;
+    for (let i = 0; i < comments.length; i += 1) {
+      const c = comments[i];
+      if (c.anchor?.scope !== "anchor" || c.anchor?.quote !== oldQuote) continue;
+      comments[i] = {
+        ...c,
+        anchor: { ...c.anchor, ...updatedAnchor, quote: updatedAnchor.quote },
+        anchorRewrittenAt: timestamp,
+      };
+      commentsChanged = true;
+    }
+  }
+
   const refreshedSession = await refreshSessionMetadataForTarget(session, targetPath, timestamp);
   await writeJsonLines(paths.suggestionsJsonl, suggestions);
+  if (commentsChanged) {
+    await writeJsonLines(paths.commentsJsonl, comments);
+  }
   await writeJson(paths.sessionJson, refreshedSession);
   await appendSessionEvent(paths, {
     type: "suggestion_applied",

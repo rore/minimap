@@ -1132,6 +1132,21 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   font-weight: 500;
 }
 
+/* Soft hint shown when an applied `replace` rewrote the anchored text
+   and the comment/suggestion was re-pointed to the new content. The
+   reader sees that the conversation moved with the edit. */
+.spec-card-anchor-rewritten {
+  margin: 4px 0 0;
+  font-size: 0.7rem;
+  color: var(--spec-muted);
+  font-style: italic;
+}
+.spec-card-anchor-rewritten::before {
+  content: "↻ ";
+  font-style: normal;
+  color: var(--spec-muted-soft);
+}
+
 /* Orphaned cards (anchor no longer in the file). Render visually
    detached: muted, dashed left border. They sit below anchored cards
    and have no gutter dot. */

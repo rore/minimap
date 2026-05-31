@@ -1282,7 +1282,11 @@ test("file session suggestion preview and apply mutate only after explicit apply
 
   const context = await getFileSessionContext(specPath, { minimapHome });
   assert.equal(context.suggestions[0].status, "applied");
-  assert.equal(context.suggestions[0].anchorStatus.status, "orphaned");
+  // After apply, a `replace` suggestion's anchor is rewritten to point at
+  // the new content so it doesn't show up as orphaned even though the
+  // original quote is gone. Verify the re-anchor landed.
+  assert.equal(context.suggestions[0].anchorStatus.status, "resolved");
+  assert.equal(context.suggestions[0].anchor.quote, "New line.");
   assert.match(context.session.contentHash, /^sha256:/);
 
   await assert.rejects(
