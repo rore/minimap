@@ -1125,12 +1125,24 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
 .spec-card-orphan {
   margin: 4px 0 0;
   font-size: 0.72rem;
-  color: var(--spec-danger);
-  background: var(--spec-danger-soft);
+  color: var(--spec-warn);
+  background: var(--spec-warn-soft);
   border-radius: 4px;
   padding: 2px 6px;
   font-weight: 500;
 }
+
+/* Orphaned cards (anchor no longer in the file). Render visually
+   detached: muted, dashed left border. They sit below anchored cards
+   and have no gutter dot. */
+.spec-margin-card.is-orphan {
+  border-style: dashed;
+  border-left-style: solid;
+  border-left-color: var(--spec-warn) !important;
+  background: var(--spec-panel-soft);
+  opacity: 0.85;
+}
+.spec-margin-card.is-orphan::before { display: none; }
 
 .spec-card-replies {
   margin-top: 8px;

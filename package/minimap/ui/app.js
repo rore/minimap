@@ -3445,7 +3445,10 @@ function focusSpecAnchorItem(item, activeKey) {
   renderSpecComments();
 
   if (item.anchorStatus?.status && item.anchorStatus.status !== "resolved") {
-    setBanner(`Anchor is ${item.anchorStatus.status}; minimap cannot jump to a reliable target.`, "error");
+    // The anchor's quote/section is no longer in the file (often after a
+    // suggestion was applied that rewrote the anchored text). Tell the
+    // user calmly — this is expected, not an error condition.
+    setBanner("The anchored text is no longer in the file — nothing to jump to.", "info");
     return;
   }
 
@@ -4159,6 +4162,8 @@ function decorateSpecAnchorQuote(quote) {
 
 // Place each margin card next to its anchor's y position; if cards
 // would overlap, slide the lower one down. Also draws gutter dots.
+// Orphaned cards (anchor no longer exists in the file) are stacked
+// at the bottom so they don't collide with anchored cards.
 // The trailing "+ comment" button is placed below the last card.
 function layoutSpecMargin() {
   if (!specMarginElement || !specGutterElement) return;
@@ -4172,11 +4177,19 @@ function layoutSpecMargin() {
   specGutterElement.querySelectorAll(".spec-gutter-dot").forEach((el) => el.remove());
 
   const placements = [];
+  const orphanCards = [];
   for (const card of cards) {
     const anchorId = card.dataset.cardAnchorId;
     if (!anchorId) continue;
     const anchor = anchors.get(anchorId);
-    if (!anchor && anchorId !== "__file") continue;
+    if (!anchor && anchorId !== "__file") {
+      // Orphan: anchor in the file is gone (e.g. after applying a suggestion
+      // that replaced or deleted the anchored quote). Keep the card visible
+      // by stacking it at the bottom of the margin instead of leaving it
+      // at the implicit top, where it would overlap the first anchored card.
+      orphanCards.push(card);
+      continue;
+    }
     const desired = anchor ? anchor.top : 0;
     placements.push({ card, desired, anchorId });
   }
@@ -4204,6 +4217,22 @@ function layoutSpecMargin() {
       dot.style.top = p.desired + "px";
       specGutterElement.appendChild(dot);
     }
+  }
+
+  // Orphan cards: stack below the anchored ones, with extra spacing
+  // so they read as a separate group. No gutter dots — they have no
+  // anchor to point to.
+  if (orphanCards.length) {
+    cursor += 16;
+    for (const card of orphanCards) {
+      card.classList.add("is-orphan");
+      card.style.top = cursor + "px";
+      cursor += card.offsetHeight + gap;
+    }
+  }
+  // Strip the class from any cards that recovered an anchor on this pass.
+  for (const p of placements) {
+    p.card.classList.remove("is-orphan");
   }
 
   if (trailing) {

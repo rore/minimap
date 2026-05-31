@@ -52,8 +52,23 @@ function detectLineEnding(text) {
   return String(text).includes("\r\n") ? "\r\n" : "\n";
 }
 
+// Decode literal backslash escapes (\n, \r, \t, \\) in suggestion content.
+// Authors — particularly LLMs — sometimes emit `\n` as a two-character literal
+// instead of a real newline. Without decoding, applying such a suggestion
+// would write the literal backslash-n into the file. We decode conservatively:
+// only the four common escapes.
+function decodeLiteralEscapes(value) {
+  if (typeof value !== "string" || value.indexOf("\\") === -1) return String(value || "");
+  return value.replace(/\\([nrt\\])/g, (_, ch) => {
+    if (ch === "n") return "\n";
+    if (ch === "r") return "\r";
+    if (ch === "t") return "\t";
+    return "\\";
+  });
+}
+
 function normalizeSuggestionContent(content, lineEnding) {
-  return String(content || "").replace(/\r\n|\r|\n/g, lineEnding);
+  return decodeLiteralEscapes(content).replace(/\r\n|\r|\n/g, lineEnding);
 }
 
 function slugifyBasename(filePath) {
