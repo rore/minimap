@@ -2,13 +2,19 @@ const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
 const SCOPE_WIDTH_STORAGE_KEY = "roadmap-ui.scope-width";
 const SPEC_FILES_COLLAPSED_STORAGE_KEY = "spec-sessions.files-collapsed";
-const SPEC_COMMENTS_WIDTH_STORAGE_KEY = "spec-sessions.comments-width";
+// Stored as a fraction of the spec-doc width (e.g. 0.62 = body is 62% of the
+// pane, margin gets the rest). Migrated from a legacy pixel-width key on read.
+const SPEC_BODY_WIDTH_STORAGE_KEY = "spec-sessions.body-frac";
+const LEGACY_SPEC_BODY_WIDTH_STORAGE_KEY = "spec-sessions.body-width";
 const DEFAULT_SCOPE_WIDTH = 272;
 const MIN_SCOPE_WIDTH = 240;
 const MAX_SCOPE_WIDTH = 440;
-const DEFAULT_SPEC_COMMENTS_WIDTH = 340;
-const MIN_SPEC_COMMENTS_WIDTH = 260;
-const MAX_SPEC_COMMENTS_WIDTH = 1200;
+// Fraction of the doc area dedicated to the spec body. Margin column gets the
+// remainder. Tuned so a ~1100px viewport still shows margin cards in full.
+const DEFAULT_SPEC_BODY_FRAC = 0.66;
+const MIN_SPEC_BODY_FRAC = 0.4;
+const MAX_SPEC_BODY_FRAC = 0.82;
+const MIN_SPEC_MARGIN_WIDTH = 240;
 const SPEC_REVIEW_REFRESH_MS = 5000;
 const SPEC_COMMENT_FILTERS = new Set(["open", "all", "resolved"]);
 const SPEC_COMMENT_ANCHOR_MODES = new Set(["global", "section", "quote"]);
@@ -70,14 +76,22 @@ const state = {
     previewSuggestionId: "",
     suggestionPreview: null,
     filesCollapsed: loadStoredSpecFilesPreference(),
-    commentsWidth: loadStoredSpecCommentsWidth(),
-    resizingComments: false,
+    bodyFrac: loadStoredSpecBodyFrac(),
+    resizingMargin: false,
+    viewMode: "review",          // "read" | "review"
+    showComments: true,
+    showSuggestions: true,
+    showResolved: false,
+    sidebarSearch: "",
+    composerTarget: null,        // { kind: "comment" | "suggestion", anchorId: string|"__file" }
   },
 };
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
 const specModeButton = document.querySelector("#spec-mode-button");
 const specWorkbenchElement = document.querySelector("#spec-workbench");
+const specSidebarElement = document.querySelector("#spec-sidebar");
+const specSidebarSearchInput = document.querySelector("#spec-sidebar-search");
 const specFilesToggleButton = document.querySelector("#spec-files-toggle");
 const specAttachForm = document.querySelector("#spec-attach-form");
 const specAttachPathInput = document.querySelector("#spec-attach-path");
@@ -87,9 +101,12 @@ const specFileSubtitleElement = document.querySelector("#spec-file-subtitle");
 const specFileContentElement = document.querySelector("#spec-file-content");
 const specContextToolbarElement = document.querySelector("#spec-context-toolbar");
 const specRefreshButton = document.querySelector("#spec-refresh-button");
-const specCommentsResizerElement = document.querySelector("#spec-comments-resizer");
-const specCommentsSubtitleElement = document.querySelector("#spec-comments-subtitle");
-const specNewCommentButton = document.querySelector("#spec-new-comment-button");
+const specDocElement = document.querySelector("#spec-doc");
+const specGutterElement = document.querySelector("#spec-gutter");
+const specMarginElement = document.querySelector("#spec-margin");
+const specViewSegButtons = Array.from(document.querySelectorAll("[data-spec-view]"));
+const specLayerSegButtons = Array.from(document.querySelectorAll("[data-spec-layer]"));
+const specResolvedToggleButton = document.querySelector("#spec-resolved-toggle");
 const specCommentForm = document.querySelector("#spec-comment-form");
 const specCommentCancelButton = document.querySelector("#spec-comment-cancel-button");
 const specCommentByInput = document.querySelector("#spec-comment-by");
@@ -108,11 +125,6 @@ const specSuggestionAnchorLabelElement = document.querySelector("#spec-suggestio
 const specSuggestionAnchorSummaryElement = document.querySelector("#spec-suggestion-anchor-summary");
 const specSuggestionContentInput = document.querySelector("#spec-suggestion-content");
 const specSuggestionRationaleInput = document.querySelector("#spec-suggestion-rationale");
-const specCommentsListElement = document.querySelector("#spec-comments-list");
-const specReviewTabButtons = Array.from(document.querySelectorAll("[data-spec-review-tab]"));
-const specCommentFiltersElement = document.querySelector(".spec-comment-filters");
-const specCommentSortButton = document.querySelector("#spec-comment-sort-button");
-const specCommentFilterButtons = Array.from(document.querySelectorAll("[data-comment-filter]"));
 const specCommentAnchorModeButtons = Array.from(document.querySelectorAll("[data-comment-anchor-mode]"));
 const specSuggestionAnchorModeButtons = Array.from(document.querySelectorAll("[data-suggestion-anchor-mode]"));
 const layoutElement = document.querySelector("#layout-shell");
@@ -221,9 +233,9 @@ function persistScopeWidth() {
 function loadStoredSpecFilesPreference() {
   try {
     const stored = window.localStorage.getItem(SPEC_FILES_COLLAPSED_STORAGE_KEY);
-    return stored === null ? true : stored === "true";
+    return stored === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -235,22 +247,26 @@ function persistSpecFilesPreference() {
   }
 }
 
-function clampSpecCommentsWidth(width) {
-  return Math.max(MIN_SPEC_COMMENTS_WIDTH, Math.min(MAX_SPEC_COMMENTS_WIDTH, Math.round(width)));
+function clampSpecBodyFrac(frac) {
+  if (!Number.isFinite(frac)) return DEFAULT_SPEC_BODY_FRAC;
+  return Math.min(MAX_SPEC_BODY_FRAC, Math.max(MIN_SPEC_BODY_FRAC, frac));
 }
 
-function loadStoredSpecCommentsWidth() {
+function loadStoredSpecBodyFrac() {
   try {
-    const rawValue = Number(window.localStorage.getItem(SPEC_COMMENTS_WIDTH_STORAGE_KEY));
-    return Number.isFinite(rawValue) && rawValue > 0 ? clampSpecCommentsWidth(rawValue) : DEFAULT_SPEC_COMMENTS_WIDTH;
+    const raw = Number(window.localStorage.getItem(SPEC_BODY_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(raw) && raw > 0 && raw <= 1) return clampSpecBodyFrac(raw);
+    // One-time migration: older builds stored a pixel width. Discard it.
+    window.localStorage.removeItem(LEGACY_SPEC_BODY_WIDTH_STORAGE_KEY);
+    return DEFAULT_SPEC_BODY_FRAC;
   } catch {
-    return DEFAULT_SPEC_COMMENTS_WIDTH;
+    return DEFAULT_SPEC_BODY_FRAC;
   }
 }
 
-function persistSpecCommentsWidth() {
+function persistSpecBodyFrac() {
   try {
-    window.localStorage.setItem(SPEC_COMMENTS_WIDTH_STORAGE_KEY, String(state.spec.commentsWidth));
+    window.localStorage.setItem(SPEC_BODY_WIDTH_STORAGE_KEY, String(state.spec.bodyFrac));
   } catch {
     // Ignore storage failures.
   }
@@ -1647,37 +1663,47 @@ function toggleSpecFilesPanel() {
   applyAppMode();
 }
 
-function beginSpecCommentsResize(event) {
+function beginSpecMarginResize(event) {
   if (isStackedLayout()) {
     return;
   }
-
-  state.spec.resizingComments = true;
-  applyAppMode();
-  specCommentsResizerElement.setPointerCapture(event.pointerId);
-}
-
-function updateSpecCommentsResize(event) {
-  if (!state.spec.resizingComments) {
+  if (state.spec.viewMode !== "review") {
     return;
   }
 
-  const workbenchRect = specWorkbenchElement.getBoundingClientRect();
-  const availableWidth = Math.max(MIN_SPEC_COMMENTS_WIDTH, workbenchRect.width - (state.spec.filesCollapsed ? 32 : 260) - 24);
-  state.spec.commentsWidth = Math.min(clampSpecCommentsWidth(workbenchRect.right - event.clientX - 8), availableWidth);
+  state.spec.resizingMargin = true;
+  state.spec.resizeStartX = event.clientX;
+  // Snapshot the doc width so we convert pixel deltas → fraction deltas.
+  state.spec.resizeStartDocWidth = specDocElement.clientWidth || 1;
+  state.spec.resizeStartFrac = state.spec.bodyFrac;
   applyAppMode();
+  specGutterElement.setPointerCapture(event.pointerId);
 }
 
-function endSpecCommentsResize(event) {
-  if (!state.spec.resizingComments) {
+function updateSpecMarginResize(event) {
+  if (!state.spec.resizingMargin) {
     return;
   }
 
-  state.spec.resizingComments = false;
-  persistSpecCommentsWidth();
+  // Drag right -> body fraction grows. Drag left -> body shrinks (margin grows).
+  const dx = event.clientX - (state.spec.resizeStartX || 0);
+  const docW = state.spec.resizeStartDocWidth || specDocElement.clientWidth || 1;
+  const next = (state.spec.resizeStartFrac || DEFAULT_SPEC_BODY_FRAC) + dx / docW;
+  state.spec.bodyFrac = clampSpecBodyFrac(next);
+  applyAppMode();
+  layoutSpecMargin();
+}
+
+function endSpecMarginResize(event) {
+  if (!state.spec.resizingMargin) {
+    return;
+  }
+
+  state.spec.resizingMargin = false;
+  persistSpecBodyFrac();
   applyAppMode();
   try {
-    specCommentsResizerElement.releasePointerCapture(event.pointerId);
+    specGutterElement.releasePointerCapture(event.pointerId);
   } catch {
     // Pointer capture may already be released.
   }
@@ -3126,23 +3152,11 @@ function getSpecSelectionText() {
 function captureSpecSelectedQuote() {
   const selectedText = getSpecSelectionText();
   state.spec.selectedQuote = selectedText ? sourceQuoteForRenderedSelection(selectedText) : "";
-  renderSpecSelectedQuoteState();
-}
-
-function renderSpecSelectedQuoteState() {
-  const hasSelection = Boolean(state.spec.selectedQuote);
-  if (state.spec.reviewTab === "suggestions") {
-    specNewCommentButton.textContent = hasSelection ? "Suggest edit" : "Suggest";
-    specNewCommentButton.title = hasSelection ? "Suggest an edit anchored to the selected text" : "Select text or use a paragraph action to suggest";
-    return;
-  }
-  specNewCommentButton.textContent = hasSelection ? "Comment selection" : "Add";
-  specNewCommentButton.title = hasSelection ? "Add a comment anchored to the selected text" : "Add a comment";
 }
 
 function specAnchorSummary(mode, value) {
   if (mode === "global") {
-    return "Global comment";
+    return "File-level comment";
   }
   if (mode === "section") {
     return value ? `Anchored to section: ${value}` : "Anchored to section";
@@ -3152,23 +3166,6 @@ function specAnchorSummary(mode, value) {
   }
   const normalized = normalizeVisibleText(value);
   return `Anchored to: ${normalized.length > 96 ? `${normalized.slice(0, 96)}...` : normalized}`;
-}
-
-function setSpecReviewTab(tab) {
-  state.spec.reviewTab = SPEC_REVIEW_TABS.has(tab) ? tab : "comments";
-  state.spec.commentComposerOpen = false;
-  state.spec.suggestionComposerOpen = false;
-  state.spec.replyComposerCommentId = "";
-  renderSpecComments();
-}
-
-function renderSpecReviewTabs() {
-  specReviewTabButtons.forEach((button) => {
-    const active = button.dataset.specReviewTab === state.spec.reviewTab;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-  });
-  renderSpecSelectedQuoteState();
 }
 
 function setSpecCommentAnchorMode(mode) {
@@ -3230,6 +3227,21 @@ function normalizeVisibleText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+// Decode literal backslash escapes (\n, \r, \t, \\) in suggestion content.
+// Authors — particularly LLMs — sometimes emit `\n` as a two-character
+// literal instead of a real newline. Without this the diff body renders the
+// `\n` glyphs verbatim, which is unreadable. We decode conservatively: only
+// the four common escapes, only when not already a real newline.
+function decodeLiteralEscapes(value) {
+  if (typeof value !== "string" || value.indexOf("\\") === -1) return String(value || "");
+  return value.replace(/\\([nrt\\])/g, (_, ch) => {
+    if (ch === "n") return "\n";
+    if (ch === "r") return "\r";
+    if (ch === "t") return "\t";
+    return "\\";
+  });
+}
+
 function specBlockCandidates() {
   return Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre, th, td"));
 }
@@ -3249,9 +3261,17 @@ function showSpecContextToolbar(quote, rect) {
     hideSpecContextToolbar();
     return;
   }
-  const toolbarWidth = 168;
-  const left = Math.min(Math.max(12, rect.right - toolbarWidth), window.innerWidth - toolbarWidth - 12);
-  const top = Math.min(Math.max(12, rect.top + 8), window.innerHeight - 56);
+  // Position above the selection, centered horizontally on its midpoint.
+  // Falls back below the selection if there's no room above.
+  const toolbarWidth = 152;
+  const toolbarHeight = 32;
+  const cx = rect.left + rect.width / 2;
+  let left = Math.round(cx - toolbarWidth / 2);
+  left = Math.min(Math.max(8, left), window.innerWidth - toolbarWidth - 8);
+  let top = Math.round(rect.top - toolbarHeight - 6);
+  if (top < 8) {
+    top = Math.round(rect.bottom + 6);
+  }
   specContextToolbarElement.dataset.quote = quote;
   specContextToolbarElement.style.left = `${left}px`;
   specContextToolbarElement.style.top = `${top}px`;
@@ -3286,24 +3306,56 @@ function openSpecComposer(kind, quote = "") {
       return;
     }
     state.spec.selectedQuote = cleanQuote;
-    state.spec.reviewTab = "suggestions";
     state.spec.commentComposerOpen = false;
     state.spec.suggestionComposerOpen = true;
     specSuggestionAnchorInput.value = cleanQuote;
     setSpecSuggestionAnchorMode("quote");
-    renderSpecComments();
+    showSpecComposerForm("suggestion");
     specSuggestionContentInput.focus();
     return;
   }
 
   state.spec.selectedQuote = cleanQuote;
-  state.spec.reviewTab = "comments";
   state.spec.suggestionComposerOpen = false;
   state.spec.commentComposerOpen = true;
-  specCommentAnchorInput.value = cleanQuote;
-  setSpecCommentAnchorMode(cleanQuote ? "quote" : "global");
-  renderSpecComments();
+  if (cleanQuote) {
+    specCommentAnchorInput.value = cleanQuote;
+    setSpecCommentAnchorMode("quote");
+  } else {
+    // No selection → anchor to the document's first H1 if available.
+    // The legacy `__file` (global) anchor is kept in the schema but no
+    // longer surfaced as an authoring choice.
+    const firstHeading = specFileContentElement.querySelector("h1, h2, h3");
+    const headingText = firstHeading ? normalizeVisibleText(firstHeading.textContent) : "";
+    if (headingText) {
+      specCommentAnchorInput.value = headingText;
+      setSpecCommentAnchorMode("section");
+    } else {
+      specCommentAnchorInput.value = "";
+      setSpecCommentAnchorMode("global");
+    }
+  }
+  showSpecComposerForm("comment");
   specCommentTextInput.focus();
+}
+
+// Show the (hidden) composer form as a floating panel anchored to the file pane.
+// It overlays the spec doc so it doesn't shift layout while open.
+function showSpecComposerForm(kind) {
+  const form = kind === "suggestion" ? specSuggestionForm : specCommentForm;
+  const other = kind === "suggestion" ? specCommentForm : specSuggestionForm;
+  if (other) other.hidden = true;
+  if (!form) return;
+  form.hidden = false;
+  // Position the form: center horizontally over the spec body, near the top.
+  // (Keep CSS simple: it's `position: fixed` styled below.)
+}
+
+function hideSpecComposerForm() {
+  if (specCommentForm) specCommentForm.hidden = true;
+  if (specSuggestionForm) specSuggestionForm.hidden = true;
+  state.spec.commentComposerOpen = false;
+  state.spec.suggestionComposerOpen = false;
 }
 
 function headingElementForPath(headingPath = []) {
@@ -3346,7 +3398,7 @@ function clearSpecAnchorHighlight() {
 }
 
 function clearSpecSuggestionPreview() {
-  specFileContentElement.querySelectorAll(".spec-inline-preview").forEach((element) => {
+  specFileContentElement.querySelectorAll("[data-spec-diff-preview-id]").forEach((element) => {
     element.remove();
   });
   specFileContentElement.querySelectorAll(".is-spec-suggestion-preview-anchor").forEach((element) => {
@@ -3429,30 +3481,28 @@ function renderSpecInlineSuggestionPreview(suggestion, preview) {
     return;
   }
 
-  const beforeLabel = suggestion.kind === "insert_after" ? "Anchor" : "Current";
-  const afterLabel = suggestion.kind === "delete" ? "After apply" : "Preview";
   const previewElement = document.createElement("div");
-  previewElement.className = "spec-inline-preview";
-  previewElement.dataset.suggestionPreviewId = suggestion.id;
+  previewElement.className = "spec-diff-block is-preview";
+  previewElement.dataset.specDiffPreviewId = suggestion.id;
+  const beforeHtml = (preview.before || "")
+    .split(/\r?\n/)
+    .map((line) => `<span class="spec-diff-line del">${escapeHtml(line)}</span>`)
+    .join("");
+  const afterHtml = (preview.after || "")
+    .split(/\r?\n/)
+    .map((line) => `<span class="spec-diff-line add">${escapeHtml(line)}</span>`)
+    .join("");
   previewElement.innerHTML = `
-    <div class="spec-inline-preview-header">
-      <strong>Preview only</strong>
-      <span>Not applied to the file</span>
+    <div class="spec-diff-meta">
+      <span class="spec-diff-pill is-preview">Preview · ${escapeHtml(suggestion.kind)}</span>
+      <span>· not applied</span>
     </div>
-    <div class="spec-inline-preview-grid">
-      <div>
-        <span>${escapeHtml(beforeLabel)}</span>
-        <pre>${escapeHtml(preview.before || "")}</pre>
-      </div>
-      <div>
-        <span>${escapeHtml(afterLabel)}</span>
-        <pre>${escapeHtml(preview.after || "")}</pre>
-      </div>
-    </div>
-  `;
+    ${beforeHtml}${afterHtml}`;
+
   target.classList.add("is-spec-suggestion-preview-anchor");
   target.insertAdjacentElement("afterend", previewElement);
   scrollSpecTargetIntoView(previewElement);
+  layoutSpecMargin();
 }
 
 function formatRelativeTime(value) {
@@ -3474,13 +3524,19 @@ function formatRelativeTime(value) {
 function applyAppMode() {
   const specMode = state.appMode === "spec";
   document.body.dataset.appMode = state.appMode;
-  document.body.classList.toggle("is-resizing-spec-comments", state.spec.resizingComments);
+  document.body.classList.toggle("is-resizing-spec-margin", state.spec.resizingMargin);
   layoutElement.hidden = specMode;
   specWorkbenchElement.hidden = !specMode;
-  specWorkbenchElement.dataset.filesCollapsed = String(state.spec.filesCollapsed);
-  specWorkbenchElement.style.setProperty("--spec-comments-width", `${state.spec.commentsWidth}px`);
-  specFilesToggleButton.textContent = state.spec.filesCollapsed ? "Files" : "Collapse";
+  specSidebarElement.dataset.collapsed = String(state.spec.filesCollapsed);
+  specWorkbenchElement.style.setProperty("--spec-body-frac", String(state.spec.bodyFrac));
+  specFilesToggleButton.textContent = state.spec.filesCollapsed ? "›" : "‹";
   specFilesToggleButton.setAttribute("aria-expanded", state.spec.filesCollapsed ? "false" : "true");
+  specFilesToggleButton.setAttribute("aria-label", state.spec.filesCollapsed ? "Expand files" : "Collapse files");
+  specDocElement.dataset.viewMode = state.spec.viewMode;
+  specDocElement.dataset.showComments = String(state.spec.showComments);
+  specDocElement.dataset.showSuggestions = String(state.spec.showSuggestions);
+  specDocElement.dataset.showResolved = String(state.spec.showResolved);
+  syncSpecToolbarChrome();
   roadmapModeButton.classList.toggle("is-active", !specMode);
   specModeButton.classList.toggle("is-active", specMode);
   roadmapModeButton.setAttribute("aria-selected", specMode ? "false" : "true");
@@ -3488,29 +3544,146 @@ function applyAppMode() {
   roadmapPathElement.hidden = specMode;
   workspaceSummaryElement.hidden = specMode;
   repoNameElement.hidden = specMode;
-  modeEyebrowElement.textContent = specMode ? "Local spec review workspace" : "Repo-local roadmap workspace";
-  modeTitleElement.textContent = specMode ? "Spec Sessions" : "Roadmap";
+  // In spec mode, the workbench owns the chrome — keep the topbar quiet so
+  // the spec page reads as a real desk tool, not a hero-styled chat product.
+  modeEyebrowElement.hidden = specMode;
+  modeEyebrowElement.textContent = specMode ? "" : "Repo-local roadmap workspace";
+  modeTitleElement.textContent = specMode ? "Spec sessions" : "Roadmap";
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Spec workbench rendering — margin-style layout
+//
+// The pane has three regions:
+//   • Body (left)   — the rendered spec, sitting on a warm "page" surface.
+//   • Gutter        — a thin rail with anchor dots + drag handle.
+//   • Margin (right)— absolutely-positioned comment & suggestion cards,
+//                     each biased toward its anchor's y position with a
+//                     downward-only collision pass so they never overlap.
+// ──────────────────────────────────────────────────────────────────────
+
+function syncSpecToolbarChrome() {
+  const ctx = state.spec.context;
+  const comments = ctx?.comments || [];
+  const suggestions = ctx?.suggestions || [];
+  const totalC = comments.length;
+  const totalS = suggestions.length;
+  document.querySelectorAll('[data-spec-count="comments"]').forEach((el) => { el.textContent = totalC; });
+  document.querySelectorAll('[data-spec-count="suggestions"]').forEach((el) => { el.textContent = totalS; });
+  specViewSegButtons.forEach((btn) => {
+    const active = btn.dataset.specView === state.spec.viewMode;
+    btn.classList.toggle("is-on", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  specLayerSegButtons.forEach((btn) => {
+    const layer = btn.dataset.specLayer;
+    const active = layer === "comments" ? state.spec.showComments : state.spec.showSuggestions;
+    btn.classList.toggle("is-on", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  if (specResolvedToggleButton) {
+    specResolvedToggleButton.classList.toggle("is-on", state.spec.showResolved);
+    specResolvedToggleButton.setAttribute("aria-pressed", state.spec.showResolved ? "true" : "false");
+  }
 }
 
 function renderSpecSessions() {
-  if (!state.spec.sessions.length) {
-    specSessionListElement.innerHTML = '<p class="spec-empty-inline">No attached files yet.</p>';
+  const sessions = state.spec.sessions;
+  const search = state.spec.sidebarSearch.trim().toLowerCase();
+  const filtered = !search
+    ? sessions
+    : sessions.filter((s) => (
+        (s.title || "").toLowerCase().includes(search)
+          || (s.relativePath || "").toLowerCase().includes(search)
+          || (s.targetFile || "").toLowerCase().includes(search)
+      ));
+
+  if (!filtered.length) {
+    specSessionListElement.innerHTML = sessions.length
+      ? '<p class="spec-sidebar-empty">No files match this search.</p>'
+      : '<p class="spec-sidebar-empty">No attached files yet.</p>';
     return;
   }
 
-  specSessionListElement.innerHTML = state.spec.sessions.map((session) => {
-    const active = sameSpecUiPath(session.targetFile, state.spec.selectedPath);
-    return `
-      <div class="spec-session-row-wrap ${active ? "is-active" : ""}">
-        <button class="spec-session-row ${active ? "is-active" : ""}" type="button" data-spec-session-path="${escapeHtml(session.targetFile)}">
-          <span class="spec-session-title">${escapeHtml(session.title || session.targetFile)}</span>
-          <span class="spec-session-path">${escapeHtml(session.relativePath || session.targetFile)}</span>
-          <span class="spec-session-time">${escapeHtml(formatRelativeTime(session.lastActiveAt))}</span>
-        </button>
-        <button class="spec-session-remove-button" type="button" data-spec-session-remove="${escapeHtml(session.targetFile)}" aria-label="Remove ${escapeHtml(session.title || session.targetFile)} session" title="Remove session">×</button>
-      </div>
-    `;
+  // Group by repo root (or "tmp"/"unfiled" for files without one).
+  const groups = new Map();
+  for (const session of filtered) {
+    const repoRoot = (session.repoRoot || "").trim();
+    let groupKey;
+    let groupLabel;
+    if (repoRoot) {
+      groupLabel = repoRoot.split("/").filter(Boolean).pop() || repoRoot;
+      groupKey = repoRoot.toLowerCase();
+    } else {
+      groupKey = "__unfiled";
+      groupLabel = "unfiled";
+    }
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, { label: groupLabel, sessions: [] });
+    }
+    groups.get(groupKey).sessions.push(session);
+  }
+
+  // Sort each group's sessions by lastActiveAt desc.
+  const groupArray = Array.from(groups.values());
+  groupArray.sort((a, b) => a.label.localeCompare(b.label));
+  groupArray.forEach((g) => {
+    g.sessions.sort((left, right) => String(right.lastActiveAt || "").localeCompare(String(left.lastActiveAt || "")));
+  });
+
+  const html = groupArray.map((group) => {
+    const rows = group.sessions.map((session) => {
+      const active = sameSpecUiPath(session.targetFile, state.spec.selectedPath);
+      const summary = sessionActivitySummary(session);
+      const pulseAttr = summary.pulseAttr ? ` data-pulse="${summary.pulseAttr}"` : "";
+      return `
+        <div class="spec-session-row-wrap${active ? " is-active" : ""}">
+          <button class="spec-session-row${active ? " is-active" : ""}" type="button" data-spec-session-path="${escapeHtml(session.targetFile)}"${pulseAttr}>
+            <span class="spec-session-icon" aria-hidden="true"></span>
+            <span class="spec-session-meta">
+              <span class="spec-session-name" title="${escapeHtml(session.title || session.targetFile)}">${escapeHtml(session.title || session.targetFile)}</span>
+              <span class="spec-session-sub">
+                <span class="spec-session-time">${escapeHtml(formatRelativeTime(session.lastActiveAt))}</span>
+                ${summary.pulses}
+              </span>
+            </span>
+          </button>
+          <button class="spec-session-remove" type="button" data-spec-session-remove="${escapeHtml(session.targetFile)}" aria-label="Remove session" title="Remove session">×</button>
+        </div>`;
+    }).join("");
+    return `<div class="spec-session-group-label" title="${escapeHtml(group.label)}"><span>${escapeHtml(group.label)}</span></div>${rows}`;
   }).join("");
+
+  specSessionListElement.innerHTML = html;
+}
+
+function sessionActivitySummary(session) {
+  // We don't have per-session counts in the list endpoint; show a single
+  // pulse only for the currently-loaded session whose context we know about.
+  if (!sameSpecUiPath(session.targetFile, state.spec.selectedPath) || !state.spec.context) {
+    return { pulses: "", pulseAttr: "" };
+  }
+  const open = (state.spec.context.comments || []).filter((c) => c.status !== "resolved").length;
+  const pending = (state.spec.context.suggestions || []).filter((s) => s.status === "pending").length;
+  const orphan = [
+    ...(state.spec.context.comments || []),
+    ...(state.spec.context.suggestions || []),
+  ].filter((item) => item.anchorStatus && item.anchorStatus.status && item.anchorStatus.status !== "resolved").length;
+  let pulseAttr = "";
+  const parts = [];
+  if (open) {
+    parts.push(`<span class="spec-pulse"><span class="spec-pulse-dot is-open"></span>${open}</span>`);
+    pulseAttr = "open";
+  }
+  if (pending) {
+    parts.push(`<span class="spec-pulse"><span class="spec-pulse-dot is-pending"></span>${pending}</span>`);
+    if (!pulseAttr) pulseAttr = "pending";
+  }
+  if (orphan) {
+    parts.push(`<span class="spec-pulse"><span class="spec-pulse-dot is-orphan"></span>${orphan}</span>`);
+    pulseAttr = "orphan";
+  }
+  return { pulses: parts.join(""), pulseAttr };
 }
 
 function renderSpecFile() {
@@ -3520,100 +3693,52 @@ function renderSpecFile() {
     const missingTarget = state.spec.loadError.code === "target_missing";
     specFileTitleElement.textContent = session?.title || "Missing file";
     specFileSubtitleElement.textContent = session?.relativePath || session?.targetFile || state.spec.selectedPath || "Attached file";
-    specFileContentElement.className = "spec-file-content spec-file-error";
+    specFileContentElement.className = "spec-body spec-body-error";
     specFileContentElement.innerHTML = `
       <div class="spec-file-error-card">
         <p class="spec-file-error-kicker">${missingTarget ? "File no longer exists" : "Could not load file"}</p>
         <h2>${escapeHtml(missingTarget ? "This attached file is missing." : "This session could not be loaded.")}</h2>
         <p>${escapeHtml(state.spec.loadError.message || "The file could not be loaded.")}</p>
-        <button class="ghost-button" type="button" data-spec-missing-remove="${escapeHtml(state.spec.selectedPath)}">Remove session</button>
+        <button class="spec-toolbar-button" type="button" data-spec-missing-remove="${escapeHtml(state.spec.selectedPath)}">Remove session</button>
       </div>
     `;
-    specCommentsSubtitleElement.textContent = "Review unavailable";
+    specMarginElement.innerHTML = "";
     hideSpecContextToolbar();
     return;
   }
 
   if (!context) {
     specFileTitleElement.textContent = "File";
-    specFileSubtitleElement.textContent = "Attach or choose a spec session.";
-    specFileContentElement.className = "spec-file-content spec-empty";
-    specFileContentElement.textContent = "No spec session selected.";
-    specCommentsSubtitleElement.textContent = "Review around the selected file";
+    specFileSubtitleElement.textContent = "";
+    specFileContentElement.className = "spec-body spec-body-empty";
+    specFileContentElement.textContent = "Choose or attach a spec session.";
+    specMarginElement.innerHTML = "";
     hideSpecContextToolbar();
     return;
   }
 
   specFileTitleElement.textContent = context.session.title || "File";
   specFileSubtitleElement.textContent = context.session.relativePath || context.session.targetFile;
-  renderSpecReviewSummary();
-  specFileContentElement.className = context.session.markdown ? "spec-file-content preview-surface spec-markdown-file" : "spec-file-content spec-plain-file";
+  specFileContentElement.className = context.session.markdown ? "spec-body spec-body-markdown" : "spec-body spec-body-plain";
   specFileContentElement.innerHTML = context.session.markdown
     ? renderMarkdownToHtml(state.spec.content)
     : `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
+
+  // Wrap quote-anchored ranges so they're hoverable + clickable.
+  decorateSpecAnchors();
+
   state.spec.selectedQuote = "";
   state.spec.activeAnchorCommentId = "";
   clearSpecAnchorHighlight();
-  clearSpecSuggestionPreview();
   hideSpecContextToolbar();
-  renderSpecSelectedQuoteState();
-}
-
-function renderSpecReviewSummary() {
-  const context = state.spec.context;
-  if (!context) {
-    specCommentsSubtitleElement.textContent = "Review around the selected file";
-    return;
-  }
-
-  const commentsCount = context.comments.length;
-  const suggestionsCount = (context.suggestions || []).length;
-  specCommentsSubtitleElement.textContent = `${commentsCount} comment${commentsCount === 1 ? "" : "s"}, ${suggestionsCount} suggestion${suggestionsCount === 1 ? "" : "s"}`;
-}
-
-function anchorLabel(comment) {
-  const anchor = comment.anchor || {};
-  if (anchor.scope === "global") {
-    return "Global";
-  }
-  if (anchor.scope === "section") {
-    return `Section: ${(anchor.headingPath || []).join(" > ")}`;
-  }
-  return anchor.quote ? `Quote: ${anchor.quote}` : "Anchor";
 }
 
 function commentMatchesFilter(comment) {
-  if (state.spec.commentFilter === "all") {
+  // Resolved visibility now comes from showResolved; orphan-and-stale stay visible.
+  if (state.spec.showResolved) {
     return true;
   }
-  if (state.spec.commentFilter === "resolved") {
-    return comment.status === "resolved";
-  }
   return comment.status !== "resolved";
-}
-
-function renderSpecCommentFilters(comments) {
-  const totalCount = comments.length;
-  const resolvedCount = comments.filter((comment) => comment.status === "resolved").length;
-  const openCount = totalCount - resolvedCount;
-  const counts = {
-    open: openCount,
-    all: totalCount,
-    resolved: resolvedCount,
-  };
-
-  specCommentFilterButtons.forEach((button) => {
-    const filter = button.dataset.commentFilter;
-    const active = filter === state.spec.commentFilter;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-    button.textContent = `${filter === "all" ? "All" : filter[0].toUpperCase() + filter.slice(1)} ${counts[filter] ?? 0}`;
-  });
-
-  specCommentSortButton.textContent = state.spec.commentSort === "newest" ? "Newest" : "Oldest";
-  specCommentSortButton.setAttribute("aria-label", state.spec.commentSort === "newest" ? "Newest comments first" : "Oldest comments first");
-  specCommentSortButton.classList.add("is-active");
-  specCommentSortButton.setAttribute("aria-pressed", "true");
 }
 
 function specCommentTimestamp(comment) {
@@ -3621,19 +3746,14 @@ function specCommentTimestamp(comment) {
 }
 
 function sortedSpecComments(comments) {
-  return [...comments].sort((left, right) => (
-    state.spec.commentSort === "newest"
-      ? specCommentTimestamp(right) - specCommentTimestamp(left)
-      : specCommentTimestamp(left) - specCommentTimestamp(right)
-  ));
+  return [...comments].sort((left, right) => specCommentTimestamp(right) - specCommentTimestamp(left));
 }
 
 function captureSpecReplyDraft() {
   if (!state.spec.replyComposerCommentId) {
     return;
   }
-
-  const textarea = specCommentsListElement.querySelector(`.spec-reply-form[data-comment-id="${CSS.escape(state.spec.replyComposerCommentId)}"] textarea`);
+  const textarea = specMarginElement.querySelector(`.spec-card-reply-form[data-comment-id="${CSS.escape(state.spec.replyComposerCommentId)}"] textarea`);
   if (textarea) {
     state.spec.replyDrafts.set(state.spec.replyComposerCommentId, textarea.value);
   }
@@ -3643,8 +3763,7 @@ function focusActiveSpecReplyDraft() {
   if (!state.spec.replyComposerCommentId) {
     return;
   }
-
-  const textarea = specCommentsListElement.querySelector(`.spec-reply-form[data-comment-id="${CSS.escape(state.spec.replyComposerCommentId)}"] textarea`);
+  const textarea = specMarginElement.querySelector(`.spec-card-reply-form[data-comment-id="${CSS.escape(state.spec.replyComposerCommentId)}"] textarea`);
   if (textarea) {
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
@@ -3655,159 +3774,444 @@ function scrollSpecReviewCardIntoView(cardId, type = "comment") {
   const selector = type === "suggestion"
     ? `[data-suggestion-id="${CSS.escape(cardId)}"]`
     : `[data-comment-id="${CSS.escape(cardId)}"]`;
-  const card = specCommentsListElement.querySelector(selector);
+  const card = specMarginElement.querySelector(selector);
   if (!card) {
     return;
   }
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+}
 
-  card.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-  });
+// Build a dictionary describing where each comment / suggestion lives in the
+// rendered body — used by the margin layout pass to align cards next to text.
+// Returns: { byId: Map<id, { el, top }>, idsInOrder: [...] }
+function indexSpecAnchors() {
+  const map = new Map();
+  if (!specFileContentElement) return map;
+  const bodyTop = specFileContentElement.getBoundingClientRect().top + specFileContentElement.scrollTop;
+
+  function pushAnchor(id, el) {
+    if (!el || map.has(id)) return;
+    const r = el.getBoundingClientRect();
+    map.set(id, { el, top: r.top - bodyTop + specFileContentElement.scrollTop });
+  }
+
+  // File-level pin: top of body.
+  pushAnchor("__file", specFileContentElement);
+
+  for (const comment of state.spec.context?.comments || []) {
+    const target = anchorTargetElement(comment);
+    if (target) pushAnchor(`comment:${comment.id}`, target);
+  }
+  for (const suggestion of state.spec.context?.suggestions || []) {
+    const diffEl = specFileContentElement.querySelector(`[data-spec-diff-suggestion-id="${CSS.escape(suggestion.id)}"]`);
+    const target = (diffEl && diffEl.offsetParent !== null) ? diffEl : anchorTargetElement(suggestion);
+    if (target) pushAnchor(`suggestion:${suggestion.id}`, target);
+  }
+  return map;
 }
 
 function renderSpecComments() {
-  const comments = state.spec.context?.comments || [];
-  const suggestions = state.spec.context?.suggestions || [];
-  renderSpecReviewTabs();
+  if (!specMarginElement) return;
+  const ctx = state.spec.context;
+  syncSpecToolbarChrome();
+
   if (state.spec.loadError) {
-    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">Remove this stale session or restore the missing file to continue reviewing.</p>';
-    specCommentForm.hidden = true;
-    specSuggestionForm.hidden = true;
-    specNewCommentButton.disabled = true;
-    specCommentFiltersElement.hidden = state.spec.reviewTab !== "comments";
-    renderSpecCommentFilters([]);
+    specMarginElement.innerHTML = '<p class="spec-margin-empty">Remove this stale session or restore the missing file to continue reviewing.</p>';
+    closeAllComposers();
+    return;
+  }
+  if (!ctx) {
+    specMarginElement.innerHTML = '<p class="spec-margin-empty">Choose a spec session to review.</p>';
+    closeAllComposers();
     return;
   }
 
-  if (!state.spec.context) {
-    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">Choose a spec session to review.</p>';
-    specCommentForm.hidden = true;
-    specSuggestionForm.hidden = true;
-    specNewCommentButton.disabled = true;
-    specCommentFiltersElement.hidden = state.spec.reviewTab !== "comments";
-    renderSpecCommentFilters([]);
-    return;
-  }
-
-  specNewCommentButton.disabled = false;
-  specCommentForm.hidden = state.spec.reviewTab !== "comments" || !state.spec.commentComposerOpen;
-  specSuggestionForm.hidden = state.spec.reviewTab !== "suggestions" || !state.spec.suggestionComposerOpen;
-  specCommentFiltersElement.hidden = state.spec.reviewTab !== "comments";
-  if (state.spec.reviewTab === "suggestions") {
-    renderSpecSuggestions(suggestions);
-    return;
-  }
-
-  renderSpecCommentFilters(comments);
+  // Render diff blocks first (they affect layout for suggestions).
+  renderSpecDiffBlocks();
+  // Then capture any open reply draft, then rebuild the margin DOM.
   captureSpecReplyDraft();
-  const visibleComments = sortedSpecComments(comments.filter(commentMatchesFilter));
-  if (!visibleComments.length) {
-    specCommentsListElement.innerHTML = comments.length
-      ? '<p class="spec-empty-inline">No comments match this filter.</p>'
-      : '<p class="spec-empty-inline">No comments yet.</p>';
+
+  const comments = (ctx.comments || []).filter(commentMatchesFilter);
+  const suggestions = (ctx.suggestions || []).filter((s) => state.spec.showResolved || s.status !== "rejected");
+  const showComments = state.spec.showComments;
+  const showSuggestions = state.spec.showSuggestions;
+
+  const items = [];
+  if (showComments) {
+    for (const comment of sortedSpecComments(comments)) {
+      items.push({ kind: "comment", item: comment });
+    }
+  }
+  if (showSuggestions) {
+    for (const suggestion of suggestions) {
+      items.push({ kind: "suggestion", item: suggestion });
+    }
+  }
+
+  if (!items.length) {
+    specMarginElement.innerHTML = comments.length || suggestions.length
+      ? '<p class="spec-margin-empty">No items match the current view.</p>'
+      : `<div class="spec-margin-empty">
+           <p>No comments yet.</p>
+           <button class="spec-toolbar-button" type="button" data-spec-margin-action="new-comment">+ Add a comment</button>
+         </div>`;
+    layoutSpecMargin();
     return;
   }
 
-  specCommentsListElement.innerHTML = visibleComments.map((comment) => {
-    const collapsedResolved = comment.status === "resolved" && !state.spec.expandedResolvedCommentIds.has(comment.id);
-    return `
-    <article class="spec-comment-card ${state.spec.activeAnchorCommentId === comment.id ? "is-active-anchor" : ""} ${collapsedResolved ? "is-collapsed-resolved" : ""}" data-comment-id="${escapeHtml(comment.id)}" title="Click to jump to anchor">
-      <div class="spec-comment-header">
-        <div>
-          <strong>${escapeHtml(comment.kind)}</strong>
-          <span class="muted">${escapeHtml(comment.by)}</span>
-        </div>
-        <span class="badge ${comment.status === "resolved" ? "badge-tone-status-done" : "badge-tone-status-queued"}">${escapeHtml(comment.status)}</span>
+  const html = items.map(({ kind, item }) => {
+    return kind === "comment" ? renderMarginCommentCard(item) : renderMarginSuggestionCard(item);
+  }).join("");
+  // Trailing entry point — the only way to add a comment without first
+  // selecting text. Auto-anchors to the document's first heading.
+  const trailing = `<button class="spec-margin-add" type="button" data-spec-margin-action="new-comment" title="Add a comment">+ Comment</button>`;
+  specMarginElement.innerHTML = html + trailing;
+  layoutSpecMargin();
+}
+
+function renderMarginCommentCard(comment) {
+  const anchor = comment.anchor || {};
+  const isFile = anchor.scope === "global";
+  const isSection = anchor.scope === "section";
+  // "File-level" is a legacy anchor scope no longer offered when authoring;
+  // existing comments still render with a quiet "Whole file" label.
+  const anchorTag = isFile
+    ? "Whole file"
+    : isSection
+      ? (anchor.headingPath || []).join(" › ")
+      : truncate(anchor.quote || "", 64);
+
+  const isResolved = comment.status === "resolved";
+  const collapsedResolved = isResolved && !state.spec.expandedResolvedCommentIds.has(comment.id);
+  const isActive = state.spec.activeAnchorCommentId === comment.id;
+
+  const replies = (comment.replies || []).map((reply) => `
+    <div class="spec-card-reply">
+      <span class="spec-card-reply-author">${escapeHtml(reply.by)}</span>
+      <p>${escapeHtml(reply.text)}</p>
+    </div>`).join("");
+
+  const isReplying = state.spec.replyComposerCommentId === comment.id;
+  const replyForm = isReplying ? `
+    <form class="spec-card-reply-form" data-comment-id="${escapeHtml(comment.id)}">
+      <textarea rows="2" placeholder="Reply">${escapeHtml(state.spec.replyDrafts.get(comment.id) || "")}</textarea>
+      <div class="spec-card-actions">
+        <button class="spec-card-action" type="button" data-comment-action="cancel-reply">Cancel</button>
+        <span class="spec-card-actions-spacer"></span>
+        <button class="spec-card-action is-primary" type="submit">Send</button>
       </div>
-      <p class="spec-comment-anchor">${escapeHtml(anchorLabel(comment))}</p>
+    </form>` : "";
+
+  const orphanWarning = comment.anchorStatus && comment.anchorStatus.status && comment.anchorStatus.status !== "resolved"
+    ? `<p class="spec-card-orphan">Anchor ${escapeHtml(comment.anchorStatus.status)}</p>`
+    : "";
+
+  const dataAnchorId = isFile ? "__file" : `comment:${comment.id}`;
+  // Note: the schema still carries comment.kind (concern/question/etc.)
+  // for backward compatibility, but the UI no longer maps it to color
+  // or any other visual treatment. Comments are visually uniform.
+  const cls = [
+    "spec-margin-card",
+    isFile ? "is-global" : "",
+    isResolved ? "is-resolved" : "",
+    isActive ? "is-active" : "",
+    collapsedResolved ? "is-collapsed" : "",
+  ].filter(Boolean).join(" ");
+
+  return `
+    <article class="${cls}" data-comment-id="${escapeHtml(comment.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to jump to anchor">
+      <header class="spec-card-head">
+        <span class="spec-card-author">${escapeHtml(comment.by)}</span>
+        <span class="spec-card-anchor-tag${isFile ? " is-file" : ""}">${escapeHtml(anchorTag || "")}</span>
+        <span class="spec-card-when">${escapeHtml(formatRelativeTime(comment.createdAt))}</span>
+      </header>
       ${collapsedResolved ? `
-        <p class="spec-comment-collapsed-summary">${escapeHtml(comment.text)}</p>
-        <div class="spec-comment-actions">
-          <button class="ghost-button" type="button" data-comment-action="toggle-resolved">Show</button>
-          <button class="ghost-button" type="button" data-comment-action="reopen">Reopen</button>
+        <p class="spec-card-text spec-card-collapsed-summary">${escapeHtml(comment.text)}</p>
+        <div class="spec-card-actions">
+          <button class="spec-card-action" type="button" data-comment-action="toggle-resolved">Show</button>
+          <span class="spec-card-actions-spacer"></span>
+          <button class="spec-card-action" type="button" data-comment-action="reopen">Reopen</button>
         </div>
       ` : `
-      <p class="spec-comment-text">${escapeHtml(comment.text)}</p>
-      <p class="spec-comment-status muted">${escapeHtml(comment.anchorStatus?.status || "")}${comment.anchorStatus?.strategy ? ` via ${escapeHtml(comment.anchorStatus.strategy)}` : ""}</p>
-      ${(comment.replies || []).map((reply) => `
-        <div class="spec-reply">
-          <strong>${escapeHtml(reply.by)}</strong>
-          <p>${escapeHtml(reply.text)}</p>
-        </div>
-      `).join("")}
-      ${state.spec.replyComposerCommentId === comment.id ? `
-        <form class="spec-reply-form" data-comment-id="${escapeHtml(comment.id)}">
-          <textarea rows="2" placeholder="Reply">${escapeHtml(state.spec.replyDrafts.get(comment.id) || "")}</textarea>
-          <div class="spec-comment-actions">
-            <button class="ghost-button" type="button" data-comment-action="cancel-reply">Cancel</button>
-            <button class="ghost-button" type="submit">Send</button>
+        <p class="spec-card-text">${escapeHtml(comment.text)}</p>
+        ${replies ? `<div class="spec-card-replies">${replies}</div>` : ""}
+        ${orphanWarning}
+        ${isReplying ? replyForm : `
+          <div class="spec-card-actions">
+            <button class="spec-card-action" type="button" data-comment-action="reply">Reply</button>
+            <span class="spec-card-actions-spacer"></span>
+            <button class="spec-card-action" type="button" data-comment-action="${isResolved ? "reopen" : "resolve"}">${isResolved ? "Reopen" : "Resolve"}</button>
           </div>
-        </form>
-      ` : `
-        <div class="spec-comment-actions">
-          <button class="ghost-button" type="button" data-comment-action="reply">Reply</button>
-          <button class="ghost-button" type="button" data-comment-action="${comment.status === "resolved" ? "reopen" : "resolve"}">${comment.status === "resolved" ? "Reopen" : "Resolve"}</button>
-        </div>
+        `}
       `}
-      `}
-    </article>
-  `;
-  }).join("");
+    </article>`;
 }
 
-function suggestionStatusClass(status) {
-  if (status === "accepted" || status === "applied") {
-    return "badge-tone-status-done";
+function renderMarginSuggestionCard(suggestion) {
+  const status = suggestion.status;
+  const pending = status === "pending";
+  const accepted = status === "accepted";
+  const applied = status === "applied";
+  const rejected = status === "rejected";
+  const reviewed = accepted || rejected;
+  // The inline diff block in the body IS the preview — there's no separate
+  // "Preview" action. Apply / Dismiss / Accept act on the visible diff.
+  const canApply = pending || accepted;
+  const isActive = state.spec.activeAnchorCommentId === `suggestion:${suggestion.id}`;
+  const dataAnchorId = `suggestion:${suggestion.id}`;
+
+  const anchor = suggestion.anchor || {};
+  const anchorTag = anchor.scope === "section"
+    ? (anchor.headingPath || []).join(" › ")
+    : truncate(anchor.quote || "", 64);
+
+  const cls = [
+    "spec-margin-card is-suggestion",
+    `is-status-${status}`,
+    isActive ? "is-active" : "",
+    applied ? "is-applied" : "",
+  ].filter(Boolean).join(" ");
+
+  const orphanWarning = suggestion.anchorStatus && suggestion.anchorStatus.status && suggestion.anchorStatus.status !== "resolved"
+    ? `<p class="spec-card-orphan">Anchor ${escapeHtml(suggestion.anchorStatus.status)}</p>`
+    : "";
+
+  const actions = [];
+  if (!applied) {
+    if (pending) {
+      actions.push('<button class="spec-card-action is-danger" type="button" data-suggestion-action="reject">Dismiss</button>');
+      actions.push('<button class="spec-card-action" type="button" data-suggestion-action="accept">Accept</button>');
+    }
+    if (reviewed) {
+      actions.push('<button class="spec-card-action" type="button" data-suggestion-action="reopen">Reopen</button>');
+    }
+    if (canApply) {
+      actions.push('<button class="spec-card-action is-primary" type="button" data-suggestion-action="apply">Apply</button>');
+    }
   }
-  if (status === "rejected" || status === "stale") {
-    return "badge-tone-status-blocked";
-  }
-  return "badge-tone-status-queued";
+
+  const rationale = suggestion.rationale ? `<p class="spec-card-text">${escapeHtml(suggestion.rationale)}</p>` : "";
+
+  return `
+    <article class="${cls}" data-suggestion-id="${escapeHtml(suggestion.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to jump to anchor">
+      <header class="spec-card-head">
+        <span class="spec-card-author">${escapeHtml(suggestion.by)}</span>
+        <span class="spec-card-anchor-tag is-suggestion">${escapeHtml(suggestion.kind)} · ${escapeHtml(status)}</span>
+        <span class="spec-card-when">${escapeHtml(formatRelativeTime(suggestion.createdAt))}</span>
+      </header>
+      ${rationale}
+      ${orphanWarning}
+      ${anchorTag ? `<p class="spec-card-anchor-quote">${escapeHtml(truncate(anchorTag, 120))}</p>` : ""}
+      ${actions.length ? `<div class="spec-card-actions">${actions.join("")}</div>` : ""}
+    </article>`;
 }
 
-function renderSpecSuggestions(suggestions) {
-  if (!suggestions.length) {
-    specCommentsListElement.innerHTML = '<p class="spec-empty-inline">No suggestions yet.</p>';
+function truncate(text, max = 64) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (value.length <= max) return value;
+  return value.slice(0, max - 1) + "…";
+}
+
+function closeAllComposers() {
+  if (specCommentForm) specCommentForm.hidden = true;
+  if (specSuggestionForm) specSuggestionForm.hidden = true;
+}
+
+// Render the inline diff blocks for visible suggestions.  When the
+// suggestions layer is off, we strip them.  Each diff block carries a
+// data-spec-diff-suggestion-id so renderSpecComments can find them as
+// anchor targets. We only remove blocks that are tied to a suggestion;
+// preview-only blocks (data-spec-diff-preview-id) are left alone.
+function renderSpecDiffBlocks() {
+  if (!specFileContentElement) return;
+  // Remove only suggestion-tied diff blocks. Preview blocks survive.
+  specFileContentElement.querySelectorAll(".spec-diff-block[data-spec-diff-suggestion-id]").forEach((el) => el.remove());
+  // And clear any "anchor hidden because diff is showing" state.
+  specFileContentElement.querySelectorAll(".spec-anchor-hidden-by-diff").forEach((el) => {
+    el.classList.remove("spec-anchor-hidden-by-diff");
+  });
+
+  if (!state.spec.showSuggestions) return;
+
+  for (const suggestion of state.spec.context?.suggestions || []) {
+    if (suggestion.status === "rejected" && !state.spec.showResolved) continue;
+    insertSpecDiffBlock(suggestion);
+  }
+}
+
+function insertSpecDiffBlock(suggestion) {
+  const target = anchorTargetElement(suggestion);
+  if (!target) return;
+  const block = document.createElement("div");
+  block.className = `spec-diff-block is-status-${suggestion.status}`;
+  block.dataset.specDiffSuggestionId = suggestion.id;
+
+  const beforeText = suggestion.anchor?.quote
+    || (suggestion.anchor?.scope === "section" ? `# ${(suggestion.anchor.headingPath || []).join(" > ")}` : "");
+  // Some suggestion authors (LLMs especially) write a literal `\n` instead of
+  // a real newline. Decode common backslash escapes before splitting so the
+  // diff renders as line content, not as `\n` glyphs in the body. Trim
+  // leading/trailing blank lines for a tighter diff visual; the stored
+  // content is unchanged.
+  const afterTextRaw = suggestion.kind === "delete" ? "" : (suggestion.content || "");
+  const afterText = decodeLiteralEscapes(afterTextRaw).replace(/^[\r\n]+|[\r\n]+$/g, "");
+
+  // Pick `before` / `after` lines for the diff body. For replace+delete the
+  // before line is the anchored quote; for insert_after we only show the
+  // added lines, with a dim header indicating where they go.
+  const beforeHtml = (suggestion.kind === "insert_after" || !beforeText)
+    ? ""
+    : beforeText.split(/\r?\n/).map((line) => `<span class="spec-diff-line del">${escapeHtml(line)}</span>`).join("");
+  const afterHtml = afterText
+    ? afterText.split(/\r?\n/).map((line) => `<span class="spec-diff-line add">${escapeHtml(line)}</span>`).join("")
+    : "";
+
+  block.innerHTML = `
+    <div class="spec-diff-meta">
+      <span class="spec-diff-pill is-${escapeHtml(suggestion.kind)}">${escapeHtml(suggestion.kind)}</span>
+      <span>· ${escapeHtml(suggestion.by)}</span>
+      <span class="spec-diff-meta-spacer"></span>
+      <span class="spec-diff-status is-${escapeHtml(suggestion.status)}">${escapeHtml(suggestion.status)}</span>
+    </div>
+    ${beforeHtml}${afterHtml}`;
+
+  // For replace and delete we want the anchored quote span itself to be
+  // hidden so the diff visually replaces it. For insert_after we just sit
+  // below the anchor.
+  if ((suggestion.kind === "replace" || suggestion.kind === "delete") && suggestion.anchor?.quote) {
+    // Try to hide a sub-element matching the quote inside the target.
+    const span = findInlineQuoteSpan(target, suggestion.anchor.quote);
+    if (span) {
+      span.classList.add("spec-anchor-hidden-by-diff");
+      span.parentNode.insertBefore(block, span.nextSibling);
+      return;
+    }
+  }
+
+  target.insertAdjacentElement("afterend", block);
+}
+
+function findInlineQuoteSpan(scope, quote) {
+  if (!scope || !quote) return null;
+  const normalized = normalizeVisibleText(quote);
+  // Quote anchors don't pre-wrap text, so we look for a span we may have
+  // injected in decorateSpecAnchors.
+  return Array.from(scope.querySelectorAll(".spec-anchor-quote")).find((el) => {
+    return normalizeVisibleText(el.textContent) === normalized;
+  });
+}
+
+// Wrap each unique quote-anchored substring in a hoverable span so the
+// margin card can highlight it. This is a soft enhancement: if the quote
+// can't be found inline, the card still works via heading or block fallback.
+function decorateSpecAnchors() {
+  const ctx = state.spec.context;
+  if (!ctx || !specFileContentElement) return;
+
+  const quoteAnchors = (ctx.comments || []).concat(ctx.suggestions || [])
+    .map((item) => item.anchor)
+    .filter((a) => a && a.scope === "anchor" && a.quote)
+    .map((a) => a.quote);
+
+  // De-duplicate while preserving order.
+  const seen = new Set();
+  const unique = [];
+  for (const q of quoteAnchors) { if (!seen.has(q)) { seen.add(q); unique.push(q); } }
+
+  for (const quote of unique) {
+    decorateSpecAnchorQuote(quote);
+  }
+}
+
+function decorateSpecAnchorQuote(quote) {
+  // Walk text nodes inside the spec body, find the first one that contains
+  // the literal quote, and wrap it in a span. We only wrap one occurrence.
+  const walker = document.createTreeWalker(specFileContentElement, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+      // Skip text inside spans we already inserted, or inside diff blocks.
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      if (parent.closest(".spec-anchor-quote")) return NodeFilter.FILTER_REJECT;
+      if (parent.closest(".spec-diff-block")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const idx = node.nodeValue.indexOf(quote);
+    if (idx === -1) continue;
+    const before = node.nodeValue.slice(0, idx);
+    const match = node.nodeValue.slice(idx, idx + quote.length);
+    const after = node.nodeValue.slice(idx + quote.length);
+    const span = document.createElement("span");
+    span.className = "spec-anchor-quote";
+    span.dataset.specAnchorQuote = "1";
+    span.textContent = match;
+    const frag = document.createDocumentFragment();
+    if (before) frag.appendChild(document.createTextNode(before));
+    frag.appendChild(span);
+    if (after) frag.appendChild(document.createTextNode(after));
+    node.parentNode.replaceChild(frag, node);
     return;
   }
-
-  specCommentsListElement.innerHTML = suggestions.map((suggestion) => {
-    const pending = suggestion.status === "pending";
-    const reviewed = suggestion.status === "accepted" || suggestion.status === "rejected";
-    const canPreview = suggestion.status === "pending" || suggestion.status === "accepted";
-    const content = suggestion.kind === "delete" && !suggestion.content ? "(delete anchored content)" : suggestion.content;
-    const activePreview = canPreview && state.spec.previewSuggestionId === suggestion.id ? state.spec.suggestionPreview : null;
-    return `
-    <article class="spec-comment-card ${state.spec.activeAnchorCommentId === `suggestion:${suggestion.id}` ? "is-active-anchor" : ""}" data-suggestion-id="${escapeHtml(suggestion.id)}" title="Click to jump to anchor">
-      <div class="spec-comment-header">
-        <div>
-          <strong>${escapeHtml(suggestion.kind)}</strong>
-          <span class="muted">${escapeHtml(suggestion.by)}</span>
-        </div>
-        <span class="badge ${suggestionStatusClass(suggestion.status)}">${escapeHtml(suggestion.status)}</span>
-      </div>
-      <p class="spec-comment-anchor">${escapeHtml(anchorLabel(suggestion))}</p>
-      <p class="spec-suggestion-content">${escapeHtml(content)}</p>
-      ${suggestion.rationale ? `<p class="spec-comment-text">${escapeHtml(suggestion.rationale)}</p>` : ""}
-      <p class="spec-comment-status muted">${escapeHtml(suggestion.anchorStatus?.status || "")}${suggestion.anchorStatus?.strategy ? ` via ${escapeHtml(suggestion.anchorStatus.strategy)}` : ""}</p>
-      <div class="spec-comment-actions">
-        <span class="muted">${pending ? "Needs review" : suggestion.status === "applied" ? "Applied" : "Reviewed"}</span>
-        ${suggestion.status !== "applied" ? `
-          <div class="spec-form-button-row">
-            ${pending ? `
-              <button class="ghost-button" type="button" data-suggestion-action="reject">Dismiss</button>
-            ` : ""}
-            ${reviewed ? `<button class="ghost-button" type="button" data-suggestion-action="reopen">Reopen</button>` : ""}
-            ${canPreview ? `<button class="ghost-button ${activePreview ? "is-active" : ""}" type="button" data-suggestion-action="preview" aria-pressed="${activePreview ? "true" : "false"}">Preview</button>` : ""}
-            ${activePreview ? `<button class="primary-button" type="button" data-suggestion-action="apply">Apply</button>` : ""}
-          </div>
-        ` : ""}
-      </div>
-    </article>
-  `;
-  }).join("");
 }
+
+// Place each margin card next to its anchor's y position; if cards
+// would overlap, slide the lower one down. Also draws gutter dots.
+// The trailing "+ comment" button is placed below the last card.
+function layoutSpecMargin() {
+  if (!specMarginElement || !specGutterElement) return;
+  if (state.spec.viewMode !== "review") return;
+
+  const cards = Array.from(specMarginElement.querySelectorAll(".spec-margin-card"));
+  const trailing = specMarginElement.querySelector(".spec-margin-add");
+  const anchors = indexSpecAnchors();
+
+  // Clear gutter dots.
+  specGutterElement.querySelectorAll(".spec-gutter-dot").forEach((el) => el.remove());
+
+  const placements = [];
+  for (const card of cards) {
+    const anchorId = card.dataset.cardAnchorId;
+    if (!anchorId) continue;
+    const anchor = anchors.get(anchorId);
+    if (!anchor && anchorId !== "__file") continue;
+    const desired = anchor ? anchor.top : 0;
+    placements.push({ card, desired, anchorId });
+  }
+  // File-level cards float to the top regardless.
+  placements.sort((a, b) => {
+    const af = a.anchorId === "__file";
+    const bf = b.anchorId === "__file";
+    if (af && !bf) return -1;
+    if (bf && !af) return 1;
+    return a.desired - b.desired;
+  });
+
+  let cursor = 0;
+  const gap = 10;
+  for (const p of placements) {
+    const top = Math.max(p.desired, cursor);
+    p.card.style.top = top + "px";
+    cursor = top + p.card.offsetHeight + gap;
+
+    if (p.anchorId !== "__file") {
+      const dot = document.createElement("span");
+      const isSuggestion = p.card.classList.contains("is-suggestion");
+      const isApplied = p.card.classList.contains("is-applied");
+      dot.className = "spec-gutter-dot" + (isSuggestion ? " is-suggestion" : "") + (isApplied ? " is-applied" : "") + (p.card.classList.contains("is-active") ? " is-active" : "");
+      dot.style.top = p.desired + "px";
+      specGutterElement.appendChild(dot);
+    }
+  }
+
+  if (trailing) {
+    trailing.style.top = (cursor + 8) + "px";
+  }
+}
+
+
 
 async function loadSpecSessions(options = {}) {
   const payload = await fetchJson("/api/spec-sessions");
@@ -3834,7 +4238,7 @@ async function loadSpecSessions(options = {}) {
 
 async function loadSpecSession(filePath, options = {}) {
   const activeReplyId = state.spec.replyComposerCommentId;
-  const shouldRestoreReplyFocus = Boolean(activeReplyId && specCommentsListElement.contains(document.activeElement));
+  const shouldRestoreReplyFocus = Boolean(activeReplyId && specMarginElement.contains(document.activeElement));
   captureSpecReplyDraft();
   state.spec.selectedPath = filePath;
   state.spec.loadError = null;
@@ -3917,13 +4321,13 @@ async function refreshSpecReviewState(options = {}) {
   }
 
   const activeReplyId = state.spec.replyComposerCommentId;
-  const shouldRestoreReplyFocus = Boolean(activeReplyId && specCommentsListElement.contains(document.activeElement));
+  const shouldRestoreReplyFocus = Boolean(activeReplyId && specMarginElement.contains(document.activeElement));
   captureSpecReplyDraft();
 
   const context = await fetchJson(`/api/spec-sessions/by-file/context?path=${specPathParam(state.spec.selectedPath)}`);
   state.spec.context = context;
-  renderSpecReviewSummary();
   renderSpecComments();
+  syncSpecToolbarChrome();
 
   if (shouldRestoreReplyFocus) {
     focusActiveSpecReplyDraft();
@@ -4589,44 +4993,65 @@ specFilesToggleButton.addEventListener("click", () => {
   toggleSpecFilesPanel();
 });
 
-specCommentsResizerElement.addEventListener("pointerdown", beginSpecCommentsResize);
-specCommentsResizerElement.addEventListener("pointermove", updateSpecCommentsResize);
-specCommentsResizerElement.addEventListener("pointerup", endSpecCommentsResize);
-specCommentsResizerElement.addEventListener("pointercancel", endSpecCommentsResize);
+specGutterElement.addEventListener("pointerdown", beginSpecMarginResize);
+window.addEventListener("pointermove", updateSpecMarginResize);
+window.addEventListener("pointerup", endSpecMarginResize);
+window.addEventListener("pointercancel", endSpecMarginResize);
 
-specNewCommentButton.addEventListener("click", () => {
-  if (!state.spec.context) {
-    return;
-  }
-  captureSpecSelectedQuote();
-  openSpecComposer(state.spec.reviewTab === "suggestions" ? "suggestion" : "comment", state.spec.selectedQuote);
-});
-
-specReviewTabButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    setSpecReviewTab(button.dataset.specReviewTab);
+// View / layer toggles
+specViewSegButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.spec.viewMode = btn.dataset.specView === "read" ? "read" : "review";
+    applyAppMode();
+    if (state.spec.viewMode === "read") {
+      // In Read mode, hide the inline diff blocks too — pure spec.
+      specFileContentElement.querySelectorAll(".spec-diff-block").forEach((el) => el.remove());
+    } else {
+      renderSpecComments();
+    }
   });
 });
 
+specLayerSegButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const layer = btn.dataset.specLayer;
+    if (layer === "comments") state.spec.showComments = !state.spec.showComments;
+    if (layer === "suggestions") state.spec.showSuggestions = !state.spec.showSuggestions;
+    syncSpecToolbarChrome();
+    renderSpecComments();
+  });
+});
+
+if (specResolvedToggleButton) {
+  specResolvedToggleButton.addEventListener("click", () => {
+    state.spec.showResolved = !state.spec.showResolved;
+    syncSpecToolbarChrome();
+    renderSpecComments();
+  });
+}
+
+if (specSidebarSearchInput) {
+  specSidebarSearchInput.addEventListener("input", () => {
+    state.spec.sidebarSearch = specSidebarSearchInput.value;
+    renderSpecSessions();
+  });
+}
+
 specCommentCancelButton.addEventListener("click", () => {
-  state.spec.commentComposerOpen = false;
+  hideSpecComposerForm();
   state.spec.selectedQuote = "";
   specCommentTextInput.value = "";
   specCommentAnchorInput.value = "";
   setSpecCommentAnchorMode("global");
-  renderSpecSelectedQuoteState();
-  renderSpecComments();
 });
 
 specSuggestionCancelButton.addEventListener("click", () => {
-  state.spec.suggestionComposerOpen = false;
+  hideSpecComposerForm();
   state.spec.selectedQuote = "";
   specSuggestionAnchorInput.value = "";
   specSuggestionContentInput.value = "";
   specSuggestionRationaleInput.value = "";
   setSpecSuggestionAnchorMode("quote");
-  renderSpecSelectedQuoteState();
-  renderSpecComments();
 });
 
 specCommentAnchorModeButtons.forEach((button) => {
@@ -4663,21 +5088,10 @@ specFileContentElement.addEventListener("keyup", () => {
   }
 });
 
-specFileContentElement.addEventListener("pointermove", (event) => {
-  if (state.spec.selectedQuote || !state.spec.context) {
-    return;
-  }
-  const target = event.target instanceof Element ? event.target.closest("h1, h2, h3, h4, h5, h6, p, li, pre") : null;
-  if (!target || !specFileContentElement.contains(target)) {
-    return;
-  }
-  const quote = quoteForSpecBlock(target);
-  if (!quote) {
-    return;
-  }
-  showSpecContextToolbar(quote, target.getBoundingClientRect());
-});
-
+// The floating Comment / Suggest toolbar only appears on a real text
+// selection. We deliberately do NOT pop it on hover/pointermove — that
+// covered the text and felt over-eager. To add a comment without a
+// selection, use the "+ Comment" button in the margin instead.
 specFileContentElement.addEventListener("mouseleave", (event) => {
   if (event.relatedTarget instanceof Node && specContextToolbarElement.contains(event.relatedTarget)) {
     return;
@@ -4754,9 +5168,9 @@ specSuggestionForm.addEventListener("submit", (event) => {
   });
 });
 
-specCommentsListElement.addEventListener("submit", (event) => {
+specMarginElement.addEventListener("submit", (event) => {
   const formElement = event.target instanceof HTMLFormElement ? event.target : null;
-  if (!formElement?.classList.contains("spec-reply-form")) {
+  if (!formElement?.classList.contains("spec-card-reply-form")) {
     return;
   }
   event.preventDefault();
@@ -4771,19 +5185,27 @@ specCommentsListElement.addEventListener("submit", (event) => {
   });
 });
 
-specCommentsListElement.addEventListener("input", (event) => {
+specMarginElement.addEventListener("input", (event) => {
   const textarea = event.target instanceof HTMLTextAreaElement ? event.target : null;
-  const formElement = textarea?.closest(".spec-reply-form");
+  const formElement = textarea?.closest(".spec-card-reply-form");
   if (!formElement?.dataset.commentId) {
     return;
   }
   state.spec.replyDrafts.set(formElement.dataset.commentId, textarea.value);
 });
 
-specCommentsListElement.addEventListener("click", (event) => {
+specMarginElement.addEventListener("click", (event) => {
+  const marginAction = event.target instanceof Element ? event.target.closest("[data-spec-margin-action]") : null;
+  if (marginAction) {
+    event.preventDefault();
+    if (marginAction.dataset.specMarginAction === "new-comment") {
+      openSpecComposer("comment", "");
+    }
+    return;
+  }
   const button = event.target instanceof Element ? event.target.closest("[data-comment-action]") : null;
   const commentCard = event.target instanceof Element ? event.target.closest("[data-comment-id]") : null;
-  const replyForm = event.target instanceof Element ? event.target.closest(".spec-reply-form") : null;
+  const replyForm = event.target instanceof Element ? event.target.closest(".spec-card-reply-form") : null;
   const suggestionButton = event.target instanceof Element ? event.target.closest("[data-suggestion-action]") : null;
   const suggestionCard = event.target instanceof Element ? event.target.closest("[data-suggestion-id]") : null;
   if (button || suggestionButton) {
@@ -4793,12 +5215,6 @@ specCommentsListElement.addEventListener("click", (event) => {
   if (suggestionCard) {
     if (!suggestionButton) {
       focusSpecSuggestionAnchor(suggestionCard.dataset.suggestionId);
-      return;
-    }
-    if (suggestionButton.dataset.suggestionAction === "preview") {
-      void previewSpecSuggestion(suggestionCard.dataset.suggestionId).catch((error) => {
-        setBanner(error.message, "error");
-      });
       return;
     }
     if (suggestionButton.dataset.suggestionAction === "apply") {
@@ -4856,24 +5272,8 @@ specCommentsListElement.addEventListener("click", (event) => {
   });
 });
 
-specCommentFilterButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const nextFilter = button.dataset.commentFilter;
-    if (!SPEC_COMMENT_FILTERS.has(nextFilter)) {
-      return;
-    }
-    state.spec.commentFilter = nextFilter;
-    state.spec.activeAnchorCommentId = "";
-    clearSpecAnchorHighlight();
-    renderSpecComments();
-  });
-});
-
-specCommentSortButton.addEventListener("click", () => {
-  state.spec.commentSort = state.spec.commentSort === "newest" ? "oldest" : "newest";
-  state.spec.activeAnchorCommentId = "";
-  clearSpecAnchorHighlight();
-  renderSpecComments();
+window.addEventListener("resize", () => {
+  layoutSpecMargin();
 });
 
 statusBanner.addEventListener("click", (event) => {
