@@ -3407,21 +3407,34 @@ function clearSpecSuggestionPreview() {
 }
 
 function scrollSpecTargetIntoView(target) {
-  if (specFileContentElement.scrollHeight <= specFileContentElement.clientHeight + 1) {
-    target.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
+  // Find the first scrollable ancestor (the spec-doc grid is the scroll
+  // container in the workbench). Falls back to the spec body element if
+  // no ancestor is scrollable, and finally to the window.
+  const scroller = findScrollableAncestor(target);
+  if (!scroller || scroller === document.scrollingElement) {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
 
-  const contentRect = specFileContentElement.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
-  const nextTop = specFileContentElement.scrollTop + targetRect.top - contentRect.top - 18;
-  specFileContentElement.scrollTo({
+  const scrollerRect = scroller.getBoundingClientRect();
+  const offset = 28; // padding so the target doesn't hug the top edge
+  const nextTop = scroller.scrollTop + targetRect.top - scrollerRect.top - offset;
+  scroller.scrollTo({
     top: Math.max(0, nextTop),
     behavior: "smooth",
   });
+}
+
+function findScrollableAncestor(element) {
+  let current = element?.parentElement;
+  while (current && current !== document.body) {
+    const style = getComputedStyle(current);
+    const canScrollY = (style.overflowY === "auto" || style.overflowY === "scroll");
+    if (canScrollY && current.scrollHeight > current.clientHeight + 1) return current;
+    current = current.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
 }
 
 function anchorTargetElement(item) {
@@ -3675,15 +3688,15 @@ function sessionActivitySummary(session) {
   let pulseAttr = "";
   const parts = [];
   if (open) {
-    parts.push(`<span class="spec-pulse"><span class="spec-pulse-dot is-open"></span>${open}</span>`);
+    parts.push(`<span class="spec-pulse" title="${open} open comment${open === 1 ? "" : "s"}"><span class="spec-pulse-dot is-open"></span>${open}</span>`);
     pulseAttr = "open";
   }
   if (pending) {
-    parts.push(`<span class="spec-pulse"><span class="spec-pulse-dot is-pending"></span>${pending}</span>`);
+    parts.push(`<span class="spec-pulse" title="${pending} pending suggestion${pending === 1 ? "" : "s"}"><span class="spec-pulse-dot is-pending"></span>${pending}</span>`);
     if (!pulseAttr) pulseAttr = "pending";
   }
   if (orphan) {
-    parts.push(`<span class="spec-pulse"><span class="spec-pulse-dot is-orphan"></span>${orphan}</span>`);
+    parts.push(`<span class="spec-pulse" title="${orphan} item${orphan === 1 ? "" : "s"} with broken anchors"><span class="spec-pulse-dot is-orphan"></span>${orphan}</span>`);
     pulseAttr = "orphan";
   }
   return { pulses: parts.join(""), pulseAttr };
@@ -5430,9 +5443,35 @@ document.addEventListener("click", (event) => {
   }
 });
 
+// Cmd/Ctrl-Enter submits the spec composer from inside any of its inputs.
+// Convention shared with GitHub / Slack / Linear for "send this".
+function attachComposerShortcuts(form) {
+  if (!form) return;
+  form.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+    }
+  });
+}
+attachComposerShortcuts(specCommentForm);
+attachComposerShortcuts(specSuggestionForm);
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.editorOverlayOpen && shouldUseEditorOverlay()) {
     closeEditorOverlay();
+    return;
+  }
+
+  // Spec composer: Escape closes the comment/suggestion floating form.
+  // Cmd/Ctrl-Enter inside the form submits it (matches the convention of
+  // GitHub/Slack/etc. for sending text).
+  if (event.key === "Escape" && (state.spec.commentComposerOpen || state.spec.suggestionComposerOpen)) {
+    hideSpecComposerForm();
+    state.spec.composerTarget = null;
+    state.spec.commentAnchorMode = "global";
+    state.spec.suggestionAnchorMode = "quote";
     return;
   }
 
@@ -5442,6 +5481,24 @@ document.addEventListener("keydown", (event) => {
 
   state.lensesExpanded = false;
   renderBoardChrome();
+});
+
+// Spec composer backdrop click: tapping the dimmed area outside the
+// composer dismisses it, matching standard modal behavior.
+document.addEventListener("click", (event) => {
+  if (!state.spec.commentComposerOpen && !state.spec.suggestionComposerOpen) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  // If the click is inside either composer, ignore. The backdrop is
+  // a `body::before` pseudo-element, so any click that doesn't reach
+  // a real composer element is a backdrop click.
+  if (target.closest(".spec-composer")) return;
+  // Don't close when clicking buttons that just OPENED the composer
+  // (the click reaches us before the composer state catches up).
+  if (target.closest("[data-spec-margin-action='new-comment']")) return;
+  if (target.closest("[data-spec-context-action]")) return;
+  hideSpecComposerForm();
+  state.spec.composerTarget = null;
 });
 
 boardFilterToggleButton.addEventListener("click", () => {

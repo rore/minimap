@@ -2505,14 +2505,7 @@ textarea {
 }
 
 @media (max-width: 980px) {
-  .spec-workbench {
-    grid-template-columns: 1fr;
-  }
-
-  .spec-workbench[data-files-collapsed="true"] {
-    grid-template-columns: 1fr;
-  }
-
+  /* Legacy spec session panels (not used in the current workbench) */
   .spec-session-panel,
   .spec-file-panel,
   .spec-comments-panel {
@@ -2524,6 +2517,50 @@ textarea {
   .spec-session-panel {
     order: 1;
   }
+
+  /* New workbench: keep sidebar + pane side-by-side at narrow widths.
+     Auto-collapse the sidebar to its 44px icon rail so the spec pane
+     keeps maximum room. Stacking the sidebar above the pane (the legacy
+     behavior) wastes vertical space and makes the workbench feel broken. */
+  .spec-workbench {
+    --spec-sidebar-w: 44px;
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  /* Inside the narrow sidebar, hide the file labels / dates and show only
+     icons + dots. Same look as the user-toggled collapsed state. */
+  .spec-workbench .spec-sidebar .spec-sidebar-search-wrap,
+  .spec-workbench .spec-sidebar .spec-sidebar-head h2,
+  .spec-workbench .spec-sidebar .spec-session-meta,
+  .spec-workbench .spec-sidebar .spec-session-row .spec-session-sub,
+  .spec-workbench .spec-sidebar .spec-session-row .spec-session-name,
+  .spec-workbench .spec-sidebar .spec-session-group-label,
+  .spec-workbench .spec-sidebar .spec-attach-form input {
+    display: none;
+  }
+  .spec-workbench .spec-sidebar .spec-sidebar-head {
+    padding: 9px 4px;
+    justify-content: center;
+  }
+  .spec-workbench .spec-sidebar .spec-session-row {
+    justify-content: center; padding: 6px 0;
+  }
+  .spec-workbench .spec-sidebar .spec-session-list { padding: 4px 0; }
+  .spec-workbench .spec-sidebar .spec-attach-form { padding: 6px 4px; gap: 0; }
+  .spec-workbench .spec-sidebar .spec-attach-button {
+    padding: 6px 0; width: 100%; font-size: 0;
+  }
+  .spec-workbench .spec-sidebar .spec-attach-button::before { content: "+"; font-size: 1rem; }
+  /* The user's manual toggle is meaningless at this width — hide it. */
+  .spec-workbench .spec-sidebar .spec-sidebar-toggle { display: none; }
+
+  /* Spec doc grid at narrow widths: keep the body+gutter+margin layout
+     but tilt the ratio more toward the body (60/40) since margin cards
+     compress fine, but body text gets unreadable when too narrow. */
+  .spec-doc {
+    --spec-body-frac: 0.62;
+    padding: 16px 12px 60px;
+  }
+  .spec-body { padding: 24px 28px 32px; }
 
   .spec-workbench[data-files-collapsed="true"] .spec-session-panel .panel-header-main {
     display: grid;
