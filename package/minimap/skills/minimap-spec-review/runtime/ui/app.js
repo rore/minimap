@@ -3707,15 +3707,22 @@ function syncSpecToolbarChrome() {
     btn.classList.toggle("is-on", active);
     btn.setAttribute("aria-selected", active ? "true" : "false");
   });
+  // The layer / Resolved toggles only mean something in Review mode.
+  // Disable them in Read mode so the user doesn't poke them and watch
+  // nothing happen (or worse, briefly something happens that contradicts
+  // "Read = pure spec").
+  const isReview = state.spec.viewMode === "review";
   specLayerSegButtons.forEach((btn) => {
     const layer = btn.dataset.specLayer;
     const active = layer === "comments" ? state.spec.showComments : state.spec.showSuggestions;
     btn.classList.toggle("is-on", active);
     btn.setAttribute("aria-pressed", active ? "true" : "false");
+    btn.disabled = !isReview;
   });
   if (specResolvedToggleButton) {
     specResolvedToggleButton.classList.toggle("is-on", state.spec.showResolved);
     specResolvedToggleButton.setAttribute("aria-pressed", state.spec.showResolved ? "true" : "false");
+    specResolvedToggleButton.disabled = !isReview;
   }
 }
 
@@ -4227,6 +4234,10 @@ function renderSpecDiffBlocks() {
     el.classList.remove("spec-anchor-hidden-by-diff");
   });
 
+  // Read mode shows the pure spec — no diffs, no anchor decorations. Bail
+  // before reinserting, otherwise the periodic refresh would silently add
+  // diffs back into a Read-mode body a few seconds after the user switched.
+  if (state.spec.viewMode !== "review") return;
   if (!state.spec.showSuggestions) return;
 
   for (const suggestion of state.spec.context?.suggestions || []) {
@@ -4317,6 +4328,11 @@ function decorateSpecAnchors() {
   // This lets the function be called when toggle state changes without
   // having to rebuild the whole body.
   undecorateSpecAnchors();
+
+  // Read mode shows the spec without any review chrome — no anchor
+  // underlines, no diff blocks, no margin cards. Skip decoration so the
+  // periodic refresh can't silently re-add underlines a few seconds in.
+  if (state.spec.viewMode !== "review") return;
 
   const visibleComments = (ctx.comments || []).filter(commentMatchesFilter);
   const visibleSuggestions = (ctx.suggestions || []).filter((s) => {
@@ -5291,9 +5307,21 @@ specViewSegButtons.forEach((btn) => {
     state.spec.viewMode = btn.dataset.specView === "read" ? "read" : "review";
     applyAppMode();
     if (state.spec.viewMode === "read") {
-      // In Read mode, hide the inline diff blocks too — pure spec.
-      specFileContentElement.querySelectorAll(".spec-diff-block").forEach((el) => el.remove());
+      // Read mode: pure spec, no review chrome.
+      // - strip diff blocks (the periodic refresh is also guarded against
+      //   re-inserting them in Read mode now)
+      // - drop any "anchor hidden by diff" state so the original text
+      //   shows; diff blocks are gone, the user wants the source
+      // - drop the anchor underlines
+      specFileContentElement.querySelectorAll(".spec-diff-block[data-spec-diff-suggestion-id]").forEach((el) => el.remove());
+      specFileContentElement.querySelectorAll(".spec-anchor-hidden-by-diff").forEach((el) => {
+        el.classList.remove("spec-anchor-hidden-by-diff");
+      });
+      undecorateSpecAnchors();
     } else {
+      // Review mode: rebuild the underlines first, then renderSpecComments
+      // re-inserts the diff blocks and re-marks the matching anchor spans.
+      decorateSpecAnchors();
       renderSpecComments();
     }
   });

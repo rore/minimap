@@ -707,6 +707,12 @@ h3 {
   color: var(--spec-accent-strong);
   border-color: var(--spec-accent-soft);
 }
+.spec-toolbar-button:disabled,
+.spec-seg-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .spec-toolbar-icon-button {
   width: 28px; height: 28px; border-radius: 6px;
   border: 1px solid var(--spec-line);
