@@ -1,31 +1,24 @@
 ---
-name: minimap-roadmap
-description: Use when reading, updating, or reorganizing roadmap state in a repo that hosts or uses the minimap roadmap file convention. Apply for roadmap planning and status changes; do not use for arbitrary spec review unless the user is using minimap-spec-review.
+name: minimap
+description: Top-level entry point for minimap. Use this to choose between the two minimap capabilities. For roadmap planning and roadmap file updates use `minimap-roadmap`. For collaborative review of one specific spec/design/idea file use `minimap-spec-review`.
 ---
 
-# Minimap Roadmap
+# Minimap
 
-## Intent
+Minimap is a local workbench for repo planning and spec review. It exposes two capabilities, each with its own skill.
 
-Use minimap roadmap files as the canonical source of roadmap and feature-planning truth for a repo.
+## Choose A Skill
 
-The UI is only a lens over those files. Agents and humans must operate on the same file state.
+- **Roadmap** — reading, updating, or reorganizing roadmap state in a repo that uses the minimap roadmap convention (`board.md`, `scope.md`, `features/`, `ideas/`).
 
-## Quick Workflow
+  Follow [`skills/minimap-roadmap/SKILL.md`](skills/minimap-roadmap/SKILL.md). The package-level roadmap contract lives in [`CONTRACT.md`](CONTRACT.md).
 
-1. Find the roadmap root from `roadmap.config.json`, or use `roadmap/` when no config exists.
-2. Read the files that own the requested truth before editing.
-3. Edit the smallest owning file set.
-4. Preserve unknown metadata and sections.
-5. Run the repo's normal validation if behavior or generated roadmap output could be affected.
+- **Spec sessions** — collaborating around one specific spec, idea, design, or text file, especially across multiple agents or repos that do not host minimap.
 
-## Load More When Needed
+  Follow [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md). The skill is self-contained and bundles its own server runtime and CLI launcher.
 
-- For ownership rules, item structure, board rules, and edit constraints, read [skills/minimap-roadmap/references/roadmap-contract.md](skills/minimap-roadmap/references/roadmap-contract.md).
-- `CONTRACT.md` contains the package-level product boundary.
+## Why The Split
 
-## Guardrails
+Roadmap work updates files inside the host repo and treats those files as canonical. Spec sessions attach to one external target file, store collaboration state in a global local minimap home, and never modify the target file unless the user explicitly applies a previewed suggestion. The two flows have different ownership and different guardrails, so they live as separate skills with separate references.
 
-- Do not create parallel roadmap trackers.
-- Do not treat chat as the source of truth when roadmap files exist.
-- Do not use this skill for global arbitrary-file review; use `minimap-spec-review` for that.
+Use whichever skill fits the task. Do not use the roadmap skill for arbitrary spec review, and do not use the spec-review skill to mutate roadmap files.

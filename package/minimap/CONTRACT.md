@@ -1,33 +1,23 @@
-# Minimap Contract
+# Minimap Roadmap Contract
 
-Minimap is a tiny repo-local, file-based roadmap and feature planning workspace for humans and agents.
+This contract defines the **roadmap workspace** of minimap: the file convention, ownership rules, and edit constraints that humans and agents must follow when working with repo-local roadmap files.
 
-The roadmap files in the repo are the only source of truth. Git is the history. The UI is only a structured lens and editor over those files.
+Minimap also provides a **spec sessions workspace** for collaborative review of one arbitrary target file. Spec sessions follow a different model — they live outside the target repo, do not impose any document structure on the target file, and are governed by [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md) and its `references/`. The deeper design lives in [`../../docs/global-spec-sessions-plan.md`](../../docs/global-spec-sessions-plan.md). The rest of this document scopes the roadmap workspace.
 
-## What Minimap Is
+## What Minimap Roadmap Is
 
 - a local roadmap and feature planning workspace stored in repo files
 - a simple file convention that both humans and agents can follow
 - a local UI for reading and editing those files
-- a separate spec sessions workspace for collaborative review of one arbitrary target file
 - a skill/instruction set for agents working with the same files
 
-## What Minimap Is Not
+## What Minimap Roadmap Is Not
 
 - not a hosted planning service
 - not a database-backed tracker
 - not a second system of record
 - not a workflow engine or automation platform
 - not a Jira replacement
-
-## Two Workspaces
-
-Minimap exposes two workspaces in the same local UI:
-
-- **Roadmap** — the repo-local roadmap and feature planning workspace described in this contract. Backed by the repo's roadmap files.
-- **Spec sessions** — a global local workspace for review of one specific file at a time. Backed by minimap's local store, not by repo files. The target file may live in any repo and is never modified unless the user explicitly applies a suggestion.
-
-The Roadmap workspace is the subject of this contract. Spec sessions follow the rules in `skills/minimap-spec-review/SKILL.md` and its `references/`.
 
 ## Canonical Rules
 
@@ -183,7 +173,7 @@ Raw edits must still parse correctly and must preserve the item id.
 ## Human and Agent Collaboration Model
 
 Humans use minimap through the local UI.
-Agents use minimap through the file convention and the minimap skill.
+Agents use minimap through the file convention and the minimap-roadmap skill.
 
 Both operate on the same roadmap state.
 
@@ -213,9 +203,10 @@ Do not assume in v1:
 
 A copy-in minimap package should include:
 
-- app/server files
-- UI files
+- app/server files (shared by both workspaces)
+- UI files (shared by both workspaces)
 - roadmap parsing and save logic
-- `SKILL.md`
+- spec-session store, anchoring, comments, and suggestions logic
+- `skills/minimap-roadmap/SKILL.md` and `skills/minimap-spec-review/SKILL.md`
 - starter roadmap templates
 - host-repo adoption notes
