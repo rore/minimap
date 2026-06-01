@@ -20,6 +20,7 @@ import {
   getFileSessionFileContent,
   getFileSession,
   applyFileSessionSuggestion,
+  rollbackFileSessionSuggestion,
   listFileSessions,
   moveFileSession,
   previewFileSessionSuggestion,
@@ -245,19 +246,25 @@ async function handleApi(request, response, requestUrl) {
     return true;
   }
 
-  const suggestionPreviewApplyMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/(preview|apply)$/);
+  const suggestionPreviewApplyMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/(preview|apply|rollback)$/);
   if (request.method === "POST" && suggestionPreviewApplyMatch) {
     const rawBody = await readRequestBody(request);
     const body = parseJsonBody(rawBody);
 
     if (typeof body.file !== "string" || body.file.trim() === "") {
-      throw new AppError("Suggestion preview/apply requires a file path.", 400, "bad_request");
+      throw new AppError("Suggestion preview/apply/rollback requires a file path.", 400, "bad_request");
     }
 
     const suggestionId = decodeURIComponent(suggestionPreviewApplyMatch[1]);
-    const result = suggestionPreviewApplyMatch[2] === "apply"
-      ? await applyFileSessionSuggestion(body.file, suggestionId, body, { cwd: repoRoot })
-      : await previewFileSessionSuggestion(body.file, suggestionId, { cwd: repoRoot });
+    const action = suggestionPreviewApplyMatch[2];
+    let result;
+    if (action === "apply") {
+      result = await applyFileSessionSuggestion(body.file, suggestionId, body, { cwd: repoRoot });
+    } else if (action === "rollback") {
+      result = await rollbackFileSessionSuggestion(body.file, suggestionId, body, { cwd: repoRoot });
+    } else {
+      result = await previewFileSessionSuggestion(body.file, suggestionId, { cwd: repoRoot });
+    }
     sendJson(response, 200, result);
     return true;
   }

@@ -1006,26 +1006,41 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
 }
 .spec-margin-empty p { margin: 0; }
 
-.spec-margin-add {
+/* Gutter "+" — hover-to-add comment entry point. Lives in the gutter
+   column; positioned vertically by JS to track the hovered block.
+   Hidden by default, visible only when the cursor is over a block. */
+.spec-gutter-add {
   position: absolute;
-  left: 14px; right: 0;
-  display: block;
-  padding: 8px 10px;
-  background: transparent;
-  border: 1px dashed var(--spec-line-strong);
-  border-radius: 6px;
-  font: inherit; font-size: 0.78rem; font-weight: 500;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 22px; height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--spec-line-strong);
+  background: var(--spec-panel);
   color: var(--spec-muted);
+  font: inherit; font-size: 0.95rem; font-weight: 500; line-height: 1;
+  display: grid; place-items: center;
   cursor: pointer;
-  text-align: left;
-  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s, border-color 0.12s, transform 0.12s;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 1px 3px rgba(20, 26, 40, 0.06);
 }
-.spec-margin-add:hover {
-  background: var(--spec-accent-soft);
+.spec-gutter-add.is-on {
+  opacity: 1;
+  pointer-events: auto;
+}
+.spec-gutter-add:hover {
+  background: var(--spec-accent);
   border-color: var(--spec-accent);
-  color: var(--spec-accent-strong);
-  border-style: solid;
+  color: #fff;
+  transform: translate(-50%, -50%) scale(1.08);
 }
+/* Hide the gutter "+" in read mode (the gutter itself is hidden, but
+   keep the rule explicit so a stale `is-on` doesn't bleed through). */
+.spec-doc[data-view-mode="read"] .spec-gutter-add { display: none; }
 
 .spec-margin-card {
   position: absolute;

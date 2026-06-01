@@ -1146,6 +1146,11 @@ export async function applyFileSessionSuggestion(filePath, suggestionId, input =
     appliedAt: timestamp,
     updatedAt: timestamp,
     anchor: updatedAnchor,
+    // Snapshot the pre-apply anchor so a future rollback can find the
+    // original quote and revert the change. Re-anchoring overwrites
+    // `anchor.quote`, so without this we'd lose the only reference to
+    // what was there before.
+    originalAnchor: suggestion.anchor,
     beforeHash,
     afterHash,
   };
@@ -1209,6 +1214,167 @@ export async function applyFileSessionSuggestion(filePath, suggestionId, input =
       anchorStatus: edit.resolved,
       willChange: edit.nextText !== text,
     },
+  };
+}
+
+// Rollback an applied suggestion: revert the file to its pre-apply state
+// for that suggestion's specific edit, restore the anchor to its original
+// quote, and put the suggestion back into `pending` status. Refuses if the
+// file has drifted (something else edited it since apply) — manual cleanup
+// is safer than a guessed rollback in that case.
+export async function rollbackFileSessionSuggestion(filePath, suggestionId, input = {}, options = {}) {
+  const { session, paths, text, suggestions } = await loadSuggestionState(filePath, options);
+  const index = findSuggestionIndex(suggestions, suggestionId);
+
+  if (index === -1) {
+    throw new AppError(`Suggestion was not found: ${suggestionId}`, 404, "not_found");
+  }
+
+  const actor = requireNonEmptyString(input.by, "Suggestion rollback actor is required.");
+  const suggestion = suggestions[index];
+  if (suggestion.status !== "applied") {
+    throw new AppError(`Only applied suggestions can be rolled back (status: ${suggestion.status}).`, 409, "conflict");
+  }
+
+  // Refuse to roll back if the file has changed since this suggestion
+  // was applied — we'd otherwise reintroduce stale content over later
+  // edits. The user can always manually undo their own further edits
+  // first and try rollback again.
+  const currentHash = hashText(text);
+  if (suggestion.afterHash && suggestion.afterHash !== currentHash) {
+    throw new AppError(
+      "File has changed since this suggestion was applied; rollback would clobber later edits.",
+      409,
+      "drift",
+    );
+  }
+
+  const originalAnchor = suggestion.originalAnchor;
+  if (!originalAnchor) {
+    throw new AppError(
+      "This applied suggestion has no rollback record (likely from before the rollback feature). Edit the file by hand to undo.",
+      409,
+      "no_rollback_record",
+    );
+  }
+
+  // Compute the inverse edit. For each kind we need to find what was
+  // written and replace it with what was there before.
+  const timestamp = nowIso();
+  let nextText = text;
+
+  if (suggestion.kind === "replace") {
+    // Forward apply replaced originalAnchor.quote with suggestion.content.
+    // Inverse: find suggestion.content (the new text) and put back originalAnchor.quote.
+    const occurrences = findQuoteOccurrences(text, suggestion.content || "");
+    if (occurrences.length !== 1) {
+      throw new AppError("Could not unambiguously locate the applied content to roll back.", 422, "rollback_ambiguous");
+    }
+    const occ = occurrences[0];
+    const start = occ.offset;
+    const end = start + (suggestion.content || "").length;
+    nextText = text.slice(0, start) + (originalAnchor.quote || "") + text.slice(end);
+  } else if (suggestion.kind === "insert_after") {
+    // Forward apply inserted normalized content right after the anchor's quote.
+    const eol = detectLineEnding(text);
+    const insertion = normalizeSuggestionContent(suggestion.content, eol);
+    // The anchor quote is still in place — find it, then strip the
+    // insertion that immediately follows.
+    const anchorOccurrences = findQuoteOccurrences(text, originalAnchor.quote || "");
+    if (anchorOccurrences.length !== 1) {
+      throw new AppError("Could not locate the anchor for rollback.", 422, "rollback_ambiguous");
+    }
+    const anchorOcc = anchorOccurrences[0];
+    const anchorEnd = anchorOcc.offset + (originalAnchor.quote || "").length;
+    if (text.slice(anchorEnd, anchorEnd + insertion.length) !== insertion) {
+      throw new AppError("File content past the anchor doesn't match the inserted text — rollback aborted.", 422, "rollback_mismatch");
+    }
+    nextText = text.slice(0, anchorEnd) + text.slice(anchorEnd + insertion.length);
+  } else if (suggestion.kind === "delete") {
+    // Forward apply removed originalAnchor.quote. Inverse: re-insert it
+    // at the closest plausible position. The file now has a gap where
+    // the deletion happened — we can't reliably know exactly where it
+    // was without a line snapshot. Refuse for now.
+    throw new AppError("Rolling back a delete isn't supported yet — re-add the text by hand.", 422, "rollback_unsupported");
+  } else {
+    throw new AppError(`Rollback not supported for kind: ${suggestion.kind}`, 422, "rollback_unsupported");
+  }
+
+  const targetPath = path.resolve(session.targetFile);
+  await fs.writeFile(targetPath, nextText, "utf8");
+  const newAfterHash = hashText(nextText);
+
+  const restoredSuggestion = {
+    ...suggestion,
+    status: "pending",
+    statusBy: actor,
+    updatedAt: timestamp,
+    anchor: originalAnchor,
+  };
+  // Strip apply metadata so subsequent applies start clean.
+  delete restoredSuggestion.appliedBy;
+  delete restoredSuggestion.appliedAt;
+  delete restoredSuggestion.beforeHash;
+  delete restoredSuggestion.afterHash;
+  delete restoredSuggestion.originalAnchor;
+  suggestions[index] = restoredSuggestion;
+
+  // Reverse the sibling re-anchoring that apply did. Anything currently
+  // anchored to the new content (suggestion.anchor.quote, post-apply)
+  // moves back to the original quote.
+  if (suggestion.kind === "replace") {
+    const newQuote = suggestion.anchor?.quote;
+    const oldQuote = originalAnchor.quote;
+    if (newQuote && newQuote !== oldQuote) {
+      const restoredOccurrences = findQuoteOccurrences(nextText, oldQuote);
+      const sharedAnchor = restoredOccurrences.length === 1
+        ? {
+          ...originalAnchor,
+          lineStart: restoredOccurrences[0].lineStart,
+          lineEnd: restoredOccurrences[0].lineEnd,
+          selectedHash: hashText(oldQuote),
+          fileHash: newAfterHash,
+        }
+        : originalAnchor;
+      for (let i = 0; i < suggestions.length; i += 1) {
+        if (i === index) continue;
+        const other = suggestions[i];
+        if (other.anchor?.scope !== "anchor" || other.anchor?.quote !== newQuote) continue;
+        const restored = { ...other, anchor: { ...other.anchor, ...sharedAnchor, quote: oldQuote } };
+        delete restored.anchorRewrittenAt;
+        suggestions[i] = restored;
+      }
+      // Reverse the comment re-anchoring too.
+      const comments = await readJsonLines(paths.commentsJsonl);
+      let commentsChanged = false;
+      for (let i = 0; i < comments.length; i += 1) {
+        const c = comments[i];
+        if (c.anchor?.scope !== "anchor" || c.anchor?.quote !== newQuote) continue;
+        const restored = { ...c, anchor: { ...c.anchor, ...sharedAnchor, quote: oldQuote } };
+        delete restored.anchorRewrittenAt;
+        comments[i] = restored;
+        commentsChanged = true;
+      }
+      if (commentsChanged) {
+        await writeJsonLines(paths.commentsJsonl, comments);
+      }
+    }
+  }
+
+  const refreshedSession = await refreshSessionMetadataForTarget(session, targetPath, timestamp);
+  await writeJsonLines(paths.suggestionsJsonl, suggestions);
+  await writeJson(paths.sessionJson, refreshedSession);
+  await appendSessionEvent(paths, {
+    type: "suggestion_rolled_back",
+    suggestionId,
+    by: actor,
+    fromHash: currentHash,
+    toHash: newAfterHash,
+    createdAt: timestamp,
+  });
+
+  return {
+    suggestion: withSuggestionAnchorStatus(restoredSuggestion, nextText),
   };
 }
 

@@ -1670,6 +1670,12 @@ function beginSpecMarginResize(event) {
   if (state.spec.viewMode !== "review") {
     return;
   }
+  // The gutter contains both the rail (drag-to-resize) and the hover-add
+  // "+" button. A pointerdown on the button must NOT start a resize
+  // gesture — pointer capture on the gutter would swallow the click.
+  if (event.target instanceof Element && event.target.closest(".spec-gutter-add")) {
+    return;
+  }
 
   state.spec.resizingMargin = true;
   state.spec.resizeStartX = event.clientX;
@@ -3339,6 +3345,39 @@ function openSpecComposer(kind, quote = "") {
   specCommentTextInput.focus();
 }
 
+// Open the comment composer pre-anchored to a specific block in the spec
+// body. Used by the hover-to-add `+` button in the gutter — gives the
+// user an obvious way to add a comment without having to first select
+// text. Headings get a section anchor (matches what they'd get if they
+// typed the heading by hand); paragraphs and list items get a quote
+// anchor against the block's visible text.
+function openSpecComposerForBlock(block) {
+  if (!block) return;
+  const tag = (block.tagName || "").toLowerCase();
+  // selectedQuote is for live text selection only; the gutter "+" path
+  // doesn't need it. Leaving it stale would suppress the hover button
+  // on the next mousemove.
+  state.spec.selectedQuote = "";
+  state.spec.suggestionComposerOpen = false;
+  state.spec.commentComposerOpen = true;
+  if (tag.startsWith("h") && tag.length === 2) {
+    const headingText = normalizeVisibleText(block.textContent);
+    specCommentAnchorInput.value = headingText;
+    setSpecCommentAnchorMode("section");
+  } else {
+    const quote = quoteForSpecBlock(block);
+    if (quote) {
+      specCommentAnchorInput.value = quote;
+      setSpecCommentAnchorMode("quote");
+    } else {
+      specCommentAnchorInput.value = "";
+      setSpecCommentAnchorMode("global");
+    }
+  }
+  showSpecComposerForm("comment");
+  specCommentTextInput.focus();
+}
+
 // Show the (hidden) composer form as a floating panel anchored to the file pane.
 // It overlays the spec doc so it doesn't shift layout while open.
 function showSpecComposerForm(kind) {
@@ -3412,16 +3451,38 @@ function scrollSpecTargetIntoView(target) {
   // no ancestor is scrollable, and finally to the window.
   const scroller = findScrollableAncestor(target);
   if (!scroller || scroller === document.scrollingElement) {
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Window-level scroll: only act if the target is fully off-screen.
+    const rect = target.getBoundingClientRect();
+    const viewportTop = 0;
+    const viewportBottom = window.innerHeight;
+    if (rect.top >= viewportTop && rect.bottom <= viewportBottom) return;
+    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
     return;
   }
 
+  // Container-level scroll: compute the minimum delta needed to bring
+  // the target into the visible area, with a small padding so the
+  // highlighted text doesn't hug the edge. If the target is already
+  // fully visible, do nothing — scrolling on a click that didn't need
+  // to scroll loses the reader's place.
   const targetRect = target.getBoundingClientRect();
   const scrollerRect = scroller.getBoundingClientRect();
-  const offset = 28; // padding so the target doesn't hug the top edge
-  const nextTop = scroller.scrollTop + targetRect.top - scrollerRect.top - offset;
+  const padding = 24;
+  const above = targetRect.top - (scrollerRect.top + padding);
+  const below = targetRect.bottom - (scrollerRect.bottom - padding);
+  let delta = 0;
+  if (above < 0) {
+    // Target is above the visible area → scroll up just enough.
+    delta = above;
+  } else if (below > 0) {
+    // Target is below → scroll down just enough.
+    delta = below;
+  } else {
+    // Already visible. Don't scroll.
+    return;
+  }
   scroller.scrollTo({
-    top: Math.max(0, nextTop),
+    top: Math.max(0, scroller.scrollTop + delta),
     behavior: "smooth",
   });
 }
@@ -3873,10 +3934,7 @@ function renderSpecComments() {
   if (!items.length) {
     specMarginElement.innerHTML = comments.length || suggestions.length
       ? '<p class="spec-margin-empty">No items match the current view.</p>'
-      : `<div class="spec-margin-empty">
-           <p>No comments yet.</p>
-           <button class="spec-toolbar-button" type="button" data-spec-margin-action="new-comment">+ Add a comment</button>
-         </div>`;
+      : '<p class="spec-margin-empty">Hover a paragraph and click the + in the gutter to add the first comment.</p>';
     layoutSpecMargin();
     return;
   }
@@ -3884,10 +3942,7 @@ function renderSpecComments() {
   const html = items.map(({ kind, item }) => {
     return kind === "comment" ? renderMarginCommentCard(item) : renderMarginSuggestionCard(item);
   }).join("");
-  // Trailing entry point — the only way to add a comment without first
-  // selecting text. Auto-anchors to the document's first heading.
-  const trailing = `<button class="spec-margin-add" type="button" data-spec-margin-action="new-comment" title="Add a comment">+ Comment</button>`;
-  specMarginElement.innerHTML = html + trailing;
+  specMarginElement.innerHTML = html;
   layoutSpecMargin();
 }
 
@@ -4016,6 +4071,14 @@ function renderMarginSuggestionCard(suggestion) {
     }
     if (canApply) {
       actions.push('<button class="spec-card-action is-primary" type="button" data-suggestion-action="apply">Apply</button>');
+    }
+  } else {
+    // Applied suggestions are normally read-only, but offer a Rollback
+    // action that reverts the file change and puts the suggestion back
+    // to pending. The server refuses if the file has drifted since
+    // apply, so this is safe to expose.
+    if (suggestion.kind !== "delete" && suggestion.originalAnchor) {
+      actions.push('<button class="spec-card-action" type="button" data-suggestion-action="rollback" title="Revert this change in the file and put the suggestion back to pending">Roll back</button>');
     }
   }
 
@@ -4206,15 +4269,18 @@ function decorateSpecAnchorQuote(quote) {
 // Orphaned cards (anchor no longer exists in the file) are stacked
 // at the bottom so they don't collide with anchored cards.
 // The trailing "+ comment" button is placed below the last card.
+// Place each margin card next to its anchor's y position; if cards
+// would overlap, slide the lower one down. Also draws gutter dots.
+// Orphaned cards (anchor no longer exists in the file) are stacked
+// at the bottom so they don't collide with anchored cards.
 function layoutSpecMargin() {
   if (!specMarginElement || !specGutterElement) return;
   if (state.spec.viewMode !== "review") return;
 
   const cards = Array.from(specMarginElement.querySelectorAll(".spec-margin-card"));
-  const trailing = specMarginElement.querySelector(".spec-margin-add");
   const anchors = indexSpecAnchors();
 
-  // Clear gutter dots.
+  // Clear gutter dots (the hover-add button is kept; it's not a dot).
   specGutterElement.querySelectorAll(".spec-gutter-dot").forEach((el) => el.remove());
 
   const placements = [];
@@ -4274,10 +4340,6 @@ function layoutSpecMargin() {
   // Strip the class from any cards that recovered an anchor on this pass.
   for (const p of placements) {
     p.card.classList.remove("is-orphan");
-  }
-
-  if (trailing) {
-    trailing.style.top = (cursor + 8) + "px";
   }
 }
 
@@ -4577,6 +4639,22 @@ async function applySpecSuggestion(suggestionId) {
   clearSpecSuggestionPreview();
   await loadSpecSession(state.spec.selectedPath);
   setBanner("Suggestion applied.", "success");
+}
+
+async function rollbackSpecSuggestion(suggestionId) {
+  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/rollback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file: state.spec.selectedPath,
+      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+    }),
+  });
+  state.spec.previewSuggestionId = "";
+  state.spec.suggestionPreview = null;
+  clearSpecSuggestionPreview();
+  await loadSpecSession(state.spec.selectedPath);
+  setBanner("Suggestion rolled back.", "success");
 }
 
 async function switchAppMode(nextMode) {
@@ -5154,10 +5232,33 @@ specFileContentElement.addEventListener("keyup", () => {
   }
 });
 
+// When the user deselects (collapsed range, click elsewhere, arrow keys),
+// the floating Comment / Suggest toolbar should disappear with the
+// selection. Without this it sits there pointing at nothing, with no way
+// for the user to dismiss it short of opening a composer.
+document.addEventListener("selectionchange", () => {
+  if (specContextToolbarElement.hidden) return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const collapsed = selection.rangeCount === 0 || selection.isCollapsed;
+  if (collapsed) {
+    state.spec.selectedQuote = "";
+    hideSpecContextToolbar();
+    return;
+  }
+  // Selection still alive but moved outside the spec body — hide too.
+  const range = selection.getRangeAt(0);
+  if (!specFileContentElement.contains(range.commonAncestorContainer)) {
+    state.spec.selectedQuote = "";
+    hideSpecContextToolbar();
+  }
+});
+
 // The floating Comment / Suggest toolbar only appears on a real text
 // selection. We deliberately do NOT pop it on hover/pointermove — that
 // covered the text and felt over-eager. To add a comment without a
-// selection, use the "+ Comment" button in the margin instead.
+// selection, hover any block and click the "+" button that appears in
+// the gutter (set up below).
 specFileContentElement.addEventListener("mouseleave", (event) => {
   if (event.relatedTarget instanceof Node && specContextToolbarElement.contains(event.relatedTarget)) {
     return;
@@ -5165,6 +5266,88 @@ specFileContentElement.addEventListener("mouseleave", (event) => {
   if (!state.spec.selectedQuote) {
     hideSpecContextToolbar();
   }
+});
+
+// ── Hover-to-add: gutter "+" button ───────────────────────────
+// Discoverability: every block in the spec body becomes a comment
+// target. On hover, a small "+" appears in the gutter at that block's
+// vertical center; clicking opens the composer pre-anchored to the
+// block. No selection required, no trailing button cluttering the
+// margin, no toolbar following the cursor.
+let specGutterAddButton = null;
+let specGutterAddBlock = null;
+function ensureSpecGutterAddButton() {
+  if (specGutterAddButton) return specGutterAddButton;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "spec-gutter-add";
+  btn.title = "Add a comment here";
+  btn.setAttribute("aria-label", "Add a comment to this paragraph");
+  btn.textContent = "+";
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (specGutterAddBlock) openSpecComposerForBlock(specGutterAddBlock);
+  });
+  specGutterElement.appendChild(btn);
+  specGutterAddButton = btn;
+  return btn;
+}
+function hideSpecGutterAddButton() {
+  if (!specGutterAddButton) return;
+  specGutterAddButton.classList.remove("is-on");
+  specGutterAddBlock = null;
+}
+specFileContentElement.addEventListener("mousemove", (event) => {
+  if (state.spec.viewMode !== "review") {
+    hideSpecGutterAddButton();
+    return;
+  }
+  if (state.spec.commentComposerOpen || state.spec.suggestionComposerOpen) {
+    hideSpecGutterAddButton();
+    return;
+  }
+  // While the user has an active selection, the floating toolbar is the
+  // right entry point — don't double up with the gutter button.
+  if (state.spec.selectedQuote) {
+    hideSpecGutterAddButton();
+    return;
+  }
+  const target = event.target instanceof Element
+    ? event.target.closest("h1, h2, h3, h4, h5, h6, p, li, pre, th, td")
+    : null;
+  if (!target || !specFileContentElement.contains(target)) {
+    hideSpecGutterAddButton();
+    return;
+  }
+  // Skip empty blocks (spec body padding etc).
+  if (!normalizeVisibleText(target.textContent)) {
+    hideSpecGutterAddButton();
+    return;
+  }
+  const btn = ensureSpecGutterAddButton();
+  const blockRect = target.getBoundingClientRect();
+  const gutterRect = specGutterElement.getBoundingClientRect();
+  const top = (blockRect.top + blockRect.height / 2) - gutterRect.top;
+  btn.style.top = `${Math.max(0, top)}px`;
+  btn.classList.add("is-on");
+  specGutterAddBlock = target;
+});
+// Hide when the cursor leaves the body (and isn't moving onto the button).
+specFileContentElement.addEventListener("mouseleave", (event) => {
+  if (event.relatedTarget instanceof Node && specGutterAddButton && specGutterAddButton.contains(event.relatedTarget)) {
+    return;
+  }
+  hideSpecGutterAddButton();
+});
+// And when the cursor leaves the gutter without re-entering the body — the
+// button lives in the gutter, so a cursor that crosses out of both should
+// dismiss it.
+specGutterElement.addEventListener("mouseleave", (event) => {
+  if (event.relatedTarget instanceof Node && specFileContentElement.contains(event.relatedTarget)) {
+    return;
+  }
+  hideSpecGutterAddButton();
 });
 
 specContextToolbarElement.addEventListener("click", (event) => {
@@ -5285,6 +5468,12 @@ specMarginElement.addEventListener("click", (event) => {
     }
     if (suggestionButton.dataset.suggestionAction === "apply") {
       void applySpecSuggestion(suggestionCard.dataset.suggestionId).catch((error) => {
+        setBanner(error.message, "error");
+      });
+      return;
+    }
+    if (suggestionButton.dataset.suggestionAction === "rollback") {
+      void rollbackSpecSuggestion(suggestionCard.dataset.suggestionId).catch((error) => {
         setBanner(error.message, "error");
       });
       return;
@@ -5472,6 +5661,9 @@ document.addEventListener("keydown", (event) => {
     state.spec.composerTarget = null;
     state.spec.commentAnchorMode = "global";
     state.spec.suggestionAnchorMode = "quote";
+    // Don't leave a stale selectedQuote behind — it would suppress the
+    // gutter "+" hover button on the next mousemove.
+    state.spec.selectedQuote = "";
     return;
   }
 
@@ -5497,8 +5689,10 @@ document.addEventListener("click", (event) => {
   // (the click reaches us before the composer state catches up).
   if (target.closest("[data-spec-margin-action='new-comment']")) return;
   if (target.closest("[data-spec-context-action]")) return;
+  if (target.closest(".spec-gutter-add")) return;
   hideSpecComposerForm();
   state.spec.composerTarget = null;
+  state.spec.selectedQuote = "";
 });
 
 boardFilterToggleButton.addEventListener("click", () => {
