@@ -13,6 +13,7 @@ import {
 } from "./src/roadmap.js";
 import {
   addFileSessionSuggestion,
+  addFileSessionSuggestionReply,
   addFileSessionComment,
   addFileSessionCommentReply,
   attachFileSession,
@@ -194,6 +195,20 @@ async function handleApi(request, response, requestUrl) {
     }
 
     const result = await addFileSessionCommentReply(body.file, decodeURIComponent(commentReplyMatch[1]), body, { cwd: repoRoot });
+    sendJson(response, 200, result);
+    return true;
+  }
+
+  const suggestionReplyMatch = pathname.match(/^\/api\/spec-sessions\/by-file\/suggestions\/([^/]+)\/reply$/);
+  if (request.method === "POST" && suggestionReplyMatch) {
+    const rawBody = await readRequestBody(request);
+    const body = parseJsonBody(rawBody);
+
+    if (typeof body.file !== "string" || body.file.trim() === "") {
+      throw new AppError("Suggestion reply requires a file path.", 400, "bad_request");
+    }
+
+    const result = await addFileSessionSuggestionReply(body.file, decodeURIComponent(suggestionReplyMatch[1]), body, { cwd: repoRoot });
     sendJson(response, 200, result);
     return true;
   }

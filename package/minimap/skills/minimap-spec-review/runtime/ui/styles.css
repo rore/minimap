@@ -874,17 +874,29 @@ h3 {
 .spec-anchor-hidden-by-diff { display: none !important; }
 
 /* Click-to-jump pulse — a brief animated flash so the reader's eye
-   catches it and it visibly fades. The previous version was a steady
-   block until a setTimeout removed the class; on a slower browser tick
-   it could read as "stuck" rather than "transient". */
+   catches it and it visibly fades. Slightly stronger than a feather-
+   weight tint, so when the anchor is short (a few words) the flash is
+   still legible without any background-block-on-hover noise to fight
+   it. */
 @keyframes specAnchorJumpPulse {
-  0%   { background: rgba(73, 96, 230, 0.22); }
-  60%  { background: rgba(73, 96, 230, 0.12); }
+  0%   { background: rgba(73, 96, 230, 0.32); }
+  35%  { background: rgba(73, 96, 230, 0.32); }
   100% { background: transparent; }
 }
 .is-spec-anchor-highlight {
   border-radius: 3px;
-  animation: specAnchorJumpPulse 1.4s ease-out forwards;
+  animation: specAnchorJumpPulse 1.6s ease-out forwards;
+}
+
+/* Diff-block pulse — same idea, but applied to the inline diff block
+   when a suggestion card is clicked. Slightly different so the user
+   can tell what kind of click happened (anchor vs change). */
+@keyframes specDiffJumpPulse {
+  0%   { box-shadow: 0 0 0 3px var(--spec-accent), 0 6px 18px rgba(73, 96, 230, 0.28); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
+}
+.spec-diff-block.is-spec-diff-pulse {
+  animation: specDiffJumpPulse 1.6s ease-out forwards;
 }
 
 /* ── Inline diff blocks ─────────────────────────────────────── */
@@ -1070,9 +1082,19 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
    carry an accent stripe so they read as actionable. Applied
    suggestions go green. Comment "kinds" (concern/question/etc.) are
    intentionally NOT mapped to color — the schema keeps them, the UI
-   stays uniform. */
-.spec-margin-card.is-suggestion { border-left: 2px solid var(--spec-accent); }
-.spec-margin-card.is-suggestion.is-applied { border-left-color: var(--spec-success); }
+   stays uniform.
+   The is-suggestion treatment is intentionally stronger than before:
+   a 3px left bar plus a faint accent-tinted background so the reader
+   can tell at a glance "this card is a proposed change" vs "this is a
+   comment thread". */
+.spec-margin-card.is-suggestion {
+  border-left: 3px solid var(--spec-accent);
+  background: linear-gradient(90deg, rgba(73, 96, 230, 0.04) 0%, var(--spec-panel) 60%);
+}
+.spec-margin-card.is-suggestion.is-applied {
+  border-left-color: var(--spec-success);
+  background: linear-gradient(90deg, rgba(26, 117, 88, 0.04) 0%, var(--spec-panel) 60%);
+}
 .spec-margin-card.is-suggestion.is-status-rejected { opacity: 0.55; }
 .spec-margin-card.is-resolved { opacity: 0.6; }
 .spec-margin-card.is-collapsed { opacity: 0.55; }
@@ -1113,7 +1135,11 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
 }
 .spec-card-anchor-tag::before { content: "▸ "; color: var(--spec-muted-soft); }
 .spec-card-anchor-tag.is-file::before { content: "✦ "; color: var(--spec-muted-soft); }
-.spec-card-anchor-tag.is-suggestion::before { content: ""; }
+.spec-card-anchor-tag.is-suggestion::before {
+  content: "✎ ";
+  color: var(--spec-accent);
+  font-weight: 600;
+}
 .spec-card-anchor-tag.is-suggestion {
   font-weight: 600;
   color: var(--spec-accent-strong);
@@ -1189,12 +1215,8 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   text-decoration: underline;
 }
 
-/* Diff pulse — applied when the user clicks "shown inline" so the eye
-   can find the diff block. Brief soft outline that fades. */
-.spec-diff-block.is-spec-diff-pulse {
-  box-shadow: 0 0 0 2px var(--spec-accent), 0 4px 14px rgba(73, 96, 230, 0.18);
-  transition: box-shadow 0.6s ease-out;
-}
+/* Suggestion-card edit-link styling defined above. The diff-block
+   pulse animation lives near the other anchor-jump animations. */
 .spec-card-orphan {
   margin: 4px 0 0;
   font-size: 0.72rem;

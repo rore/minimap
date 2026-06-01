@@ -3553,8 +3553,34 @@ function focusSpecCommentAnchor(commentId) {
   focusSpecAnchorItem(comment, commentId);
 }
 
+// Suggestions point at a *change* in the body, not just a phrase, so
+// clicking a suggestion card jumps to its diff block (the +/- visible
+// in the body) rather than the bare anchor. The diff block is what the
+// reader actually wants to evaluate; the anchor is just where it lives.
+// For applied/dismissed suggestions where the diff isn't currently
+// rendered (Resolved toggle off), fall back to the original anchor.
 function focusSpecSuggestionAnchor(suggestionId) {
   const suggestion = (state.spec.context?.suggestions || []).find((candidate) => candidate.id === suggestionId);
+  if (!suggestion) return;
+  state.spec.activeAnchorCommentId = `suggestion:${suggestionId}`;
+  clearSpecAnchorHighlight();
+  renderSpecComments();
+
+  const diff = specFileContentElement.querySelector(
+    `[data-spec-diff-suggestion-id="${CSS.escape(suggestionId)}"]`,
+  );
+  if (diff) {
+    scrollSpecTargetIntoView(diff);
+    diff.classList.remove("is-spec-diff-pulse");
+    void diff.offsetWidth;
+    diff.classList.add("is-spec-diff-pulse");
+    window.setTimeout(() => diff.classList.remove("is-spec-diff-pulse"), 1500);
+    setBanner("");
+    return;
+  }
+
+  // No diff in the body (resolved suggestion, Resolved toggle off, or
+  // orphaned). Fall back to the anchor jump and the regular reasons.
   focusSpecAnchorItem(suggestion, `suggestion:${suggestionId}`);
 }
 
@@ -4065,6 +4091,13 @@ function renderMarginSuggestionCard(suggestion) {
     : "";
 
   const actions = [];
+  // Replies are available on every suggestion (pending or terminal) —
+  // a comment thread on the change itself is useful at any stage.
+  const replyKey = `suggestion:${suggestion.id}`;
+  const isReplying = state.spec.replyComposerCommentId === replyKey;
+  if (!isReplying) {
+    actions.push('<button class="spec-card-action" type="button" data-suggestion-action="reply">Reply</button>');
+  }
   if (!applied) {
     if (pending) {
       // Two-action lifecycle: Dismiss removes from review; Apply writes
@@ -4096,26 +4129,13 @@ function renderMarginSuggestionCard(suggestion) {
        </div>`
     : "";
 
-  // The diff block lives in the body, anchored next to where the change
-  // happens. The card is metadata about that change. Make the
-  // relationship explicit with a small "view in body" link instead of
-  // letting the reader guess that the card and the diff are related.
-  const editPointer = (suggestion.kind === "delete" || suggestion.kind === "insert_after" || suggestion.kind === "replace") && !applied && !rejected
-    ? `<div class="spec-card-field">
-         <span class="spec-card-field-label">Edit</span>
-         <button class="spec-card-edit-link" type="button" data-suggestion-action="view-edit">↪ shown inline in the spec</button>
-       </div>`
-    : "";
-
-  // The anchor — where in the spec this change applies. Render with an
-  // explicit label so the reader doesn't mistake it for the suggestion
-  // text or the rationale.
-  const anchorBlock = anchorTag
-    ? `<div class="spec-card-field">
-         <span class="spec-card-field-label">${anchor.scope === "section" ? "Section" : (applied ? "Was anchored to" : "Anchored to")}</span>
-         <p class="spec-card-anchor-quote">${escapeHtml(truncate(anchorTag, 120))}</p>
-       </div>`
-    : "";
+  // Suggestion cards no longer carry an explicit "Anchored to" field
+  // or a separate "view in body" link. Both are redundant: the diff
+  // block in the body IS the change, and clicking anywhere on the
+  // suggestion card now scrolls + pulses that diff. Same single
+  // affordance the reader's eye expects ("click the card to find what
+  // it's about"), but pointing at the change rather than the bare
+  // anchor — which is what the reader actually wants to evaluate.
 
   // Status appears in the kind tag only when it's something the user
   // should notice: "applied" or "rejected" reach a terminal state worth
@@ -4129,18 +4149,33 @@ function renderMarginSuggestionCard(suggestion) {
     ? `<p class="spec-card-anchor-rewritten">Anchor updated after edit</p>`
     : "";
 
+  const replies = (suggestion.replies || []).map((reply) => `
+    <div class="spec-card-reply">
+      <span class="spec-card-reply-author">${escapeHtml(reply.by)}</span>
+      <p>${escapeHtml(reply.text)}</p>
+    </div>`).join("");
+  const replyForm = isReplying ? `
+    <form class="spec-card-reply-form" data-suggestion-reply-id="${escapeHtml(suggestion.id)}">
+      <textarea rows="2" placeholder="Reply">${escapeHtml(state.spec.replyDrafts.get(replyKey) || "")}</textarea>
+      <div class="spec-card-actions">
+        <button class="spec-card-action" type="button" data-suggestion-action="cancel-reply">Cancel</button>
+        <span class="spec-card-actions-spacer"></span>
+        <button class="spec-card-action is-primary" type="submit">Send</button>
+      </div>
+    </form>` : "";
+
   return `
-    <article class="${cls}" data-suggestion-id="${escapeHtml(suggestion.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to jump to anchor">
+    <article class="${cls}" data-suggestion-id="${escapeHtml(suggestion.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to view the change in the spec">
       <header class="spec-card-head">
         <span class="spec-card-author">${escapeHtml(suggestion.by)}</span>
         <span class="spec-card-anchor-tag is-suggestion">${kindTag}</span>
         <span class="spec-card-when">${escapeHtml(formatRelativeTime(suggestion.createdAt))}</span>
       </header>
-      ${editPointer}
       ${rationale}
+      ${replies ? `<div class="spec-card-replies">${replies}</div>` : ""}
       ${orphanWarning}
       ${anchorRewritten}
-      ${anchorBlock}
+      ${replyForm}
       ${actions.length ? `<div class="spec-card-actions">${actions.join("")}</div>` : ""}
     </article>`;
 }
@@ -4629,6 +4664,25 @@ async function replyToSpecComment(commentId, text) {
   state.spec.replyDrafts.delete(commentId);
   await refreshSpecReviewState({ quiet: true });
   scrollSpecReviewCardIntoView(commentId);
+  setBanner("Reply added.", "success");
+}
+
+async function replyToSpecSuggestion(suggestionId, text) {
+  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file: state.spec.selectedPath,
+      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+      text,
+    }),
+  });
+  // We share the reply-composer state with comments — keyed by the
+  // suggestion id, prefixed to avoid colliding with a same-id comment.
+  const key = `suggestion:${suggestionId}`;
+  state.spec.replyComposerCommentId = "";
+  state.spec.replyDrafts.delete(key);
+  await refreshSpecReviewState({ quiet: true });
   setBanner("Reply added.", "success");
 }
 
@@ -5461,13 +5515,42 @@ specSessionListElement.addEventListener("click", (event) => {
 
 specFileContentElement.addEventListener("click", (event) => {
   const removeButton = event.target instanceof Element ? event.target.closest("[data-spec-missing-remove]") : null;
-  if (!removeButton) {
+  if (removeButton) {
+    void removeSpecSession(removeButton.dataset.specMissingRemove).catch((error) => {
+      setBanner(error.message, "error");
+    });
     return;
   }
-
-  void removeSpecSession(removeButton.dataset.specMissingRemove).catch((error) => {
-    setBanner(error.message, "error");
+  // Clicking an anchored phrase in the body activates the first
+  // visible card anchored to it. Without this, the underline was a
+  // signal you couldn't act on from the body — the only way to
+  // navigate from a phrase to its conversation was to scan the margin
+  // for the matching card.
+  const anchorSpan = event.target instanceof Element ? event.target.closest(".spec-anchor-quote") : null;
+  if (!anchorSpan) return;
+  const quote = normalizeVisibleText(anchorSpan.textContent || "");
+  if (!quote) return;
+  const ctx = state.spec.context;
+  if (!ctx) return;
+  // Look at suggestions first (they're more action-oriented). If an
+  // anchored suggestion is currently visible, jump to its diff block;
+  // otherwise activate the first comment with that anchor.
+  const visibleSuggestions = (ctx.suggestions || []).filter((s) => {
+    if (s.status === "pending" || s.status === "accepted") return state.spec.showSuggestions;
+    return state.spec.showResolved && state.spec.showSuggestions;
   });
+  const suggestion = visibleSuggestions.find((s) => s.anchor?.scope === "anchor" && normalizeVisibleText(s.anchor.quote) === quote);
+  if (suggestion) {
+    focusSpecSuggestionAnchor(suggestion.id);
+    return;
+  }
+  const visibleComments = state.spec.showComments
+    ? (ctx.comments || []).filter(commentMatchesFilter)
+    : [];
+  const comment = visibleComments.find((c) => c.anchor?.scope === "anchor" && normalizeVisibleText(c.anchor.quote) === quote);
+  if (comment) {
+    focusSpecCommentAnchor(comment.id);
+  }
 });
 
 specCommentForm.addEventListener("submit", (event) => {
@@ -5496,6 +5579,12 @@ specMarginElement.addEventListener("submit", (event) => {
     setBanner("Reply text is required.", "error");
     return;
   }
+  if (formElement.dataset.suggestionReplyId) {
+    void replyToSpecSuggestion(formElement.dataset.suggestionReplyId, text).catch((error) => {
+      setBanner(error.message, "error");
+    });
+    return;
+  }
   void replyToSpecComment(formElement.dataset.commentId, text).catch((error) => {
     setBanner(error.message, "error");
   });
@@ -5504,10 +5593,14 @@ specMarginElement.addEventListener("submit", (event) => {
 specMarginElement.addEventListener("input", (event) => {
   const textarea = event.target instanceof HTMLTextAreaElement ? event.target : null;
   const formElement = textarea?.closest(".spec-card-reply-form");
-  if (!formElement?.dataset.commentId) {
+  if (!formElement) return;
+  if (formElement.dataset.suggestionReplyId) {
+    state.spec.replyDrafts.set(`suggestion:${formElement.dataset.suggestionReplyId}`, textarea.value);
     return;
   }
-  state.spec.replyDrafts.set(formElement.dataset.commentId, textarea.value);
+  if (formElement.dataset.commentId) {
+    state.spec.replyDrafts.set(formElement.dataset.commentId, textarea.value);
+  }
 });
 
 specMarginElement.addEventListener("click", (event) => {
@@ -5529,6 +5622,13 @@ specMarginElement.addEventListener("click", (event) => {
     event.stopPropagation();
   }
   if (suggestionCard) {
+    // If the click is inside the reply form on this card and not on
+    // one of our explicit `data-suggestion-action` buttons, leave it
+    // alone — the submit handler will pick it up. Otherwise we'd
+    // re-render the margin mid-submit and detach the form.
+    if (event.target instanceof Element && event.target.closest(".spec-card-reply-form") && !suggestionButton) {
+      return;
+    }
     if (!suggestionButton) {
       focusSpecSuggestionAnchor(suggestionCard.dataset.suggestionId);
       return;
@@ -5554,6 +5654,21 @@ specMarginElement.addEventListener("click", (event) => {
         diff.classList.add("is-spec-diff-pulse");
         window.setTimeout(() => diff.classList.remove("is-spec-diff-pulse"), 1400);
       }
+      return;
+    }
+    if (suggestionButton.dataset.suggestionAction === "reply") {
+      state.spec.replyComposerCommentId = `suggestion:${suggestionCard.dataset.suggestionId}`;
+      renderSpecComments();
+      // Focus the freshly-rendered textarea so the user can type immediately.
+      const textarea = specMarginElement.querySelector(`.spec-card-reply-form[data-suggestion-reply-id="${CSS.escape(suggestionCard.dataset.suggestionId)}"] textarea`);
+      textarea?.focus();
+      return;
+    }
+    if (suggestionButton.dataset.suggestionAction === "cancel-reply") {
+      const key = `suggestion:${suggestionCard.dataset.suggestionId}`;
+      state.spec.replyComposerCommentId = "";
+      state.spec.replyDrafts.delete(key);
+      renderSpecComments();
       return;
     }
     void setSpecSuggestionStatus(suggestionCard.dataset.suggestionId, suggestionButton.dataset.suggestionAction).catch((error) => {

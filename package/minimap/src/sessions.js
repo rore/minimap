@@ -879,6 +879,35 @@ export async function addFileSessionCommentReply(filePath, commentId, input = {}
   };
 }
 
+export async function addFileSessionSuggestionReply(filePath, suggestionId, input = {}, options = {}) {
+  const { session, paths, text, suggestions } = await loadSuggestionState(filePath, options);
+  const index = findSuggestionIndex(suggestions, suggestionId);
+
+  if (index === -1) {
+    throw new AppError(`Suggestion was not found: ${suggestionId}`, 404, "not_found");
+  }
+
+  const timestamp = nowIso();
+  const suggestion = {
+    ...suggestions[index],
+    replies: Array.isArray(suggestions[index].replies) ? [...suggestions[index].replies] : [],
+    updatedAt: timestamp,
+  };
+  suggestion.replies.push({
+    id: nextReplyId(suggestion),
+    by: requireNonEmptyString(input.by, "Reply actor is required."),
+    text: requireNonEmptyString(input.text, "Reply text is required."),
+    createdAt: timestamp,
+  });
+  suggestions[index] = suggestion;
+
+  await saveSuggestionMutation(paths, session, suggestions, timestamp);
+
+  return {
+    suggestion: withSuggestionAnchorStatus(suggestion, text),
+  };
+}
+
 export async function updateFileSessionCommentStatus(filePath, commentId, status, input = {}, options = {}) {
   const { session, paths, text, comments } = await loadCommentState(filePath, options);
   const index = findCommentIndex(comments, commentId);
