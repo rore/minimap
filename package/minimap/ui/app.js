@@ -3532,19 +3532,41 @@ function focusSpecAnchorItem(item, activeKey) {
     return;
   }
 
-  // The CSS animation `specAnchorJumpPulse` runs for 1.4s and ends on
-  // `background: transparent`, so visually the pulse is already gone by
-  // then. Strip the class shortly after so a re-click can re-trigger
-  // the animation (animations don't restart while the class is present).
-  target.classList.remove("is-spec-anchor-highlight");
-  // Force a reflow so the animation restarts when re-added.
-  void target.offsetWidth;
-  target.classList.add("is-spec-anchor-highlight");
-  scrollSpecTargetIntoView(target);
+  // If the anchored quote has been hidden by a replace/delete diff
+  // block (the quote's span gets `.spec-anchor-hidden-by-diff` so the
+  // diff visually stands in for it), the literal anchor element can
+  // collapse to zero height — pulsing it is invisible. Pulse the
+  // adjacent diff block instead so the reader sees what the comment
+  // is anchored to.
+  const hiddenAnchorSpan = item.anchor?.quote
+    ? findInlineQuoteSpan(target, item.anchor.quote)
+    : null;
+  let pulseTarget = target;
+  let pulseAsDiff = false;
+  if (hiddenAnchorSpan && hiddenAnchorSpan.classList.contains("spec-anchor-hidden-by-diff")) {
+    // The diff block was inserted right after the target paragraph.
+    const diff = target.nextElementSibling && target.nextElementSibling.classList?.contains("spec-diff-block")
+      ? target.nextElementSibling
+      : null;
+    if (diff) {
+      pulseTarget = diff;
+      pulseAsDiff = true;
+    }
+  }
+
+  // The CSS animation runs for 1.6s and ends transparent, so visually
+  // the pulse is already gone by then. Strip the class shortly after
+  // so a re-click can re-trigger the animation (animations don't
+  // restart while the class is present).
+  const pulseClass = pulseAsDiff ? "is-spec-diff-pulse" : "is-spec-anchor-highlight";
+  pulseTarget.classList.remove(pulseClass);
+  void pulseTarget.offsetWidth;
+  pulseTarget.classList.add(pulseClass);
+  scrollSpecTargetIntoView(pulseTarget);
   state.spec.anchorHighlightTimer = window.setTimeout(() => {
-    target.classList.remove("is-spec-anchor-highlight");
+    pulseTarget.classList.remove(pulseClass);
     state.spec.anchorHighlightTimer = null;
-  }, 1500);
+  }, 1700);
   setBanner("");
 }
 
@@ -4259,7 +4281,12 @@ function insertSpecDiffBlock(suggestion) {
     const span = findInlineQuoteSpan(target, suggestion.anchor.quote);
     if (span) {
       span.classList.add("spec-anchor-hidden-by-diff");
-      span.parentNode.insertBefore(block, span.nextSibling);
+      // Insert the diff AFTER the target block, not inside it. Putting a
+      // <div> directly inside a <p> is invalid HTML (browsers auto-fix
+      // by closing the <p> early, which collapses the visible block to
+      // zero height) and breaks click-to-jump on comments anchored to
+      // the same quote — the pulse would land on a hidden span.
+      target.insertAdjacentElement("afterend", block);
       return;
     }
   }
