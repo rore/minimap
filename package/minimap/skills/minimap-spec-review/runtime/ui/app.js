@@ -4082,7 +4082,33 @@ function renderMarginSuggestionCard(suggestion) {
     }
   }
 
-  const rationale = suggestion.rationale ? `<p class="spec-card-text">${escapeHtml(suggestion.rationale)}</p>` : "";
+  const rationale = suggestion.rationale
+    ? `<div class="spec-card-field">
+         <span class="spec-card-field-label">Why</span>
+         <p class="spec-card-field-text">${escapeHtml(suggestion.rationale)}</p>
+       </div>`
+    : "";
+
+  // The diff block lives in the body, anchored next to where the change
+  // happens. The card is metadata about that change. Make the
+  // relationship explicit with a small "view in body" link instead of
+  // letting the reader guess that the card and the diff are related.
+  const editPointer = (suggestion.kind === "delete" || suggestion.kind === "insert_after" || suggestion.kind === "replace") && !applied && !rejected
+    ? `<div class="spec-card-field">
+         <span class="spec-card-field-label">Edit</span>
+         <button class="spec-card-edit-link" type="button" data-suggestion-action="view-edit">↪ shown inline in the spec</button>
+       </div>`
+    : "";
+
+  // The anchor — where in the spec this change applies. Render with an
+  // explicit label so the reader doesn't mistake it for the suggestion
+  // text or the rationale.
+  const anchorBlock = anchorTag
+    ? `<div class="spec-card-field">
+         <span class="spec-card-field-label">${anchor.scope === "section" ? "Section" : (applied ? "Was anchored to" : "Anchored to")}</span>
+         <p class="spec-card-anchor-quote">${escapeHtml(truncate(anchorTag, 120))}</p>
+       </div>`
+    : "";
 
   // Status appears in the kind tag only when it's something the user
   // should notice: "applied" or "rejected" reach a terminal state worth
@@ -4103,10 +4129,11 @@ function renderMarginSuggestionCard(suggestion) {
         <span class="spec-card-anchor-tag is-suggestion">${kindTag}</span>
         <span class="spec-card-when">${escapeHtml(formatRelativeTime(suggestion.createdAt))}</span>
       </header>
+      ${editPointer}
       ${rationale}
       ${orphanWarning}
       ${anchorRewritten}
-      ${anchorTag ? `<p class="spec-card-anchor-quote">${escapeHtml(truncate(anchorTag, 120))}</p>` : ""}
+      ${anchorBlock}
       ${actions.length ? `<div class="spec-card-actions">${actions.join("")}</div>` : ""}
     </article>`;
 }
@@ -5479,6 +5506,17 @@ specMarginElement.addEventListener("click", (event) => {
       void rollbackSpecSuggestion(suggestionCard.dataset.suggestionId).catch((error) => {
         setBanner(error.message, "error");
       });
+      return;
+    }
+    if (suggestionButton.dataset.suggestionAction === "view-edit") {
+      // The inline diff block in the body is the actual change. Scroll
+      // it into view so the reader sees what the card is talking about.
+      const diff = specFileContentElement.querySelector(`[data-spec-diff-suggestion-id="${CSS.escape(suggestionCard.dataset.suggestionId)}"]`);
+      if (diff) {
+        scrollSpecTargetIntoView(diff);
+        diff.classList.add("is-spec-diff-pulse");
+        window.setTimeout(() => diff.classList.remove("is-spec-diff-pulse"), 1400);
+      }
       return;
     }
     void setSpecSuggestionStatus(suggestionCard.dataset.suggestionId, suggestionButton.dataset.suggestionAction).catch((error) => {

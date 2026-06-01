@@ -1127,7 +1127,7 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   overflow: hidden;
 }
 .spec-card-anchor-quote {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 0.74rem;
   color: var(--spec-muted);
   font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
@@ -1136,6 +1136,56 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   padding: 3px 6px;
   word-wrap: break-word;
   overflow-wrap: break-word;
+}
+
+/* Suggestion card field block: tiny uppercase label + value. Lets the
+   reader tell apart "Why" (rationale), "Anchored to" (where it lives),
+   and the actual edit (which is inline in the body, not on the card). */
+.spec-card-field {
+  margin-top: 8px;
+}
+.spec-card-field:first-of-type { margin-top: 6px; }
+.spec-card-field-label {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--spec-muted-soft);
+  margin-bottom: 3px;
+}
+.spec-card-field-text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--spec-text);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* "Edit shown inline in the spec" pointer — clarifies that the card is
+   metadata, while the actual change lives in the body. Clicking scrolls
+   the diff block into view and pulses it. */
+.spec-card-edit-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--spec-accent-strong);
+  cursor: pointer;
+  text-align: left;
+}
+.spec-card-edit-link:hover {
+  text-decoration: underline;
+}
+
+/* Diff pulse — applied when the user clicks "shown inline" so the eye
+   can find the diff block. Brief soft outline that fades. */
+.spec-diff-block.is-spec-diff-pulse {
+  box-shadow: 0 0 0 2px var(--spec-accent), 0 4px 14px rgba(73, 96, 230, 0.18);
+  transition: box-shadow 0.6s ease-out;
 }
 .spec-card-orphan {
   margin: 4px 0 0;
