@@ -1,21 +1,90 @@
 # Minimap
 
-A local workbench for repo planning and spec review.
+A local workbench for collaboration on repo content — between humans, AI agents, and across multiple AI agents.
 
-Minimap is a small local app for collaboration around files in a repo. Humans and AI agents work against the same canonical text — through the UI on one side, through skills and a CLI on the other. There is no hosted service, no database, and no separate planning system. The files are the truth, git is the history.
+Minimap is a small local app that gives humans and AI agents a shared place to work on the same canonical text. Files are the truth. Git is the history. There is no hosted service, no database, no second source of state.
 
 Minimap has two capabilities:
 
-- **Roadmap** — a repo-local roadmap and feature-planning workspace backed by `roadmap/board.md`, `roadmap/scope.md`, and item files in `features/` and `ideas/`. Use it to keep a living plan in the repo and to review what an agent has drafted or changed.
-- **Spec sessions** — a global local workbench for reviewing one specific file (a spec, design doc, RFC, idea). The target file lives in any repo and is never modified unless the user explicitly applies a previewed suggestion. Use it for collaborative review across humans and agents, with anchored comments, replies, and proposed edits.
+- **Spec sessions** — a global local workbench for collaborative review of one specific file: a spec, design doc, RFC, idea, or any text artifact. Multiple agents and humans can review the same file together: leaving anchored comments, replying to each other, proposing concrete edits, and converging on a final version. The target file is never modified unless a human explicitly applies a previewed change.
+- **Roadmap** — a repo-local roadmap and feature-planning workspace backed by `roadmap/board.md`, `roadmap/scope.md`, and item files in `features/` and `ideas/`. A living plan that lives in the repo instead of in chat history.
 
-Both capabilities live in the same local app and follow the same rules. The screenshots below are the real product as it exists in this repo today.
+Both capabilities share the same product shape: files are canonical, the UI is only a lens, the user is the merge authority. The same local server hosts both — toggle with the segmented control in the top right.
+
+## The Problem
+
+Iterating on a spec, design, or roadmap with AI agents tends to drift across chat threads:
+
+- prompts, answers, critiques, and findings are copied between sessions
+- agent feedback is buried in chat history and goes stale as the file changes
+- multiple agents can't easily see — let alone build on — each other's review
+- humans cannot easily steer agents with persistent comments outside chat
+- final artifacts silently lose unresolved objections
+
+Minimap replaces chat-as-coordinator with local shared session state that humans and agents can both read, write, and converge on. The artifact stays canonical; everything else (review, threading, proposed edits) lives around it.
+
+## Spec Sessions
+
+Spec sessions are the heart of minimap. They turn any text file in any repo into a multi-party review surface.
+
+![Minimap spec sessions view](docs/images/minimap-spec-session.png)
+
+### What A Session Is
+
+A spec session attaches to one specific target file. The target file may live in any repo, including a work repo that doesn't have minimap installed. From the moment a session is attached, minimap tracks comments, replies, and proposed suggestions against that file in a global local store (`~/.minimap` on macOS/Linux, `%LOCALAPPDATA%/minimap` on Windows). The target file itself stays canonical and untouched.
+
+A comment can be:
+- **global** — applies to the whole file
+- **section-anchored** — applies to a heading or section
+- **quote-anchored** — applies to a precise sentence or passage
+
+A suggestion is an executable proposed edit (replace / insert / delete) anchored to a specific quote. Suggestions are previewed as a diff before they are applied. Applying a suggestion is a deliberate user action — agents propose, humans apply.
+
+Anchors are designed to survive small edits to the surrounding text. When an anchor becomes ambiguous or stale, minimap surfaces that state explicitly instead of silently re-attaching feedback to the wrong place.
+
+### The Collaboration Workflow
+
+Spec sessions are designed for the case where review is genuinely distributed across multiple participants:
+
+**Human ↔ Agent:**
+
+1. The human attaches a target file and asks an agent to review it.
+2. The agent reads minimap context and the target file directly, then leaves anchored comments and concrete suggestions through minimap.
+3. The human opens minimap, sees the agent's review next to the file, replies in-line, accepts or rejects suggestions, and previews the diff before applying anything.
+4. The target file is only modified when the human explicitly applies a suggestion.
+
+**Agent ↔ Agent:**
+
+1. The human asks one agent (say Claude) to review the file. Claude leaves anchored comments and suggestions.
+2. The human asks a second agent (say Codex) to review *Claude's review*: confirm what looks right, disagree where appropriate, add evidence, and propose alternative suggestions.
+3. Each comment carries an explicit actor identity (`ai:claude`, `ai:codex`, `human:local`), so attribution is preserved in the persistent record.
+4. Agents reply to each other's comments by id; threads accumulate concrete review state instead of evaporating with the chat session.
+5. The human reads the converged review at the end, resolves what's settled, and applies the suggestions that survived scrutiny.
+
+This is the workflow minimap was built for: **persistent, attributed, anchored review state that multiple agents and humans can build on, not a transient chat thread that has to be summarized by hand.**
+
+### Why The Target File Stays Canonical
+
+Spec sessions deliberately keep the work cheap and reversible:
+
+- the target file lives in any repo and isn't modified by minimap
+- session state lives in a local minimap home, not in the target repo
+- the target file is the canonical artifact; minimap owns only the review and suggestion layer
+- applying a suggestion is preview-first and explicit, recorded with before/after hashes
+
+That means an agent can be invited to review a file with no risk of accidental edits, and a human can revisit a session weeks later and still see what was proposed, by whom, against what.
+
+### Agent Hookup
+
+Agents drive spec sessions through the bundled [`minimap-spec-review`](package/minimap/skills/minimap-spec-review/SKILL.md) skill, which includes a self-contained server runtime and a CLI launcher. The skill works from any work repo without copying minimap into that repo. Each agent uses an explicit identity on every write so multi-agent reviews stay attributable.
+
+The deeper design — anchoring model, comment kinds and statuses, suggestion lifecycle, server API — lives in [`docs/global-spec-sessions-plan.md`](docs/global-spec-sessions-plan.md).
 
 ## Roadmap
 
-![Minimap roadmap view](docs/images/minimap-board-list.png)
+The other capability minimap provides is a repo-local roadmap and feature-planning workspace. Where spec sessions are about converging on one file, the roadmap workspace is about keeping a living plan in the repo itself.
 
-Board, selected item, and current scope visible together in one local review surface.
+![Minimap roadmap view](docs/images/minimap-board-list.png)
 
 An agent drafts or updates roadmap files through normal repo conversations. A human opens minimap to read the board, drill into an item, fix a title, priority, group, or section, and commit the markdown change like any other.
 
@@ -44,6 +113,10 @@ Optional repo-root config:
 }
 ```
 
+For the full file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md). Agents drive the roadmap workspace through the [`minimap-roadmap`](package/minimap/skills/minimap-roadmap/SKILL.md) skill.
+
+### Other Roadmap Views
+
 Columns view gives the same canonical data a denser kanban-style layout. Drag-and-drop updates the roadmap files instead of creating a second board state.
 
 ![Minimap columns view](docs/images/minimap-board-columns.png)
@@ -52,66 +125,35 @@ Each item opens in `Read` mode by default. Switch to `Edit` for a structured for
 
 ![Minimap editor view](docs/images/minimap-item-editor.png)
 
-For the file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md).
-
-## Spec sessions
-
-![Minimap spec sessions view](docs/images/minimap-spec-session.png)
-
-Pick any text file in any repo and turn it into a shared review surface. Selecting a sentence in the rendered document creates an anchored comment or a proposed suggestion. Suggestions show their exact change inline; the user previews the diff and applies it explicitly. Replies, resolutions, and review history live in minimap, never in the target file.
-
-Spec sessions are deliberately separate from the roadmap workspace:
-
-- the target file may live in any repo, including a repo that does not have minimap installed
-- session state lives in a local minimap home (`~/.minimap` on macOS/Linux, `%LOCALAPPDATA%/minimap` on Windows), not in the target repo
-- the target file is the canonical artifact; minimap owns only the review and suggestion layer
-- the target file is never modified unless the user explicitly applies a previewed suggestion
-
-Comments can be global, section-anchored, or quote-anchored. Anchors survive small edits to the surrounding text, and ambiguous or stale anchors are surfaced explicitly rather than silently re-attached.
-
-Agents drive spec sessions through the bundled `minimap-spec-review` skill, which includes a self-contained server runtime and CLI launcher so the skill works from any work repo. See [`package/minimap/skills/minimap-spec-review/SKILL.md`](package/minimap/skills/minimap-spec-review/SKILL.md) and the deeper plan in [`docs/global-spec-sessions-plan.md`](docs/global-spec-sessions-plan.md).
-
 ## Shared Principles
 
-Both capabilities share the same product shape:
+Both capabilities follow the same rules:
 
-- **Files are canonical.** Roadmap files for the planning workspace, the attached target file for spec sessions. The UI never holds a second source of truth.
+- **Files are canonical.** Roadmap files for the planning workspace; the attached target file for spec sessions. The UI never holds a second source of truth.
 - **Local first.** No hosted service, no database, no sync layer. The roadmap workspace stores everything in the repo; spec sessions store collaboration state in a local minimap home.
 - **Human-agent symmetry.** Humans use the UI; agents use skills and a CLI. Both update the same state.
+- **Explicit attribution.** Every comment, suggestion, and applied edit carries the actor (`human:local`, `ai:claude`, `ai:codex`, …) so multi-party review stays accountable.
 - **The user is the merge authority.** Agents propose; humans accept, reject, and apply.
 
-## Why Use It
+## Why Not …
 
-The case minimap is built for is the one where roadmap state and spec discussion start drifting across agent chats, ad hoc docs, and PM tools.
+**Why not raw markdown files and chat?**
+Markdown is a good canonical format and a poor live review surface. Chat is a fine collaboration medium and a terrible persistent record. Minimap keeps the canonical file canonical while turning the review around it into durable, attributed state.
 
-Without a shared review surface, a human usually has to reconstruct current state by hand:
+**Why not GitHub PR review or code-review tools?**
+Those work great for code that's already in PR shape. Minimap is for the iteration loop that comes earlier — converging on a spec or design with multiple agents and a human before there's even a PR to file, on files that may live anywhere.
 
-- roadmap updates happen in conversations with the agent, then have to be transferred to files
-- comments on a spec live in chat threads and become stale as the file changes
-- multiple agents can't easily build on each other's review
-- the canonical artifact silently loses unresolved objections
+**Why not a hosted spec/review tool?**
+Spec sessions are deliberately local-only and machine-local. The target file never leaves the user's machine, and there's no shared server to manage or trust. The model also doesn't assume the reviewers are humans on a SaaS — agents are first-class participants.
 
-Minimap replaces chat-as-coordinator with local shared session state that humans and agents can both read, write, and converge on.
-
-## Why Not Just …
-
-**Why not raw markdown files?**
-Markdown is a good canonical format and a poor live planning surface. Minimap keeps markdown as the source of truth while making it easier to review, navigate, regroup, and lightly edit.
-
-**Why not ask the agent for a summary when needed?**
-Summaries are helpful but ephemeral. Minimap gives a stable visible view over the actual files the agent wrote, so shared state does not depend on reconstructing it from a conversation.
-
-**Why not GitHub Projects, Linear, or another PM tool?**
-Many agent-heavy repo workflows already keep planning in markdown and git. Minimap is for the case where you want that planning to remain in-repo, visible, and editable without introducing a second planning system with its own hidden state.
-
-**Why not a hosted spec review tool?**
-Spec sessions are deliberately local-only and machine-local. The target file never leaves the user's machine, and there is no shared server to manage or trust.
+**Why not GitHub Projects, Linear, or another PM tool for the roadmap part?**
+Many agent-heavy repo workflows already keep planning in markdown and git. Minimap is for the case where you want planning to remain in-repo, visible, and editable without introducing a second planning system with its own hidden state.
 
 ## Best Fit
 
+- Specs, designs, or RFCs that need careful review before they ship — especially across multiple agents.
+- Multi-agent workflows where Claude, Codex, and humans iterate on the same artifact.
 - Repos where roadmap or feature planning already lives in files.
-- Specs, designs, or RFCs that need careful review before they ship, especially across multiple agents.
-- Teams using agents to draft or update roadmap content, or to review specs.
 - Developers who want git-native planning and spec collaboration without a hosted backend.
 
 ## Not Best Fit
@@ -134,7 +176,7 @@ Or:
 npm start
 ```
 
-Then open the URL printed by the server. It prefers `http://localhost:4312` and falls forward to the next free port if that one is busy. The same window hosts both Roadmap and Spec sessions; switch with the segmented control in the top right.
+Then open the URL printed by the server. It prefers `http://localhost:4312` and falls forward to the next free port if that one is busy. The same window hosts both Spec sessions and Roadmap; switch with the segmented control in the top right.
 
 ## Adopt The Package
 
@@ -145,7 +187,7 @@ To use minimap in another repo:
 1. Copy `package/minimap/` into that repo as `tools/minimap/`.
 2. For the roadmap capability, copy `tools/minimap/templates/roadmap/` as `roadmap/` (or merge into an existing roadmap root). Optionally copy `tools/minimap/templates/roadmap.config.json` and set `roadmapPath`.
 3. Run `node tools/minimap/server.js` from the host repo root.
-4. Point the host repo's agent instructions at the relevant skill — `tools/minimap/skills/minimap-roadmap/SKILL.md` for roadmap work or `tools/minimap/skills/minimap-spec-review/SKILL.md` for spec review.
+4. Point the host repo's agent instructions at the relevant skill — `tools/minimap/skills/minimap-spec-review/SKILL.md` for spec review or `tools/minimap/skills/minimap-roadmap/SKILL.md` for roadmap work.
 
 The spec-review skill is self-contained — it includes its own runtime and launcher scripts, so it can also be installed globally and used from work repos that do not contain minimap at all.
 
@@ -157,8 +199,8 @@ Both capabilities ship as named skills under `package/minimap/skills/`:
 
 | Capability | Skill | When to use |
 |---|---|---|
-| Roadmap | [`minimap-roadmap/SKILL.md`](package/minimap/skills/minimap-roadmap/SKILL.md) | Reading, updating, or reorganizing roadmap state in a repo that uses the minimap roadmap convention. |
 | Spec sessions | [`minimap-spec-review/SKILL.md`](package/minimap/skills/minimap-spec-review/SKILL.md) | Collaborating around one specific spec, idea, design, or text file across agents and repos. |
+| Roadmap | [`minimap-roadmap/SKILL.md`](package/minimap/skills/minimap-roadmap/SKILL.md) | Reading, updating, or reorganizing roadmap state in a repo that uses the minimap roadmap convention. |
 
 Both skills follow progressive disclosure: a short trigger description and quick workflow at the top of `SKILL.md`, with detailed contracts under each skill's `references/` directory.
 

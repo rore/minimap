@@ -450,7 +450,7 @@ const server = http.createServer(requestListener);
 listenOnAvailablePort(server, requestedPort)
   .then((boundPort) => {
     const fallbackNote = boundPort === requestedPort ? "" : ` (requested ${requestedPort})`;
-    process.stdout.write(`Roadmap UI running at http://localhost:${boundPort}${fallbackNote}\n`);
+    process.stdout.write(`Minimap running at http://localhost:${boundPort}${fallbackNote}\n`);
   })
   .catch((error) => {
     process.stderr.write(`${error.message}\n`);

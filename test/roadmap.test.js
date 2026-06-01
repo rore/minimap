@@ -722,7 +722,7 @@ test("server falls forward to the next free port when requested port is busy", a
     const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
     const onData = (chunk) => {
       const text = String(chunk);
-      if (text.includes("Roadmap UI running at")) {
+      if (text.includes("Minimap running at")) {
         startedLine = text.trim();
         clearTimeout(timeout);
         child.stdout.off("data", onData);
@@ -872,7 +872,7 @@ test("self-contained spec-review skill runs when copied outside the repo", async
       const timeout = setTimeout(() => reject(new Error(`Bundled server did not start. Output: ${output}`)), 5000);
       server.stdout.on("data", (chunk) => {
         output += String(chunk);
-        if (output.includes("Roadmap UI running")) {
+        if (output.includes("Minimap running")) {
           clearTimeout(timeout);
           resolve();
         }

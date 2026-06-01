@@ -1199,9 +1199,11 @@ function renderBadges(item, excludeKey = "", options = {}) {
 }
 
 function updateDocumentTitle() {
-  const repoName = state.workspace?.repoName || repoNameElement.textContent || "Roadmap";
-  repoNameElement.textContent = repoName;
-  document.title = `${repoName} Roadmap`;
+  const repoName = state.workspace?.repoName || repoNameElement.textContent || "";
+  if (repoName) repoNameElement.textContent = repoName;
+  const specMode = document.body.dataset.appMode === "spec";
+  const modeLabel = specMode ? "Spec sessions" : "Roadmap";
+  document.title = repoName ? `Minimap — ${repoName} · ${modeLabel}` : `Minimap — ${modeLabel}`;
 }
 
 function updateWorkspaceSummary() {
@@ -3679,8 +3681,9 @@ function applyAppMode() {
   // In spec mode, the workbench owns the chrome — keep the topbar quiet so
   // the spec page reads as a real desk tool, not a hero-styled chat product.
   modeEyebrowElement.hidden = specMode;
-  modeEyebrowElement.textContent = specMode ? "" : "Repo-local roadmap workspace";
+  modeEyebrowElement.textContent = "";
   modeTitleElement.textContent = specMode ? "Spec sessions" : "Roadmap";
+  updateDocumentTitle();
 }
 
 // ──────────────────────────────────────────────────────────────────────

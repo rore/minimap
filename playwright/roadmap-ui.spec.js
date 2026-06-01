@@ -137,8 +137,9 @@ test.afterEach(async () => {
 test("shows repo name and ASCII workspace summary in the header", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page).toHaveTitle(/minimap Roadmap/);
-  await expect(page.locator("h1")).toContainText("minimap Roadmap");
+  await expect(page).toHaveTitle(/Minimap.*minimap.*Roadmap/);
+  await expect(page.locator("#repo-name")).toHaveText("minimap");
+  await expect(page.locator("#mode-title")).toHaveText("Roadmap");
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await expect(page.locator("#workspace-summary")).not.toContainText("?");
 });
