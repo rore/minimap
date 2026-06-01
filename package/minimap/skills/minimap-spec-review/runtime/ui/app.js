@@ -4451,18 +4451,41 @@ function layoutSpecMargin() {
 
   let cursor = 0;
   const gap = 10;
+  // Track which gutter Y positions already got a dot — multiple cards
+  // anchored to the same place in the body (a comment + a suggestion on
+  // the same quote, for example) should share a single dot, otherwise
+  // duplicates stack invisibly on top of each other and the later cards
+  // look anchorless. We treat anchors within 12px of each other as the
+  // same group — comments anchor to the source paragraph, suggestions
+  // can anchor to the diff block right next to it, and visually they
+  // sit at the same gutter level.
+  const placedDots = []; // { y, el }
+  const sameRowTolerance = 12;
   for (const p of placements) {
     const top = Math.max(p.desired, cursor);
     p.card.style.top = top + "px";
     cursor = top + p.card.offsetHeight + gap;
 
     if (p.anchorId !== "__file") {
-      const dot = document.createElement("span");
       const isSuggestion = p.card.classList.contains("is-suggestion");
       const isApplied = p.card.classList.contains("is-applied");
-      dot.className = "spec-gutter-dot" + (isSuggestion ? " is-suggestion" : "") + (isApplied ? " is-applied" : "") + (p.card.classList.contains("is-active") ? " is-active" : "");
+      const isActive = p.card.classList.contains("is-active");
+      const existing = placedDots.find((d) => Math.abs(d.y - p.desired) <= sameRowTolerance);
+      if (existing) {
+        // Promote the shared dot's styling to suggestion/applied if any
+        // card sharing this anchor is more "actionable" — suggestion
+        // outranks comment visually so the dot type matches what's at
+        // the anchor.
+        if (isSuggestion) existing.el.classList.add("is-suggestion");
+        if (isApplied) existing.el.classList.add("is-applied");
+        if (isActive) existing.el.classList.add("is-active");
+        continue;
+      }
+      const dot = document.createElement("span");
+      dot.className = "spec-gutter-dot" + (isSuggestion ? " is-suggestion" : "") + (isApplied ? " is-applied" : "") + (isActive ? " is-active" : "");
       dot.style.top = p.desired + "px";
       specGutterElement.appendChild(dot);
+      placedDots.push({ y: p.desired, el: dot });
     }
   }
 
