@@ -5316,13 +5316,10 @@ specFileContentElement.addEventListener("mousemove", (event) => {
   const target = event.target instanceof Element
     ? event.target.closest("h1, h2, h3, h4, h5, h6, p, li, pre, th, td")
     : null;
-  if (!target || !specFileContentElement.contains(target)) {
-    hideSpecGutterAddButton();
-    return;
-  }
-  // Skip empty blocks (spec body padding etc).
-  if (!normalizeVisibleText(target.textContent)) {
-    hideSpecGutterAddButton();
+  if (!target || !specFileContentElement.contains(target) || !normalizeVisibleText(target.textContent)) {
+    // The cursor is in body whitespace (padding, between blocks). Don't
+    // hide the button — the user might be on their way to it. We hide
+    // only on mouseleave from the body+gutter region.
     return;
   }
   const btn = ensureSpecGutterAddButton();
@@ -5333,9 +5330,14 @@ specFileContentElement.addEventListener("mousemove", (event) => {
   btn.classList.add("is-on");
   specGutterAddBlock = target;
 });
-// Hide when the cursor leaves the body (and isn't moving onto the button).
+// Hide when the cursor leaves the body — UNLESS it's heading into the
+// gutter (where the + button lives). The cursor crosses the body/gutter
+// boundary on its way to the button; if we hide on that crossing, the
+// user can never reach it. Spare anything inside the gutter, including
+// gaps between gutter children before the cursor lands on the button.
 specFileContentElement.addEventListener("mouseleave", (event) => {
-  if (event.relatedTarget instanceof Node && specGutterAddButton && specGutterAddButton.contains(event.relatedTarget)) {
+  const related = event.relatedTarget;
+  if (related instanceof Node && specGutterElement.contains(related)) {
     return;
   }
   hideSpecGutterAddButton();
@@ -5344,7 +5346,8 @@ specFileContentElement.addEventListener("mouseleave", (event) => {
 // button lives in the gutter, so a cursor that crosses out of both should
 // dismiss it.
 specGutterElement.addEventListener("mouseleave", (event) => {
-  if (event.relatedTarget instanceof Node && specFileContentElement.contains(event.relatedTarget)) {
+  const related = event.relatedTarget;
+  if (related instanceof Node && specFileContentElement.contains(related)) {
     return;
   }
   hideSpecGutterAddButton();
