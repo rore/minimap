@@ -4243,13 +4243,28 @@ function findInlineQuoteSpan(scope, quote) {
 }
 
 // Wrap each unique quote-anchored substring in a hoverable span so the
-// margin card can highlight it. This is a soft enhancement: if the quote
-// can't be found inline, the card still works via heading or block fallback.
+// margin card can highlight it. Only items that would actually appear in
+// the active margin get a body-level mark — if the only thing anchored
+// to a phrase is hidden (e.g. resolved with the Resolved toggle off),
+// the underline is hidden too. The body and the comment pane stay in
+// sync: an underline always corresponds to a card you can click.
 function decorateSpecAnchors() {
   const ctx = state.spec.context;
   if (!ctx || !specFileContentElement) return;
+  // Strip any anchor-quote spans from a previous pass before re-walking.
+  // This lets the function be called when toggle state changes without
+  // having to rebuild the whole body.
+  undecorateSpecAnchors();
 
-  const quoteAnchors = (ctx.comments || []).concat(ctx.suggestions || [])
+  const visibleComments = (ctx.comments || []).filter(commentMatchesFilter);
+  const visibleSuggestions = (ctx.suggestions || []).filter((s) => {
+    if (s.status === "pending" || s.status === "accepted") return true;
+    return state.spec.showResolved;
+  });
+  const layerComments = state.spec.showComments ? visibleComments : [];
+  const layerSuggestions = state.spec.showSuggestions ? visibleSuggestions : [];
+
+  const quoteAnchors = [...layerComments, ...layerSuggestions]
     .map((item) => item.anchor)
     .filter((a) => a && a.scope === "anchor" && a.quote)
     .map((a) => a.quote);
@@ -4261,6 +4276,19 @@ function decorateSpecAnchors() {
 
   for (const quote of unique) {
     decorateSpecAnchorQuote(quote);
+  }
+}
+
+function undecorateSpecAnchors() {
+  if (!specFileContentElement) return;
+  // Replace each anchor-quote span with its text content, merging
+  // adjacent text nodes back together via normalize().
+  const spans = specFileContentElement.querySelectorAll(".spec-anchor-quote");
+  for (const span of spans) {
+    const parent = span.parentNode;
+    if (!parent) continue;
+    parent.replaceChild(document.createTextNode(span.textContent || ""), span);
+    parent.normalize();
   }
 }
 
@@ -5197,6 +5225,7 @@ specLayerSegButtons.forEach((btn) => {
     if (layer === "suggestions") state.spec.showSuggestions = !state.spec.showSuggestions;
     syncSpecToolbarChrome();
     renderSpecComments();
+    decorateSpecAnchors();
   });
 });
 
@@ -5205,6 +5234,7 @@ if (specResolvedToggleButton) {
     state.spec.showResolved = !state.spec.showResolved;
     syncSpecToolbarChrome();
     renderSpecComments();
+    decorateSpecAnchors();
   });
 }
 
