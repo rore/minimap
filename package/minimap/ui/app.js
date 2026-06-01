@@ -5305,8 +5305,13 @@ specLayerSegButtons.forEach((btn) => {
     if (layer === "comments") state.spec.showComments = !state.spec.showComments;
     if (layer === "suggestions") state.spec.showSuggestions = !state.spec.showSuggestions;
     syncSpecToolbarChrome();
-    renderSpecComments();
+    // Order matters: decorate first so renderSpecComments → renderSpecDiffBlocks
+    // can find live anchor spans to mark with .spec-anchor-hidden-by-diff.
+    // If we decorated AFTER, the diff-block insertion would mark spans that
+    // were then unwrapped by undecorateSpecAnchors, briefly flashing the
+    // original sentence into view until the next render.
     decorateSpecAnchors();
+    renderSpecComments();
   });
 });
 
@@ -5314,8 +5319,8 @@ if (specResolvedToggleButton) {
   specResolvedToggleButton.addEventListener("click", () => {
     state.spec.showResolved = !state.spec.showResolved;
     syncSpecToolbarChrome();
-    renderSpecComments();
     decorateSpecAnchors();
+    renderSpecComments();
   });
 }
 
