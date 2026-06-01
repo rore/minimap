@@ -3532,12 +3532,19 @@ function focusSpecAnchorItem(item, activeKey) {
     return;
   }
 
+  // The CSS animation `specAnchorJumpPulse` runs for 1.4s and ends on
+  // `background: transparent`, so visually the pulse is already gone by
+  // then. Strip the class shortly after so a re-click can re-trigger
+  // the animation (animations don't restart while the class is present).
+  target.classList.remove("is-spec-anchor-highlight");
+  // Force a reflow so the animation restarts when re-added.
+  void target.offsetWidth;
   target.classList.add("is-spec-anchor-highlight");
   scrollSpecTargetIntoView(target);
   state.spec.anchorHighlightTimer = window.setTimeout(() => {
     target.classList.remove("is-spec-anchor-highlight");
     state.spec.anchorHighlightTimer = null;
-  }, 2600);
+  }, 1500);
   setBanner("");
 }
 

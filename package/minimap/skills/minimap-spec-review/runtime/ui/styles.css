@@ -852,16 +852,17 @@ h3 {
 .spec-body th, .spec-body td { padding: 6px 10px; border: 1px solid var(--spec-line); text-align: left; vertical-align: top; }
 .spec-body th { background: var(--spec-panel-soft); font-weight: 600; }
 
-/* Anchor highlights — subtle dotted underline. Stays out of the way
-   while reading; lights up on hover or click-to-jump. */
+/* Anchor highlights — subtle dotted underline tells the reader "there's
+   commentary on this phrase" without competing with reading. Hover
+   darkens the underline only (no background tint — that read as a loud
+   block of color and was easy to mistake for the click-pulse). */
 .spec-anchor-quote {
   border-bottom: 1px dotted rgba(73, 96, 230, 0.32);
   border-radius: 1px;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: border-color 0.12s, border-bottom-width 0.12s;
 }
 .spec-anchor-quote:hover {
-  background: var(--spec-accent-soft);
   border-bottom-color: var(--spec-accent);
 }
 .spec-doc[data-view-mode="read"] .spec-anchor-quote {
@@ -872,11 +873,18 @@ h3 {
 }
 .spec-anchor-hidden-by-diff { display: none !important; }
 
-/* Anchor highlight pulse on click-to-jump */
+/* Click-to-jump pulse — a brief animated flash so the reader's eye
+   catches it and it visibly fades. The previous version was a steady
+   block until a setTimeout removed the class; on a slower browser tick
+   it could read as "stuck" rather than "transient". */
+@keyframes specAnchorJumpPulse {
+  0%   { background: rgba(73, 96, 230, 0.22); }
+  60%  { background: rgba(73, 96, 230, 0.12); }
+  100% { background: transparent; }
+}
 .is-spec-anchor-highlight {
-  background: var(--spec-accent-soft);
-  border-radius: 4px;
-  transition: background 0.4s;
+  border-radius: 3px;
+  animation: specAnchorJumpPulse 1.4s ease-out forwards;
 }
 
 /* ── Inline diff blocks ─────────────────────────────────────── */
