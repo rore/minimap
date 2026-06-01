@@ -21,11 +21,17 @@ For the exact product boundary and file contract, read `CONTRACT.md`.
 
 The item editor is intentionally small, but it is not limited to a rigid form.
 
-- `Preview` mode lets you read the item as markdown first
-- `Edit` mode handles the common metadata and the core sections
+- `Read` mode renders the item as a markdown document
+- `Edit` mode handles the common metadata and the core sections in a structured form
 - `Raw` mode lets you edit the full file when a repo uses richer metadata or extra sections
 
 Markdown is allowed inside every section, and minimap preserves unknown frontmatter keys and extra markdown sections instead of flattening everything into one schema.
+
+## Spec Sessions
+
+The same minimap window also hosts a separate **spec sessions** workspace. A spec session attaches to one arbitrary text file (a spec, design doc, idea, RFC) and gives you anchored comments, replies, and proposed suggestions over that file without modifying it. Suggestions are previewed and applied explicitly through the UI; nothing touches the canonical file unless the user accepts a change.
+
+Spec sessions live in a global local store, so the target file can live in any repo — including a work repo that does not contain minimap. See `skills/minimap-spec-review/SKILL.md` and the agent hookup section below.
 
 ## Recommended Host-Repo Layout
 

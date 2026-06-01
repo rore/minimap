@@ -9,6 +9,7 @@ The roadmap files in the repo are the only source of truth. Git is the history. 
 - a local roadmap and feature planning workspace stored in repo files
 - a simple file convention that both humans and agents can follow
 - a local UI for reading and editing those files
+- a separate spec sessions workspace for collaborative review of one arbitrary target file
 - a skill/instruction set for agents working with the same files
 
 ## What Minimap Is Not
@@ -18,6 +19,15 @@ The roadmap files in the repo are the only source of truth. Git is the history. 
 - not a second system of record
 - not a workflow engine or automation platform
 - not a Jira replacement
+
+## Two Workspaces
+
+Minimap exposes two workspaces in the same local UI:
+
+- **Roadmap** — the repo-local roadmap and feature planning workspace described in this contract. Backed by the repo's roadmap files.
+- **Spec sessions** — a global local workspace for review of one specific file at a time. Backed by minimap's local store, not by repo files. The target file may live in any repo and is never modified unless the user explicitly applies a suggestion.
+
+The Roadmap workspace is the subject of this contract. Spec sessions follow the rules in `skills/minimap-spec-review/SKILL.md` and its `references/`.
 
 ## Canonical Rules
 
@@ -164,8 +174,8 @@ When minimap edits an item file, it should preserve:
 
 Minimap v1 supports three item-editing modes:
 
-- `Structured` for common metadata and known sections
-- `Preview` for rendered markdown review before save
+- `Read` for rendered markdown review of the current item
+- `Edit` for structured editing of common metadata and known sections
 - `Raw` for full-file editing when a repo uses richer item files
 
 Raw edits must still parse correctly and must preserve the item id.

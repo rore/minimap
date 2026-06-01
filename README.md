@@ -2,9 +2,9 @@
 
 Planning that lives with the repo, not in chat history.
 
-Minimap is a local UI for repo roadmap files. It lets humans and AI agents plan against the same canonical markdown instead of scattering roadmap state across chat threads, ad hoc docs, and separate PM tools.
+Minimap is a local UI for repo roadmap files and lightweight spec review. It lets humans and AI agents plan against the same canonical markdown instead of scattering roadmap state across chat threads, ad hoc docs, and separate PM tools.
 
-In practice, an agent drafts or updates roadmap files through normal repo conversations, then a human opens minimap to review the board, scope, and item detail together, make corrections, and commit the markdown changes.
+In practice, an agent drafts or updates roadmap files through normal repo conversations, then a human opens minimap to review the board, scope, and item detail together, make corrections, and commit the markdown changes. The same tool also offers a separate **spec sessions** mode for collaborative review of any one target file (a spec, a design, an idea), with anchored comments and proposed suggestions that never touch the canonical file until the user explicitly applies them.
 
 **Files are canonical. Git is the history. The UI is a structured review and editing surface over those files.**
 
@@ -60,6 +60,7 @@ Because many agent-heavy repo workflows already keep planning in markdown and gi
 - A clear visible view over the canonical roadmap files instead of split state across chat and docs.
 - Lightweight editing without abandoning markdown as the canonical format.
 - Search, filters, regrouping, and multiple browse layouts over metadata the repo already has.
+- A separate **spec sessions** mode for review and ideation around one target file, with anchored comments, replies, and proposed suggestions that the user previews and applies on demand.
 - No database, sync layer, or UI-only board state.
 - No second planning system sitting beside the markdown files.
 
@@ -172,6 +173,14 @@ Columns view gives you a denser kanban-style layout over the same canonical data
 
 ### Item editor
 
-Every item opens in read-first mode, then you can switch to structured editing for common fields or raw markdown when the repo uses a richer shape.
+Every item opens in `Read` mode by default. Switch to `Edit` for a structured form over the common metadata and known sections, or `Raw` for full-file editing when the repo uses a richer item shape. Markdown is allowed inside every section, and minimap preserves unknown frontmatter and extra sections instead of flattening them.
 
 ![Minimap editor view](docs/images/minimap-item-editor.png)
+
+### Spec sessions
+
+The same minimap window also hosts **spec sessions** — a separate workspace for reviewing one specific file (a spec, design doc, idea, RFC) without touching the canonical file. Selecting text in the rendered document opens an anchored comment or suggestion. Suggestions show their proposed change inline; the user previews and applies them explicitly, and replies and resolutions live in minimap rather than in the file. Spec sessions are global to your machine, so the target file can live in any repo — minimap does not need to be installed in that repo.
+
+![Minimap spec sessions view](docs/images/minimap-spec-session.png)
+
+Agents can drive spec sessions through the bundled `minimap-spec-review` skill (see `package/minimap/skills/minimap-spec-review/SKILL.md`), which includes a self-contained server runtime and CLI launcher so the skill works from any work repo.
