@@ -45,21 +45,25 @@
 
         <main class="spec-pane">
           <div class="spec-pane-toolbar">
-            <div class="spec-pane-title">
-              <span id="spec-file-subtitle" class="spec-pane-file-path"></span>
-              <span id="spec-file-title" class="spec-pane-file-name">File</span>
+            <div class="spec-pane-toolbar-doc">
+              <div class="spec-pane-title">
+                <span id="spec-file-subtitle" class="spec-pane-file-path"></span>
+                <span id="spec-file-title" class="spec-pane-file-name">File</span>
+              </div>
+              <div class="spec-pane-toolbar-spacer"></div>
+              <div class="spec-seg" role="tablist" aria-label="Spec view">
+                <button id="spec-view-read" class="spec-seg-button" type="button" data-spec-view="read" role="tab" aria-selected="false">Read</button>
+                <button id="spec-view-review" class="spec-seg-button is-on" type="button" data-spec-view="review" role="tab" aria-selected="true">Review</button>
+              </div>
             </div>
-            <div class="spec-pane-toolbar-spacer"></div>
-            <div class="spec-seg" role="tablist" aria-label="Spec view">
-              <button id="spec-view-read" class="spec-seg-button" type="button" data-spec-view="read" role="tab" aria-selected="false">Read</button>
-              <button id="spec-view-review" class="spec-seg-button is-on" type="button" data-spec-view="review" role="tab" aria-selected="true">Review</button>
+            <div class="spec-pane-toolbar-margin">
+              <div class="spec-seg" id="spec-layer-seg" aria-label="Layers">
+                <button class="spec-seg-button is-on" type="button" data-spec-layer="comments" aria-pressed="true">Comments <span class="spec-seg-count" data-spec-count="comments">0</span></button>
+                <button class="spec-seg-button is-on" type="button" data-spec-layer="suggestions" aria-pressed="true">Suggestions <span class="spec-seg-count" data-spec-count="suggestions">0</span></button>
+              </div>
+              <button id="spec-resolved-toggle" class="spec-toolbar-button" type="button" aria-pressed="false">Resolved</button>
+              <button id="spec-refresh-button" class="spec-toolbar-icon-button" type="button" title="Refresh review state" aria-label="Refresh">↻</button>
             </div>
-            <div class="spec-seg" id="spec-layer-seg" aria-label="Layers">
-              <button class="spec-seg-button is-on" type="button" data-spec-layer="comments" aria-pressed="true">Comments <span class="spec-seg-count" data-spec-count="comments">0</span></button>
-              <button class="spec-seg-button is-on" type="button" data-spec-layer="suggestions" aria-pressed="true">Suggestions <span class="spec-seg-count" data-spec-count="suggestions">0</span></button>
-            </div>
-            <button id="spec-resolved-toggle" class="spec-toolbar-button" type="button" aria-pressed="false">Resolved</button>
-            <button id="spec-refresh-button" class="spec-toolbar-icon-button" type="button" title="Refresh review state" aria-label="Refresh">↻</button>
           </div>
 
           <div class="spec-doc" id="spec-doc">
@@ -208,18 +212,17 @@
               </div>
               <p id="editor-subtitle" class="muted">Choose an item from the board.</p>
             </div>
+            <div class="editor-tabs" id="editor-tabs" role="tablist" aria-label="Item editor modes">
+              <button class="editor-tab is-active" id="tab-preview" data-editor-mode="preview" type="button" role="tab" aria-selected="true">Read</button>
+              <button class="editor-tab" id="tab-structured" data-editor-mode="structured" type="button" role="tab" aria-selected="false">Edit</button>
+              <button class="editor-tab" id="tab-raw" data-editor-mode="raw" type="button" role="tab" aria-selected="false">Raw</button>
+            </div>
             <div class="editor-actions">
               <button id="jump-to-board" class="ghost-button mobile-nav-button" type="button">Board</button>
               <button id="editor-cancel-button" class="ghost-button" type="button" hidden>Cancel</button>
               <button id="editor-overlay-close" class="ghost-button" type="button" hidden>Close</button>
               <button id="save-button" class="primary-button" type="button" disabled>Save</button>
             </div>
-          </div>
-
-          <div class="editor-tabs" id="editor-tabs" role="tablist" aria-label="Item editor modes">
-            <button class="editor-tab is-active" id="tab-preview" data-editor-mode="preview" type="button" role="tab" aria-selected="true">Read</button>
-            <button class="editor-tab" id="tab-structured" data-editor-mode="structured" type="button" role="tab" aria-selected="false">Edit</button>
-            <button class="editor-tab" id="tab-raw" data-editor-mode="raw" type="button" role="tab" aria-selected="false">Raw</button>
           </div>
 
           <div class="editor-panels">

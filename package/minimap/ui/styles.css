@@ -1,23 +1,45 @@
 :root {
   color-scheme: light;
-  --bg: #edeef1;
+  --bg: #f4f4f6;
   --panel: #ffffff;
   --panel-strong: #ffffff;
   --text: #1c2331;
   --muted: #6c7385;
-  --border: #e1e2e7;
-  --border-strong: #d2d4da;
+  --border: #e6e6ec;
+  --border-strong: #d6d6df;
   --accent: #2c6cff;
   --accent-strong: #1848bf;
   --accent-soft: rgba(44, 108, 255, 0.08);
   --danger: #c43d43;
   --success: #15795a;
-  --shadow: 0 1px 2px rgba(20, 26, 40, 0.04);
-  --shadow-soft: 0 1px 2px rgba(20, 26, 40, 0.04);
+  --shadow: 0 1px 2px rgba(20, 26, 40, 0.04), 0 1px 3px rgba(20, 26, 40, 0.04);
+  --shadow-soft: 0 1px 2px rgba(20, 26, 40, 0.04), 0 1px 3px rgba(20, 26, 40, 0.04);
   --radius: 10px;
   --radius-small: 8px;
+  /* Spec/workbench tokens — also used by the roadmap so the section bar,
+     segmented controls, and document body share one component set. */
+  --spec-bg: #f4f4f6;
+  --spec-page: #fffefb;
+  --spec-panel: #ffffff;
+  --spec-panel-soft: #f8f8fa;
+  --spec-text: #1c2331;
+  --spec-muted: #6c7385;
+  --spec-muted-soft: #9aa1ad;
+  --spec-line: #e6e6ec;
+  --spec-line-strong: #d6d6df;
+  --spec-accent: #4960e6;
+  --spec-accent-strong: #2438a8;
+  --spec-accent-soft: #ecefff;
+  --spec-danger: #b6383f;
+  --spec-danger-soft: #fbeced;
+  --spec-success: #1a7558;
+  --spec-success-soft: #e6f1ec;
+  --spec-warn: #a36b14;
+  --spec-warn-soft: #f5ecd9;
+  --spec-shadow-soft: 0 1px 2px rgba(20, 26, 40, 0.04), 0 1px 3px rgba(20, 26, 40, 0.04);
+  --spec-shadow-pop: 0 4px 14px rgba(20, 26, 40, 0.10);
   --scope-width: 272px;
-  --scope-width-collapsed: 92px;
+  --scope-width-collapsed: 44px;
   --divider-width: 8px;
   --font-display: "Aptos Display", "Segoe UI Variable Display", "Inter", "Segoe UI", sans-serif;
   --font-body: "Aptos", "Segoe UI Variable Text", "Inter", "Segoe UI", sans-serif;
@@ -123,9 +145,7 @@ h1 {
   color: var(--text);
 }
 h1 #repo-name {
-  color: var(--muted);
-  font-weight: 500;
-  margin-right: 0.4em;
+  display: none;
 }
 
 h2 {
@@ -146,6 +166,11 @@ h3 {
   justify-content: flex-end;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+#workspace-summary,
+#roadmap-path {
+  display: none;
 }
 
 .app-mode-switcher {
@@ -383,9 +408,23 @@ h3 {
   display: grid;
   grid-template-columns: minmax(290px, 340px) minmax(520px, 1fr) var(--divider-width) minmax(220px, var(--scope-width));
   grid-template-areas: "board editor divider scope";
-  column-gap: 8px;
-  row-gap: 14px;
-  align-items: start;
+  column-gap: 0;
+  row-gap: 0;
+  align-items: stretch;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  height: calc(100vh - 90px);
+  min-height: 480px;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
 }
 
 
@@ -647,7 +686,8 @@ h3 {
   overflow: hidden;
 }
 
-.spec-pane-toolbar {
+.spec-pane-toolbar,
+.panel-header {
   display: flex; align-items: center; gap: 12px;
   padding: 7px 22px;
   background: var(--spec-panel);
@@ -655,38 +695,96 @@ h3 {
   height: 44px;
   flex: none;
 }
-.spec-pane-title {
+/* Spec toolbar split — left half tracks the doc column,
+   right half tracks the comments column. The grid is identical to
+   .spec-doc's so the divider lands exactly where the resizable
+   gutter sits below. In read mode the right-side controls are
+   hidden but the column structure (and divider) stays put so the
+   doc body and toolbar don't shift. */
+.spec-pane-toolbar {
+  padding: 0 22px;
+  display: grid;
+  grid-template-columns:
+    minmax(0, calc(var(--spec-body-frac, 0.62) * (100% - 14px)))
+    14px
+    minmax(220px, 1fr);
+  gap: 0;
+}
+.spec-pane:has(.spec-doc[data-view-mode="read"]) .spec-pane-toolbar-margin > * {
+  display: none;
+}
+.spec-pane-toolbar-doc {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.spec-pane-toolbar-margin {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  /* Vertical line at the column's left edge — sits exactly where the
+     resizable doc/comments gutter sits below. */
+  border-left: 1px solid var(--spec-line);
+  margin-left: -7px;
+  padding-left: 7px;
+}
+
+.spec-pane-title,
+.editor-heading {
   display: flex; flex-direction: column;
   min-width: 0;
 }
-.spec-pane-file-path {
-  font-size: 0.7rem; color: var(--spec-muted-soft);
+
+.spec-pane-file-path,
+#editor-subtitle {
+  font-size: 0.7rem;
+  color: var(--spec-muted-soft);
   font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin: 0;
+  line-height: 1.3;
 }
-.spec-pane-file-name {
+#editor-subtitle { order: 1; }
+
+.spec-pane-file-name,
+.editor-header h2 {
   font-size: 0.92rem; font-weight: 600;
   color: var(--spec-text);
   letter-spacing: -0.005em;
+  margin: 0;
+  line-height: 1.2;
+  font-family: var(--font-body);
 }
+.editor-heading-top { order: 2; display: flex; align-items: center; gap: 6px; }
 .spec-pane-toolbar-spacer { flex: 1; }
 
-.spec-seg {
+.spec-seg,
+.editor-tabs {
   display: inline-flex;
   padding: 2px;
   background: var(--spec-bg);
   border: 1px solid var(--spec-line);
   border-radius: 7px;
+  box-shadow: none;
+  gap: 0;
+  align-items: center;
 }
-.spec-seg-button {
+.spec-seg-button,
+.editor-tab {
   border: 0; background: transparent;
   padding: 4px 10px;
   font: inherit; font-size: 0.79rem; font-weight: 500;
   color: var(--spec-muted);
   border-radius: 5px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 6px;
+  min-height: 0;
 }
-.spec-seg-button.is-on {
+.spec-seg-button.is-on,
+.editor-tab.is-active {
   background: var(--spec-panel);
   color: var(--spec-text);
   box-shadow: 0 1px 2px rgba(0,0,0,0.05), inset 0 0 0 0.5px var(--spec-line-strong);
@@ -764,10 +862,10 @@ h3 {
   overflow-y: auto;
 }
 .spec-doc[data-view-mode="read"] {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 32px 28px 96px;
+  /* Same grid as review mode so the doc body keeps the same width and
+     the comments column stays in place. Just hide the cards and the
+     gutter affordances; the column itself remains so the doc doesn't shift. */
+  padding: 32px 22px 96px;
 }
 
 /* Spec body — the warm "page" surface */
@@ -978,7 +1076,11 @@ h3 {
   padding: 0 4px;
   cursor: col-resize;
 }
-.spec-doc[data-view-mode="read"] .spec-gutter { display: none; }
+/* Read mode: keep gutter column reserved but hide its dots/affordances,
+   keep margin column reserved but hide its cards.
+   This way the doc body stays exactly the same width as review mode. */
+.spec-doc[data-view-mode="read"] .spec-gutter > * { display: none; }
+.spec-doc[data-view-mode="read"] .spec-gutter { pointer-events: none; }
 .spec-gutter-rail {
   position: absolute;
   left: 50%; top: 0; bottom: 0;
@@ -1029,7 +1131,7 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   padding-left: 14px;
   min-height: 100%;
 }
-.spec-doc[data-view-mode="read"] .spec-margin { display: none; }
+.spec-doc[data-view-mode="read"] .spec-margin > * { display: none; }
 
 .spec-margin-empty {
   position: absolute;
@@ -1515,29 +1617,32 @@ body[data-app-mode="spec"] #refresh-button {
   min-height: 70vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: 0;
   background: var(--panel);
-  box-shadow: var(--shadow);
+  box-shadow: none;
   overflow: hidden;
+}
+.board-panel,
+.editor-panel {
+  border-right: 1px solid var(--border);
 }
 
 .board-panel {
   grid-area: board;
-  position: sticky;
-  top: 18px;
-  max-height: calc(100vh - 36px);
+  min-height: 0;
+  height: 100%;
 }
 
 .editor-panel {
   grid-area: editor;
+  min-height: 0;
+  height: 100%;
 }
 
 .scope-resizer {
   grid-area: divider;
-  position: sticky;
-  top: 18px;
-  height: calc(100vh - 36px);
+  height: 100%;
   align-self: stretch;
   border: none;
   padding: 0;
@@ -1552,7 +1657,7 @@ body[data-app-mode="spec"] #refresh-button {
   height: 100%;
   margin: 0 auto;
   border-radius: 0;
-  background: var(--border);
+  background: transparent;
   box-shadow: none;
 }
 
@@ -1562,27 +1667,28 @@ body[data-app-mode="spec"] #refresh-button {
 
 .scope-panel {
   grid-area: scope;
-  position: sticky;
-  top: 18px;
-  max-height: calc(100vh - 36px);
+  min-height: 0;
+  height: 100%;
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  background: #fff;
-}
+/* .panel-header is unified with .spec-pane-toolbar above. */
 
 .editor-header {
-  padding-bottom: 10px;
+  gap: 12px;
 }
 
-.editor-header h2 {
-  font-size: 1rem;
+.editor-header .editor-heading {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.editor-header .editor-tabs {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.editor-header .editor-actions {
+  flex: 0 0 auto;
 }
 
 .editor-actions {
@@ -2132,25 +2238,78 @@ body[data-app-mode="spec"] #refresh-button {
 }
 
 .scope-panel.scope-collapsed .panel-header {
-  align-items: center;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 10px 14px;
+  padding: 7px 4px;
+  justify-content: center;
+  gap: 0;
 }
 
-.scope-panel.scope-collapsed .panel-header-main {
-  justify-items: center;
-  text-align: center;
-}
-
+.scope-panel.scope-collapsed .panel-header-main h2,
 .scope-panel.scope-collapsed .panel-header-main .muted,
 .scope-panel.scope-collapsed .scope-content,
 .scope-panel.scope-collapsed #scope-edit-button {
   display: none;
 }
 
+.scope-panel.scope-collapsed .panel-header-main {
+  display: none;
+}
+
 .scope-panel.scope-collapsed {
   min-height: auto;
+}
+
+/* Collapsed scope-toggle styled like spec-sidebar-toggle:
+   compact 24x24 chevron button. Only on desktop horizontal layout —
+   on mobile the scope panel stacks below, so we keep the text label. */
+@media (min-width: 981px) {
+  .scope-panel.scope-collapsed .scope-toggle-button {
+    width: 24px;
+    height: 24px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--spec-muted);
+    border-radius: 4px;
+    display: grid;
+    place-items: center;
+    font-size: 0.95rem;
+    line-height: 1;
+    /* Hide text, show chevron via ::before. */
+    font-size: 0;
+  }
+  .scope-panel.scope-collapsed .scope-toggle-button::before {
+    content: "‹";
+    font-size: 16px;
+    line-height: 1;
+  }
+  .scope-panel.scope-collapsed .scope-toggle-button:hover {
+    background: var(--spec-panel-soft);
+    color: var(--spec-text);
+  }
+  .scope-panel:not(.scope-collapsed) .scope-toggle-button {
+    width: 24px;
+    height: 24px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--spec-muted);
+    border-radius: 4px;
+    display: grid;
+    place-items: center;
+    line-height: 1;
+    font-size: 0;
+  }
+  .scope-panel:not(.scope-collapsed) .scope-toggle-button::before {
+    content: "›";
+    font-size: 16px;
+    line-height: 1;
+  }
+  .scope-panel:not(.scope-collapsed) .scope-toggle-button:hover {
+    background: var(--spec-panel-soft);
+    color: var(--spec-text);
+  }
 }
 
 .layout[data-scope-collapsed="true"] .scope-resizer {
@@ -2172,50 +2331,20 @@ body[data-app-mode="spec"] #refresh-button {
   padding-inline: 0.54rem;
 }
 
-.editor-tabs {
-  display: flex;
-  gap: 0;
-  padding: 8px 14px 0;
-}
-
-.editor-tab {
-  border: 1px solid var(--border);
-  border-right: 0;
-  background: #fff;
-  color: var(--muted);
-  padding: 5px 12px;
-  cursor: pointer;
-  box-shadow: none;
-  font-size: 0.78rem;
-  font-weight: 500;
-  border-radius: 0;
-}
-.editor-tab:first-child {
-  border-top-left-radius: 6px;
-  border-bottom-left-radius: 6px;
-}
-.editor-tab:last-child {
-  border-right: 1px solid var(--border);
-  border-top-right-radius: 6px;
-  border-bottom-right-radius: 6px;
-}
-
-.editor-tab.is-active {
-  background: var(--bg);
-  border-color: var(--border-strong);
-  color: var(--text);
-  box-shadow: none;
-}
-.editor-tab.is-active + .editor-tab {
-  border-left-color: var(--border-strong);
-}
+/* .editor-tabs / .editor-tab are unified with .spec-seg above. */
 
 .editor-panels {
   flex: 1;
   min-height: 0;
+  overflow: auto;
 }
 
 .editor-pane {
+  min-height: 0;
+}
+
+/* In the overlay, the pane itself is the scroll container. */
+.editor-overlay .editor-pane {
   height: 100%;
   overflow: auto;
 }
@@ -2224,11 +2353,8 @@ body[data-app-mode="spec"] #refresh-button {
   display: none !important;
 }
 
-.editor-panel[data-editor-mode="structured"] .editor-tabs,
-.editor-panel[data-editor-mode="preview"] .editor-tabs,
-.editor-panel[data-editor-mode="raw"] .editor-tabs {
-  background: transparent;
-}
+/* .editor-tabs background is unified with .spec-seg. */
+
 
 .item-form {
   padding: 12px 18px 18px;
@@ -2354,9 +2480,80 @@ body[data-app-mode="spec"] #refresh-button {
 
 .preview-surface {
   padding: 14px 18px 18px;
-  display: grid;
-  gap: 14px;
+  display: block;
   background: transparent;
+  font-family: var(--font-body);
+  font-size: 0.96rem;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+/* Read mode: page-on-pane.
+   The editor panel becomes the gray pane and the preview-surface
+   becomes the warm white "page" card centered inside it,
+   mirroring the spec-body treatment. */
+.editor-panel[data-editor-mode="preview"] .editor-panels {
+  background: var(--bg);
+  padding: 22px;
+}
+.editor-panel[data-editor-mode="preview"] .preview-surface {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 36px 44px 44px;
+  background: #fffefb;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+/* Document-level typography — mirrors .spec-body */
+.preview-title {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  margin: 0 0 16px;
+}
+
+.preview-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin: 0 0 20px;
+}
+
+.preview-body {
+  display: block;
+  width: auto;
+  align-content: start;
+}
+
+.preview-section {
+  display: block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.preview-section h2 {
+  font-family: var(--font-display);
+  font-size: 1.18rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  margin: 28px 0 8px;
+}
+.preview-section:first-child h2 {
+  margin-top: 0;
+}
+
+.preview-markdown {
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.65;
 }
 
 .preview-reading {
@@ -2369,53 +2566,10 @@ body[data-app-mode="spec"] #refresh-button {
   line-height: 1.55;
 }
 
-.preview-meta {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.preview-body {
-  display: grid;
-  gap: 18px;
-  width: min(100%, 820px);
-  align-content: start;
-}
-
-.preview-section {
-  display: grid;
-  gap: 10px;
-  padding: 0 0 14px;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.preview-section:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.preview-section-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.preview-section-header h3 {
-  margin: 0;
-  font-size: 1rem;
-  letter-spacing: -0.015em;
-}
-
 .preview-markdown {
   color: var(--text);
-  font-size: 0.98rem;
-  line-height: 1.7;
+  font-size: 0.96rem;
+  line-height: 1.65;
 }
 
 .preview-markdown > :first-child {
@@ -2431,20 +2585,24 @@ body[data-app-mode="spec"] #refresh-button {
 .preview-markdown ol,
 .preview-markdown pre,
 .preview-markdown blockquote {
-  margin: 0 0 0.9rem;
+  margin: 0 0 12px;
 }
 
 .preview-markdown ul,
 .preview-markdown ol {
-  padding-left: 1.3rem;
+  padding-left: 22px;
+}
+
+.preview-markdown li {
+  margin: 0 0 4px;
 }
 
 .preview-markdown li + li {
-  margin-top: 0.22rem;
+  margin-top: 0;
 }
 
 .preview-markdown li > p {
-  margin: 0;
+  margin: 0 0 4px;
 }
 
 .preview-markdown li > ul,
@@ -2454,22 +2612,25 @@ body[data-app-mode="spec"] #refresh-button {
 }
 
 .preview-markdown code {
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-family: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 0.86em;
   background: var(--bg);
-  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 .preview-markdown pre {
-  overflow: auto;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: #142033;
-  color: #f4f7ff;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  color: var(--text);
 }
 
 .preview-markdown blockquote {
-  padding: 0.1rem 0 0.1rem 0.9rem;
+  padding: 6px 14px;
   border-left: 2px solid var(--border-strong);
   color: var(--muted);
 }
@@ -2630,6 +2791,16 @@ textarea {
 
   .panel {
     min-height: auto;
+    height: auto;
+  }
+  .board-panel,
+  .editor-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-header {
+    height: auto;
+    min-height: 44px;
   }
 
   .board-panel,

@@ -549,7 +549,7 @@ test("renders nested and wrapped markdown list content in read mode", async ({ p
   await page.goto("/#item=feature-setup-guidance");
   await page.locator("#refresh-button").click();
 
-  const section = page.locator(".preview-section", { has: page.locator("h3", { hasText: "In Scope" }) });
+  const section = page.locator(".preview-section", { has: page.locator("h2", { hasText: "In Scope" }) });
   const html = await section.locator(".preview-markdown").innerHTML();
   expect(html).toContain("<ul>");
   expect(html).toContain("add automatic suspicious-case detectors over live/debug traces");

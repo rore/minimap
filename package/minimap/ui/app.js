@@ -3005,17 +3005,17 @@ function renderPreview() {
     : Object.fromEntries(orderedSections.map((heading) => [heading, getSectionValueFromItem(state.currentItem, heading)]));
   const visibleSections = orderedSections.filter((heading) => Object.hasOwn(sections, heading));
   const previewBadges = renderMetadataBadges(metadata);
+  const itemTitle = (metadata && metadata.title) || state.currentItem.title || "";
   const sectionHtml = visibleSections.map((heading) => `
     <section class="preview-section">
-      <div class="preview-section-header">
-        <h3>${escapeHtml(heading)}</h3>
-      </div>
+      <h2>${escapeHtml(heading)}</h2>
       <div class="preview-markdown">${renderMarkdownToHtml(sections[heading] || "") || '<p class="muted">Empty section.</p>'}</div>
     </section>
   `).join("");
 
   previewElement.className = "preview-surface preview-reading";
   previewElement.innerHTML = `
+    ${itemTitle ? `<h1 class="preview-title">${escapeHtml(itemTitle)}</h1>` : ""}
     ${previewBadges ? `<div class="preview-meta">${previewBadges}</div>` : ""}
     <div class="preview-body">${sectionHtml || '<p class="muted">This item does not have any readable sections yet.</p>'}</div>
   `;
