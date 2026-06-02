@@ -9,7 +9,7 @@ Minimap has two modes:
 
 Both modes run from the same local server. Files stay canonical, the UI is a lens, the human is the merge authority.
 
-For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md) and [`../../docs/global-spec-sessions-plan.md`](../../docs/global-spec-sessions-plan.md). For the roadmap file contract, see [`CONTRACT.md`](CONTRACT.md).
+For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md) and [`../../roadmap/features/feature-spec-sessions.md`](../../roadmap/features/feature-spec-sessions.md). For the roadmap file contract, see [`CONTRACT.md`](CONTRACT.md).
 
 ## Recommended host-repo layout
 

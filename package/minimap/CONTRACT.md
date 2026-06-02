@@ -2,7 +2,7 @@
 
 This contract defines the **roadmap workspace** of minimap: the file convention, ownership rules, and edit constraints that humans and agents must follow when working with repo-local roadmap files.
 
-Minimap also provides a **spec sessions workspace** for collaborative review of one arbitrary target file. Spec sessions follow a different model — they live outside the target repo, do not impose any document structure on the target file, and are governed by [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md) and its `references/`. The deeper design lives in [`../../docs/global-spec-sessions-plan.md`](../../docs/global-spec-sessions-plan.md). The rest of this document scopes the roadmap workspace.
+Minimap also provides a **spec sessions workspace** for collaborative review of one arbitrary target file. Spec sessions follow a different model — they live outside the target repo, do not impose any document structure on the target file, and are governed by [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md) and its `references/`. The deeper design lives in [`../../roadmap/features/feature-spec-sessions.md`](../../roadmap/features/feature-spec-sessions.md). The rest of this document scopes the roadmap workspace.
 
 ## What Minimap Roadmap Is
 

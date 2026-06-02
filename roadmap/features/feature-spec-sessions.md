@@ -1,6 +1,68 @@
-# Global Minimap Spec Sessions Plan
+---
+id: feature-spec-sessions
+title: Spec sessions — global, file-attached review workbench
+status: done
+priority: high
+commitment: committed
+labels:
+  - foundation
+  - spec-sessions
+  - review
+---
 
-## Intent
+## Summary
+
+A global, machine-local workbench that attaches to one arbitrary text/spec file in any repo and coordinates review and suggestion edits between the user and one or more agents. The target file stays in its original repo; comments, suggestions, replies, anchors, and events live in minimap's global local store. The target file changes only when the user explicitly applies a previewed suggestion.
+
+## Why
+
+Iterating on specs across agents was too manual: prompts, critiques, and findings copied between sessions; agent feedback buried in chat history; line-anchored comments going stale as the spec changed; multiple agents unable to easily review each other's input; humans unable to steer agents with persistent comments outside chat. The goal was to replace chat-as-coordinator with local shared session state that agents and the user can both read and update — without forcing the work repo to adopt minimap.
+
+## In Scope
+
+- one target file maps to one minimap session, identified by normalized absolute path
+- `minimap attach <file>` is required before comments or suggestions can be added
+- comments support `global`, `section`, and `anchor` scopes with one level of replies
+- suggestions support `replace`, `insert_after`, and `delete` with preview-before-apply
+- resilient anchors store quote, heading path, line range, selected hash, and file hash; resolution is classified `resolved` / `ambiguous` / `stale` / `orphaned`
+- agents may create comments and suggestions but may not apply suggestions
+- the human UI may create and apply a suggestion in one preview-confirmed flow
+- the same minimap local server handles both roadmap mode and spec sessions
+- session metadata + counts available to the file list without loading full context
+- replies on suggestions
+- rollback of an applied suggestion (revert the file edit, restore status to pending)
+
+## Out of Scope
+
+- remote hosting or shared multi-user state — sessions are local-only and machine-local
+- writing any minimap metadata into the work repo by default
+- agents invoking other agents through minimap
+- full target-file snapshots stored by default
+- separate decision / evidence / open-question / review entities (until a real workflow demands them)
+- archive lifecycle for sessions
+- realtime collaboration
+
+## Done When
+
+- a file in a repo without minimap can be attached
+- minimap stores session state outside the target repo (`%LOCALAPPDATA%/minimap` on Windows, `~/.minimap` on macOS/Linux; `MINIMAP_HOME` overrides for tests)
+- the UI lists recent file sessions, shows the attached file, and renders Markdown when applicable
+- the user can create global, section, and anchored comments
+- an agent can add comments and suggestions through minimap; another agent can reply or disagree
+- the user can accept, reject, preview, apply, or roll back a suggestion
+- applying a suggestion modifies only the target file after explicit confirmation
+- replying to a suggestion works the same as replying to a comment
+- broken anchors after applies are surfaced and the conversation moves with re-anchored content where possible
+
+## Notes
+
+Implemented and live. The CLI, server API, and UI all participate. The agent-facing skill `package/minimap/skills/minimap-spec-review/SKILL.md` documents how agents identify sessions by file path, attach, and write through the API with explicit `--by` actor on every mutation.
+
+The full design — anchoring algorithm, comment kinds and statuses, suggestion lifecycle, server API surface, agent identity rules, implementation phases — is preserved below as `## Design Detail`. It's reference material rather than working spec; current behavior may have evolved past some of the original phasing.
+
+## Design Detail
+
+### Intent
 
 Build a globally installed minimap workflow for iterating on ideas and specs across agents.
 
@@ -8,7 +70,7 @@ The target use case is a user working in any repo, including work repos that do 
 
 Minimap acts as a local global coordinator for collaboration around that file. The target file stays in its original repo and keeps its own structure. Comments, suggestions, replies, anchor metadata, and operational events live in minimap's global local store. The target file changes only when the user explicitly applies a previewed suggestion.
 
-## Core Product Shape
+### Core Product Shape
 
 Minimap has two complementary modes:
 
@@ -26,7 +88,7 @@ In spec session mode:
 - agents interact with minimap through a global skill, CLI, local server API, or MCP integration
 - minimap does not invoke agents
 
-## Key Decisions
+### Key Decisions
 
 - There is no global "active session" in the product model.
 - Sessions are file-first. Commands and APIs should normally identify sessions by target file path.
@@ -47,7 +109,7 @@ In spec session mode:
 - The same minimap local server handles both roadmap mode and global spec sessions.
 - Server security posture stays the same as existing minimap local server behavior.
 
-## Why This Exists
+### Why This Exists
 
 The current workflow for iterating on ideas and specs across agents is too manual:
 
@@ -60,7 +122,7 @@ The current workflow for iterating on ideas and specs across agents is too manua
 
 The goal is to replace chat-as-coordinator with local shared session state that agents and the user can both read and update.
 
-## Global Coordinator
+### Global Coordinator
 
 The existing minimap server should also serve as the global local coordinator for spec sessions.
 
@@ -78,7 +140,7 @@ It is responsible for:
 
 The server is not a second source of truth for target file content. It is the coordinator and validator for the review layer.
 
-## Global Storage
+### Global Storage
 
 Use a local minimap home outside the target repo.
 
@@ -104,7 +166,7 @@ Suggested layout:
 
 No minimap review metadata is written into the work repo by default.
 
-## Session Identity
+### Session Identity
 
 The normalized absolute target file path is the durable lookup key.
 
@@ -163,7 +225,7 @@ Move behavior:
 - fails if the new path already has a different session
 - re-resolves anchors against the new file
 
-## File Support
+### File Support
 
 MVP is Markdown-first and text-file compatible.
 
@@ -181,7 +243,7 @@ Viewer behavior:
 - non-Markdown text still supports global comments, anchored quote comments, replace/delete/insert suggestions, and diff preview/apply
 - non-Markdown files do not get Markdown section comments unless a later parser supports their structure
 
-## Anchoring Model
+### Anchoring Model
 
 Line numbers alone are not enough. They drift as the file changes.
 
@@ -219,7 +281,7 @@ Resolution order:
 
 If an anchor is ambiguous or stale, minimap should surface that state instead of silently attaching feedback to the wrong text.
 
-## Comments
+### Comments
 
 Comments are discussion, instruction, evidence, concern, or review feedback.
 
@@ -271,7 +333,7 @@ Initial comment statuses:
 - deferred
 - stale
 
-## Suggestions
+### Suggestions
 
 Suggestions are executable proposed edits to the target file.
 
@@ -328,7 +390,7 @@ Applying a suggestion should:
 5. update the target file only after user confirmation
 6. record an event with before and after hashes
 
-## Context Contract
+### Context Contract
 
 `minimap context <file> --json` returns collaboration/session state, not full target file content by default.
 
@@ -357,7 +419,7 @@ minimap context <file> --json --section "Architecture"
 
 These are not required for MVP.
 
-## Agent Skill Contract
+### Agent Skill Contract
 
 The globally installed minimap skill should tell agents how to participate.
 
@@ -396,7 +458,7 @@ Use minimap for docs/my-new-feature.md. Review comments from ai:claude.
 Add confirmations, disagreements, and missing evidence. Reference the original comment ids.
 ```
 
-## CLI Contract
+### CLI Contract
 
 The CLI should wrap the local server/session implementation so agents can interact with minimap even without custom tool support.
 
@@ -432,7 +494,7 @@ No minimap session is attached for docs/my-new-feature.md.
 Run: minimap attach docs/my-new-feature.md
 ```
 
-## Server API
+### Server API
 
 Suggested local API surface:
 
@@ -456,7 +518,7 @@ POST /api/spec-sessions/by-file/suggestions/:suggestionId/apply
 
 Mutating endpoints should eventually require idempotency keys so agent retries do not duplicate comments or suggestions. This can be hardening after the basic flow works.
 
-## UI Shape
+### UI Shape
 
 First useful UI:
 
@@ -497,7 +559,7 @@ Core actions:
 
 The first UI does not need realtime collaboration or direct agent invocation. It needs clear review and convergence state around a file.
 
-## Human Workflow
+### Human Workflow
 
 1. The user is in any repo.
 2. The user attaches a spec file:
@@ -515,9 +577,9 @@ minimap attach docs/my-new-feature.md
 9. The user replies, resolves comments, accepts/rejects suggestions, or creates more suggestions.
 10. The user previews and applies selected suggestions when ready.
 
-## Implementation Phases
+### Implementation Phases
 
-### Phase 1: Global File Session Store
+#### Phase 1: Global File Session Store
 
 - implement minimap home resolution with `MINIMAP_HOME` override
 - implement session id generation from file basename plus path hash
@@ -532,7 +594,7 @@ minimap attach docs/my-new-feature.md
 - initialize `comments.jsonl`, `suggestions.jsonl`, and `events.jsonl`
 - update `lastActiveAt` on attach/reopen
 
-### Phase 2: CLI Contract
+#### Phase 2: CLI Contract
 
 - add a `minimap` bin entry if one does not already exist
 - implement `minimap attach <file>`
@@ -541,14 +603,14 @@ minimap attach docs/my-new-feature.md
 - implement `minimap session move <old-file> <new-file>`
 - make command errors clear and machine-readable where useful
 
-### Phase 3: Server API
+#### Phase 3: Server API
 
 - add spec-session routes without breaking existing roadmap routes
 - keep using the same local minimap server/process
 - make spec-session APIs work even when the current directory has no roadmap workspace
 - expose attach, list, by-file context, and move APIs
 
-### Phase 4: Anchor Foundation
+#### Phase 4: Anchor Foundation
 
 - parse Markdown heading paths for Markdown files
 - create anchors from scope, quote, heading path, line range, selected hash, and file hash
@@ -556,7 +618,7 @@ minimap attach docs/my-new-feature.md
 - classify resolution as `resolved`, `ambiguous`, `stale`, or `orphaned`
 - expose anchor status in context output
 
-### Phase 5: Comments And Replies
+#### Phase 5: Comments And Replies
 
 - implement `comments.jsonl`
 - support global, section, and anchor comments
@@ -566,7 +628,7 @@ minimap attach docs/my-new-feature.md
 - support resolve/reopen/status updates
 - include comments and anchor statuses in context output
 
-### Phase 6: Suggestions
+#### Phase 6: Suggestions
 
 - implement `suggestions.jsonl`
 - support replace, insert_after, and delete suggestions
@@ -577,7 +639,7 @@ minimap attach docs/my-new-feature.md
 - support pending, accepted, rejected, applied, and stale statuses
 - ensure accepted/rejected suggestions do not mutate target files
 
-### Phase 7: Preview And Apply
+#### Phase 7: Preview And Apply
 
 - implement apply preview for a single suggestion
 - re-read target file before preview/apply
@@ -588,7 +650,7 @@ minimap attach docs/my-new-feature.md
 - record before and after hashes in `events.jsonl`
 - preserve line endings as much as practical
 
-### Phase 8: Minimal UI
+#### Phase 8: Minimal UI
 
 - add top-level navigation for Roadmap and Spec Sessions
 - show recent file sessions sorted by `lastActiveAt`
@@ -599,7 +661,7 @@ minimap attach docs/my-new-feature.md
 - support accept, reject, resolve, preview, and apply actions
 - show stale/orphaned anchors distinctly
 
-### Phase 9: Global Skill Packaging
+#### Phase 9: Global Skill Packaging
 
 - write the global minimap spec-session skill
 - document file-first session discovery
@@ -608,7 +670,7 @@ minimap attach docs/my-new-feature.md
 - include examples for spec review and cross-agent feedback review
 - ensure the skill tells agents not to edit target files directly in the minimap workflow
 
-### Phase 10: Hardening
+#### Phase 10: Hardening
 
 - add idempotency keys for mutation endpoints
 - improve fuzzy anchor recovery
@@ -617,7 +679,7 @@ minimap attach docs/my-new-feature.md
 - add session delete/cleanup if disk clutter becomes a real issue
 - add optional full snapshots only behind explicit privacy-conscious setting if needed
 
-## First Implementation Slice
+### First Implementation Slice
 
 The first coding slice should be intentionally small:
 
@@ -629,7 +691,7 @@ The first coding slice should be intentionally small:
 
 Do not implement comments, suggestions, anchor resolution, or UI in the first slice. Those depend on the session store and file-first CLI contract being boring and reliable.
 
-## MVP Success Criteria
+### MVP Success Criteria
 
 The MVP is successful when:
 
@@ -644,7 +706,7 @@ The MVP is successful when:
 - the user can preview and apply a selected suggestion
 - applying a suggestion modifies only the target file after explicit confirmation
 
-## Design Guardrails
+### Design Guardrails
 
 - Local-only by default.
 - Do not write minimap metadata into work repos by default.
