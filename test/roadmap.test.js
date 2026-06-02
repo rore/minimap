@@ -2460,3 +2460,59 @@ test("stop-server.mjs cleans up stale registry pointing at a dead server", async
   assert.match(result.stdout, /stale registry/i);
   await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
+
+async function runStatusScript(home) {
+  const statusScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "status.mjs",
+  );
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, [statusScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+test("status.mjs exits 0 with port/pid/version when server is running", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4436, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const result = await runStatusScript(home);
+    assert.equal(result.code, 0, `status expected 0, got ${result.code} (stderr: ${result.stderr})`);
+    assert.match(result.stdout, /Minimap is running/i);
+    assert.match(result.stdout, /port:\s*4436/);
+    assert.match(result.stdout, /pid:\s*\d+/);
+    assert.match(result.stdout, /url:\s*http:\/\/localhost:4436/);
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("status.mjs exits 3 when registry is missing", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const result = await runStatusScript(home);
+  assert.equal(result.code, 3);
+  assert.match(result.stdout, /not running/i);
+});
+
+test("status.mjs exits 1 when registry is stale (server gone)", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry(
+    { pid: 99996, port: 4437, startedAt: "2026-01-01T00:00:00Z", version: "0.0.0" },
+    { minimapHome: home },
+  );
+  const result = await runStatusScript(home);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /stale/i);
+  assert.match(result.stderr, /4437/);
+  // status does NOT delete the registry — that's stop-server's job.
+  await fs.access(path.join(home, "server.json"));
+});
