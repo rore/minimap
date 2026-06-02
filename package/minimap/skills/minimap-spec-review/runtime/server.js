@@ -125,6 +125,21 @@ async function handleApi(request, response, requestUrl) {
     return true;
   }
 
+  if (request.method === "POST" && pathname === "/api/shutdown") {
+    // Cross-platform graceful shutdown. On Windows, child_process.kill() does
+    // not deliver SIGTERM/SIGINT to the JS event loop, so a signal-based stop
+    // from another process is unreliable. POST /api/shutdown works everywhere
+    // because it's plain HTTP and runs on the same code path as the signal
+    // handler. We send the response first, then exit on the next tick so the
+    // client sees a clean 200 before the socket closes.
+    sendJson(response, 200, { shuttingDown: true });
+    response.on("finish", () => {
+      // Defer one tick so the kernel has flushed the response.
+      setImmediate(() => { void shutdown("SHUTDOWN_API"); });
+    });
+    return true;
+  }
+
   if (request.method === "POST" && pathname === "/api/spec-sessions/attach") {
     const rawBody = await readRequestBody(request);
     const body = parseJsonBody(rawBody);

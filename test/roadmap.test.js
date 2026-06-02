@@ -2352,3 +2352,29 @@ test("spec-session attach with a relative path fails when cwd is unrelated to th
     await stopServer(child);
   }
 });
+
+test("POST /api/shutdown returns 200, deletes registry, frees the port", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4433, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  // Sanity: registry exists, /health is ok.
+  await fs.access(path.join(home, "server.json"));
+  const healthResp = await fetch("http://localhost:4433/health");
+  assert.equal((await healthResp.json()).ok, true);
+
+  // Trigger graceful shutdown.
+  const stopResp = await fetch("http://localhost:4433/api/shutdown", { method: "POST" });
+  assert.equal(stopResp.status, 200);
+  const stopBody = await stopResp.json();
+  assert.equal(stopBody.shuttingDown, true);
+
+  // Wait for the server process to actually exit.
+  await new Promise((resolve) => child.on("exit", resolve));
+
+  // Registry should be gone (graceful path runs the same shutdown() helper).
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+
+  // Port should be free — fetching /health rejects with a connection error.
+  await assert.rejects(() => fetch("http://localhost:4433/health"));
+});
