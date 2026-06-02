@@ -3800,17 +3800,27 @@ function renderSpecSessions() {
 }
 
 function sessionActivitySummary(session) {
-  // We don't have per-session counts in the list endpoint; show a single
-  // pulse only for the currently-loaded session whose context we know about.
-  if (!sameSpecUiPath(session.targetFile, state.spec.selectedPath) || !state.spec.context) {
-    return { pulses: "", pulseAttr: "" };
+  // Counts come from two sources:
+  // - For the currently-loaded session, prefer state.spec.context (live,
+  //   reflects local edits before refreshSpecReviewState catches up).
+  // - For other sessions, fall back to session.counts which the list
+  //   endpoint now precomputes from the JSONL files.
+  // The list endpoint can't compute "orphan" without re-resolving each
+  // anchor against the file, so orphan counts only show on the active
+  // session.
+  const isActive = sameSpecUiPath(session.targetFile, state.spec.selectedPath) && state.spec.context;
+  let open = 0, pending = 0, orphan = 0;
+  if (isActive) {
+    open = (state.spec.context.comments || []).filter((c) => c.status !== "resolved").length;
+    pending = (state.spec.context.suggestions || []).filter((s) => s.status === "pending" || s.status === "accepted").length;
+    orphan = [
+      ...(state.spec.context.comments || []),
+      ...(state.spec.context.suggestions || []),
+    ].filter((item) => item.anchorStatus && item.anchorStatus.status && item.anchorStatus.status !== "resolved").length;
+  } else if (session.counts) {
+    open = session.counts.openComments || 0;
+    pending = session.counts.pendingSuggestions || 0;
   }
-  const open = (state.spec.context.comments || []).filter((c) => c.status !== "resolved").length;
-  const pending = (state.spec.context.suggestions || []).filter((s) => s.status === "pending").length;
-  const orphan = [
-    ...(state.spec.context.comments || []),
-    ...(state.spec.context.suggestions || []),
-  ].filter((item) => item.anchorStatus && item.anchorStatus.status && item.anchorStatus.status !== "resolved").length;
   let pulseAttr = "";
   const parts = [];
   if (open) {

@@ -1448,9 +1448,21 @@ export async function listFileSessions(options = {}) {
   for (const sessionId of Object.values(index.files)) {
     const paths = makeSessionPaths(minimapHome, sessionId);
     const session = await readJson(paths.sessionJson, null);
-    if (session) {
-      sessions.push(session);
+    if (!session) continue;
+    // Tally counts so the file list can show per-file pulse dots without
+    // having to load each session's full context. Cheap: just reads two
+    // JSONL files and counts statuses.
+    try {
+      const comments = await readJsonLines(paths.commentsJsonl);
+      const suggestions = await readJsonLines(paths.suggestionsJsonl);
+      session.counts = {
+        openComments: comments.filter((c) => c.status !== "resolved").length,
+        pendingSuggestions: suggestions.filter((s) => s.status === "pending" || s.status === "accepted").length,
+      };
+    } catch {
+      session.counts = { openComments: 0, pendingSuggestions: 0 };
     }
+    sessions.push(session);
   }
 
   return sessions.sort((left, right) => String(right.lastActiveAt || "").localeCompare(String(left.lastActiveAt || "")));

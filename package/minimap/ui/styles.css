@@ -608,6 +608,17 @@ h3 {
 .spec-pulse-dot.is-pending { background: var(--spec-warn); }
 .spec-pulse-dot.is-orphan { background: var(--spec-danger); }
 
+/* Pulse counts are noisy when shown on every row in the file list, so
+   hide them by default on inactive rows. The selected row always shows
+   them; other rows reveal them on hover. */
+.spec-session-row:not(.is-active) .spec-session-sub .spec-pulse {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.spec-session-row-wrap:hover .spec-session-row:not(.is-active) .spec-session-sub .spec-pulse {
+  opacity: 1;
+}
+
 .spec-session-remove {
   flex: none;
   width: 24px; height: 24px; border-radius: 4px;
