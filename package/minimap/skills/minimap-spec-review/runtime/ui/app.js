@@ -3059,6 +3059,10 @@ async function fetchJson(url, options = {}) {
     || url.startsWith("/api/setup/");
 
   let finalOptions = options;
+  // Empty state.repoPath is deliberate single-repo cwd-fallback mode — the server
+  // resolves to its own cwd. Don't "fix" this by sending an empty header; do that
+  // and any user without #repo= will get a 400 if the server is launched from a
+  // directory unrelated to the repo they expect to see.
   if (isRoadmapEndpoint && state.repoPath) {
     const headers = new Headers(options.headers || {});
     headers.set("X-Minimap-Repo", state.repoPath);
