@@ -1552,3 +1552,154 @@ test("auto-refresh in spec mode picks up externally-added comments", async ({ pa
     { timeout: 10_000, intervals: [500, 1000, 1500] }
   ).toBeGreaterThan(startCount);
 });
+
+test("sourceQuoteForRenderedSelection maps rendered selections back through inline markdown", async ({ page }) => {
+  // Spec selections come from the rendered DOM, which strips backticks /
+  // ** / *. Without this mapping, a quote like
+  //   "Both shipped (ClawMem, agentmemory)"
+  // would not be found in source containing
+  //   "Both shipped (`ClawMem`, `agentmemory`)"
+  // and would fall through to the literal string the server then rejects
+  // with "anchor must match exactly one location". This test pins the
+  // round-trip through a few representative shapes.
+  await page.goto(repoUrl());
+
+  const cases = [
+    {
+      name: "inline code spans",
+      source: "Both shipped Claude Code memory plugins surveyed (`ClawMem`, `agentmemory`) ship hooks.",
+      rendered: "Both shipped Claude Code memory plugins surveyed (ClawMem, agentmemory) ship hooks.",
+      expected: "Both shipped Claude Code memory plugins surveyed (`ClawMem`, `agentmemory`) ship hooks.",
+    },
+    {
+      name: "selection inside a code span",
+      source: "Use `agent_work_trace_turn` metadata for the capture pipeline.",
+      rendered: "agent_work_trace_turn",
+      // Anchored to the inner content; that string IS unique in the source so
+      // it round-trips with no backticks needed (the inner offsets win).
+      expected: "agent_work_trace_turn",
+    },
+    {
+      name: "bold and italic combined",
+      source: "Pallium **preserves** the *operational* facts.",
+      rendered: "Pallium preserves the operational facts.",
+      expected: "Pallium **preserves** the *operational* facts.",
+    },
+    {
+      name: "no markers — falls through to whitespace map",
+      source: "Plain sentence one.\n\nPlain sentence two.",
+      rendered: "Plain sentence one. Plain sentence two.",
+      expected: "Plain sentence one.\n\nPlain sentence two.",
+    },
+  ];
+
+  for (const tc of cases) {
+    const result = await page.evaluate(
+      ([rendered, source]) => window.__minimapSpec.sourceQuoteForRenderedSelection(rendered, source),
+      [tc.rendered, tc.source],
+    );
+    expect(result, `case "${tc.name}" should map to source quote`).toBe(tc.expected);
+  }
+});
+
+test("commenting on a selection that crosses backticks saves successfully", async ({ page, baseURL, request }) => {
+  // End-to-end: append a paragraph with backticks to a roadmap idea file,
+  // open it as a spec session, simulate a Selection over the rendered
+  // (backtick-free) text, drive the comment composer, submit, and assert
+  // the comment was stored. afterEach restores the file via originalIdeaCreateText.
+  const probeParagraph = "\n\nProbe sentence with `inline-code-A` and `inline-code-B` that the test selects.\n";
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeParagraph, "utf8");
+
+  await page.goto(repoUrl());
+  // Navigate to the idea-create-items roadmap item.
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  // Wait for the rendered body to include our probe paragraph (the renderer
+  // strips the YAML frontmatter and renders the body, so we can search for
+  // the visible/rendered phrase).
+  const body = page.locator(".spec-body-markdown");
+  await expect(body).toContainText("Probe sentence with inline-code-A and inline-code-B");
+
+  // Programmatically build a selection over the visible rendered text. We
+  // pick a range that is GUARANTEED to cross a code span — from the start
+  // of "Probe" to just past the second backtick span.
+  const selectionInfo = await page.evaluate(() => {
+    const body = document.querySelector(".spec-body-markdown");
+    if (!body) return { ok: false, reason: "body missing" };
+    // Walk text nodes to find "Probe sentence with " and "inline-code-B".
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    let startNode = null, startOffset = 0;
+    let endNode = null, endOffset = 0;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const text = node.textContent || "";
+      if (!startNode) {
+        const idx = text.indexOf("Probe sentence with ");
+        if (idx !== -1) {
+          startNode = node;
+          startOffset = idx;
+        }
+      }
+      if (text.includes("inline-code-B")) {
+        endNode = node;
+        endOffset = text.indexOf("inline-code-B") + "inline-code-B".length;
+      }
+    }
+    if (!startNode || !endNode) return { ok: false, reason: "endpoints not found" };
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const renderedText = String(sel.toString());
+
+    // Fire mouseup on the spec doc to surface the toolbar.
+    const rect = range.getBoundingClientRect();
+    document.querySelector("#spec-file-content")?.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true, cancelable: true,
+      clientX: rect.right, clientY: rect.bottom,
+    }));
+    return { ok: true, renderedText };
+  });
+  expect(selectionInfo.ok, `selection setup failed: ${selectionInfo.reason}`).toBe(true);
+  // The selection text MUST NOT contain backticks (sanity — that's what makes
+  // this case reproduce the bug).
+  expect(selectionInfo.renderedText).not.toContain("`");
+  expect(selectionInfo.renderedText).toContain("inline-code-A");
+
+  // Open the composer programmatically with the selection text. We bypass the
+  // floating toolbar's geometry (which is flaky in headless tests) and call
+  // the same code path it triggers — sourceQuoteForRenderedSelection +
+  // openSpecComposer("comment", quote).
+  await page.evaluate(
+    (rendered) => window.__minimapSpec.openCommentComposerWithSelection(rendered),
+    selectionInfo.renderedText,
+  );
+
+  // Verify the composer's prefilled quote contains backticks (i.e., we mapped
+  // back to source) — fail if the broken behaviour returns and the literal
+  // rendered text leaks through.
+  const anchorValue = await page.locator("#spec-comment-anchor").inputValue();
+  expect(anchorValue, "composer anchor must be source-form (with backticks)").toContain("`inline-code-A`");
+
+  // Fill in the body and submit.
+  await page.locator("#spec-comment-text").fill("auto test - backtick anchor");
+  await page.locator("#spec-comment-form button[type='submit']").click();
+
+  // No error banner should remain.
+  await page.waitForTimeout(500);
+  const banner = page.locator("#status-banner");
+  if (await banner.isVisible()) {
+    const tone = await banner.getAttribute("data-tone");
+    const text = await banner.textContent();
+    expect(tone, `comment submit must not fail with an error banner: ${text}`).not.toBe("error");
+  }
+
+  // Comment was saved — comments-count chip ticked up.
+  const count = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
+  expect(count, "comment count must increase after submit").toBeGreaterThanOrEqual(1);
+});

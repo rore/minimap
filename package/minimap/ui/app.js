@@ -3367,20 +3367,142 @@ function buildWhitespaceNormalizedMap(value) {
   };
 }
 
+// Like buildWhitespaceNormalizedMap, but also strips inline markdown markers
+// that the spec renderer hides (backtick code spans, **bold**, *italic*) so a
+// rendered DOM selection like "Both shipped (ClawMem, agentmemory)" can be
+// matched back to source markdown that was "Both shipped (`ClawMem`, `agentmemory`)".
+//
+// Each char in the returned text maps to its origin source offset via
+// originalIndexes — for stripped markers (backticks, asterisks) the markers
+// themselves are excluded; only inner-span chars survive in the map. Match
+// against the same renderer that renderInlineMarkdown uses (only those three
+// patterns); other markdown ([](), ![]) is left literal because the renderer
+// does not strip them either.
+function buildRenderedNormalizedMap(value) {
+  const source = String(value || "");
+  const normalized = [];
+  const originalIndexes = [];
+  let lastWasSpace = true;
+
+  const pushChar = (char, sourceIndex) => {
+    if (/\s/.test(char)) {
+      if (!lastWasSpace) {
+        normalized.push(" ");
+        originalIndexes.push(sourceIndex);
+        lastWasSpace = true;
+      }
+      return;
+    }
+    normalized.push(char);
+    originalIndexes.push(sourceIndex);
+    lastWasSpace = false;
+  };
+
+  // Try to detect the start of an inline marker at `index`. Returns the
+  // 1-or-2-char marker string if a balanced closer exists later in the
+  // source, or "" otherwise. This deliberately mirrors renderInlineMarkdown's
+  // greedy-but-non-nested matching; complex markdown (escapes, nesting) is
+  // left literal so we never lose chars from the source map.
+  const detectMarker = (index) => {
+    const ch = source[index];
+    const next = source[index + 1];
+    if (ch === "`") {
+      const close = source.indexOf("`", index + 1);
+      // Renderer requires non-empty inner content: `[^`]+`
+      if (close > index + 1) return "`";
+      return "";
+    }
+    if (ch === "*" && next === "*") {
+      // Match ** ... ** (non-greedy on first ** close)
+      const close = source.indexOf("**", index + 2);
+      if (close > index + 2) return "**";
+      return "";
+    }
+    if (ch === "*") {
+      // Single * for italics — renderer matches /\*([^*]+)\*/ (no nested *).
+      // Find the next unescaped single * that is NOT part of **.
+      let cursor = index + 1;
+      while (cursor < source.length) {
+        if (source[cursor] === "*") {
+          // Bare star is the closer if it's not the start of **.
+          if (source[cursor + 1] !== "*") return "*";
+          // ** sequence inside an italic span — bail; renderer wouldn't match.
+          return "";
+        }
+        cursor += 1;
+      }
+      return "";
+    }
+    return "";
+  };
+
+  let i = 0;
+  while (i < source.length) {
+    const marker = detectMarker(i);
+    if (!marker) {
+      pushChar(source[i], i);
+      i += 1;
+      continue;
+    }
+
+    const innerStart = i + marker.length;
+    const close = source.indexOf(marker, innerStart);
+    if (close === -1 || close === innerStart) {
+      // detectMarker promised a closer, but be defensive.
+      pushChar(source[i], i);
+      i += 1;
+      continue;
+    }
+
+    // Emit inner chars with their actual source offsets; markers themselves
+    // are skipped (they don't appear in the rendered text).
+    for (let k = innerStart; k < close; k += 1) {
+      pushChar(source[k], k);
+    }
+    i = close + marker.length;
+  }
+
+  if (normalized.at(-1) === " ") {
+    normalized.pop();
+    originalIndexes.pop();
+  }
+
+  return {
+    text: normalized.join(""),
+    originalIndexes,
+  };
+}
+
 function sourceQuoteForRenderedSelection(selectionText) {
   const normalizedSelection = normalizeAnchorWhitespace(selectionText);
   if (!normalizedSelection) {
     return "";
   }
 
-  const mappedSource = buildWhitespaceNormalizedMap(state.spec.content);
-  const matchIndex = mappedSource.text.indexOf(normalizedSelection);
+  // Try the markdown-aware map first — selections from the rendered DOM lack
+  // backticks / ** / * that the source carries, so a literal source lookup
+  // would miss. The map walks markers as the renderer does, so the rendered
+  // selection lines up with the stripped view.
+  const renderedSource = buildRenderedNormalizedMap(state.spec.content);
+  let matchIndex = renderedSource.text.indexOf(normalizedSelection);
+  let mapped = renderedSource;
+
+  // Fall back to the plain whitespace-normalized map (preserves markers).
+  // Matters when the user selects a code-span itself: rendered text contains
+  // the inner content, but if the user copied source-form text (with backticks)
+  // we still want to find it.
+  if (matchIndex === -1) {
+    const literalSource = buildWhitespaceNormalizedMap(state.spec.content);
+    matchIndex = literalSource.text.indexOf(normalizedSelection);
+    mapped = literalSource;
+  }
+
   if (matchIndex === -1) {
     return selectionText.trim();
   }
 
-  const start = mappedSource.originalIndexes[matchIndex];
-  const end = mappedSource.originalIndexes[matchIndex + normalizedSelection.length - 1] + 1;
+  const start = mapped.originalIndexes[matchIndex];
+  const end = mapped.originalIndexes[matchIndex + normalizedSelection.length - 1] + 1;
   return state.spec.content.slice(start, end).trim();
 }
 
@@ -3477,6 +3599,18 @@ function renderSpecSuggestionAnchorMode() {
 
 function normalizeVisibleText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+// Mirror of stripMarkdownSyntax in src/sessions.js (kept in sync via the
+// tri-tree parity test). Strips inline markdown markers and leading heading
+// hashes so a quote captured from a rendered view (no backticks, no `### `)
+// still finds its block in the rendered HTML, and vice versa.
+function stripMarkdownSyntaxForUi(value) {
+  return String(value || "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[`*_]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Decode literal backslash escapes (\n, \r, \t, \\) in suggestion content.
@@ -3669,7 +3803,17 @@ function blockElementForQuote(quote) {
     return null;
   }
 
-  return specBlockCandidates().find((element) => normalizeVisibleText(element.textContent).includes(normalizedQuote)) || null;
+  const candidates = specBlockCandidates();
+  // 1. literal whitespace-normalized match — fastest and most precise
+  const literal = candidates.find((element) => normalizeVisibleText(element.textContent).includes(normalizedQuote));
+  if (literal) return literal;
+
+  // 2. markdown-stripped fallback — the quote may include backticks or a
+  // `### ` heading prefix that the rendered HTML's textContent doesn't,
+  // or vice versa. Stripping both sides catches that drift.
+  const strippedQuote = stripMarkdownSyntaxForUi(quote);
+  if (!strippedQuote) return null;
+  return candidates.find((element) => stripMarkdownSyntaxForUi(element.textContent).includes(strippedQuote)) || null;
 }
 
 function clearSpecAnchorHighlight() {
@@ -6458,3 +6602,28 @@ void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state
 
 
 
+
+// Test hook — exposes pure helpers for Playwright to verify in-browser
+// without driving full UI flows. Kept minimal; only stable helpers go here.
+window.__minimapSpec = Object.freeze({
+  buildRenderedNormalizedMap,
+  buildWhitespaceNormalizedMap,
+  sourceQuoteForRenderedSelection: (renderedText, sourceContent) => {
+    const previous = state.spec.content;
+    state.spec.content = String(sourceContent || "");
+    try {
+      return sourceQuoteForRenderedSelection(renderedText);
+    } finally {
+      state.spec.content = previous;
+    }
+  },
+  // Open the comment composer with a given rendered selection text —
+  // equivalent to selecting in the doc and clicking the floating toolbar's
+  // "Comment", but without depending on toolbar geometry which is flaky to
+  // drive in tests.
+  openCommentComposerWithSelection: (selectionText) => {
+    const sourceQuote = sourceQuoteForRenderedSelection(String(selectionText || ""));
+    state.spec.selectedQuote = sourceQuote;
+    openSpecComposer("comment", sourceQuote);
+  },
+});
