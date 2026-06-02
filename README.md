@@ -13,6 +13,8 @@ Both modes run from the same local server. There is no hosted service, no databa
 
 A spec session attaches to one target file in any repo. Comments and suggestions live in a local store outside that repo. The target file isn't modified unless a human explicitly applies a previewed suggestion.
 
+You can open any roadmap item as a spec session — every roadmap card has a `Review` button, and items with active conversations show a 💬 badge on the board.
+
 [Read more →](#spec-sessions-details)
 
 ## Roadmap
@@ -33,18 +35,54 @@ npm start
 
 Open the URL the server prints (defaults to `http://localhost:4312`, falls forward if busy). The same window hosts both modes; switch with the segmented control in the top right.
 
-## Adopt in another repo
+A single running server can serve any number of repos — switch repos by changing the `repo=` parameter in the URL hash:
 
-The portable package lives in `package/minimap/`.
+```text
+http://localhost:4312/#repo=/abs/path/to/repo&view=board
+```
 
-1. Copy `package/minimap/` into the target repo as `tools/minimap/`.
-2. For the roadmap mode, copy `tools/minimap/templates/roadmap/` as `roadmap/` (or merge into an existing one). Optionally copy `templates/roadmap.config.json` and set `roadmapPath`.
-3. Run `node tools/minimap/server.js` from the host repo root.
-4. Point the host repo's agent instructions at the relevant skill — see [Agent integration](#agent-integration) below.
+## Install
 
-The spec-review skill bundles its own runtime, so it can also be installed globally and used from any repo without copying minimap into it.
+Each mode is a self-contained skill under `package/minimap/skills/`. The skill carries its own runtime and lifecycle scripts. Install by linking the skill directory into your global Claude Code skills folder — the source of truth stays in this repo.
 
-See [`package/minimap/README.md`](package/minimap/README.md) for package-focused setup, [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
+**Windows (junction):**
+
+```text
+mklink /J "%USERPROFILE%\.claude\skills\minimap-spec-review" "C:\path\to\minimap\package\minimap\skills\minimap-spec-review"
+mklink /J "%USERPROFILE%\.claude\skills\minimap-roadmap"     "C:\path\to\minimap\package\minimap\skills\minimap-roadmap"
+```
+
+**macOS/Linux (symlink):**
+
+```bash
+ln -s /path/to/minimap/package/minimap/skills/minimap-spec-review ~/.claude/skills/minimap-spec-review
+ln -s /path/to/minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/minimap-roadmap
+```
+
+The roadmap skill is repo-specific in use (it works on `roadmap/` files inside the active repo via the `#repo=...` URL convention), but the install path is the same for both: a link from the global skills directory to this checkout. Edits to the source propagate automatically — no re-install step.
+
+After linking, agents start the server with:
+
+```bash
+node ~/.claude/skills/minimap-spec-review/scripts/start-server.mjs
+```
+
+A single running server is shared across both skills and across all repos.
+
+## Server lifecycle
+
+All four operations are scripts inside each skill's `scripts/` directory:
+
+| Script | What it does |
+|---|---|
+| `start-server.mjs` | Start, or detect + reuse a running instance. |
+| `status.mjs` | Print port/pid/version. Exit 0 running, 1 stale, 3 not running. |
+| `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
+| `restart-server.mjs` | Compose stop + start. |
+
+Agents are expected to use the scripts only — no direct curl, signals, or registry edits.
+
+See [`package/minimap/README.md`](package/minimap/README.md) for package internals, [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
 
 ## Agent integration
 
@@ -55,7 +93,7 @@ Both modes ship as named skills under `package/minimap/skills/`:
 | Spec sessions | [`minimap-spec-review/SKILL.md`](package/minimap/skills/minimap-spec-review/SKILL.md) | Reviewing one specific file across humans and agents. Works from any repo. |
 | Roadmap | [`minimap-roadmap/SKILL.md`](package/minimap/skills/minimap-roadmap/SKILL.md) | Reading or updating roadmap state in a repo that uses the minimap roadmap convention. |
 
-Each skill has a short trigger description and quick workflow at the top, with detailed contracts under its `references/`.
+Each skill has a short trigger description and quick workflow at the top, with detailed contracts under its `references/`. The two skills layer cleanly: a roadmap item is just a markdown file, and you can attach it as a spec session for anchored review without leaving the planning workflow.
 
 ## Tests
 
@@ -94,7 +132,7 @@ The point is that review state is persistent and attributed instead of disappear
 
 ### Agent driver
 
-Agents drive spec sessions through the [`minimap-spec-review`](package/minimap/skills/minimap-spec-review/SKILL.md) skill, which includes a self-contained server runtime and a CLI launcher. Mutations require an explicit `--by` actor on every write.
+Agents drive spec sessions through the [`minimap-spec-review`](package/minimap/skills/minimap-spec-review/SKILL.md) skill, which includes a self-contained server runtime, lifecycle scripts, and a CLI launcher. Mutations require an explicit `--by` actor on every write.
 
 ---
 
@@ -129,6 +167,10 @@ Optional repo-root config:
 ```
 
 For the file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md).
+
+### Composing with spec sessions
+
+A roadmap item is just a markdown file. Click `Review` on any item to attach it as a spec session — anchored comments and suggestions on the item live alongside the item's planning state. Items with an open conversation show a small 💬 badge with the open-comment count on the board, so the planning view stays the entry point even when discussion is happening on individual items.
 
 ### Other roadmap views
 

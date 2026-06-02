@@ -1,6 +1,6 @@
 # Minimap (package)
 
-Portable copy of minimap — drop this folder into a repo to run minimap there.
+The portable minimap package. Two skills under `skills/`, each self-contained: own runtime, own lifecycle scripts, own docs.
 
 Minimap has two modes:
 
@@ -9,42 +9,35 @@ Minimap has two modes:
 
 Both modes run from the same local server. Files stay canonical, the UI is a lens, the human is the merge authority.
 
-For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md) and [`../../roadmap/features/feature-spec-sessions.md`](../../roadmap/features/feature-spec-sessions.md). For the roadmap file contract, see [`CONTRACT.md`](CONTRACT.md).
+For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md). For the roadmap file contract, see [`CONTRACT.md`](CONTRACT.md).
 
-## Recommended host-repo layout
+## Install
+
+The skills install by linking from your global Claude Code skills directory to this checkout. No copy step, no per-repo files inside the host repo.
+
+**Windows (junction):**
 
 ```text
-<repo>/
-  tools/
-    minimap/
-      server.js
-      package.json
-      src/
-      ui/
-      SKILL.md
-      skills/
-      CONTRACT.md
-      templates/
-  roadmap/
-    board.md
-    scope.md
-    features/
-    ideas/
+mklink /J "%USERPROFILE%\.claude\skills\minimap-spec-review" "<path>\package\minimap\skills\minimap-spec-review"
+mklink /J "%USERPROFILE%\.claude\skills\minimap-roadmap"     "<path>\package\minimap\skills\minimap-roadmap"
 ```
 
-## Setup
-
-1. Copy this folder into the target repo as `tools/minimap/`.
-2. For the roadmap mode, copy `tools/minimap/templates/roadmap/` as `roadmap/` (or merge into an existing one). If the repo wants a custom location, copy `tools/minimap/templates/roadmap.config.json` to the repo root and edit `roadmapPath`.
-3. Run from the target repo root:
+**macOS/Linux (symlink):**
 
 ```bash
-node tools/minimap/server.js
+ln -s <path>/package/minimap/skills/minimap-spec-review ~/.claude/skills/minimap-spec-review
+ln -s <path>/package/minimap/skills/minimap-roadmap     ~/.claude/skills/minimap-roadmap
 ```
 
-The server uses the current working directory as the repo root, so launch it from the host repo root.
+After linking, agents start the server through the bundled launcher:
 
-### Multiple repos
+```bash
+node ~/.claude/skills/minimap-spec-review/scripts/start-server.mjs
+```
+
+The launcher detects an already-running instance via `$MINIMAP_HOME/server.json` and reuses it — one server serves both skills and any number of repos.
+
+### Multi-repo
 
 A single running minimap server can serve roadmap for any number of repos. Pass the absolute repo path in the URL hash:
 
@@ -52,25 +45,32 @@ A single running minimap server can serve roadmap for any number of repos. Pass 
 http://localhost:4312/#repo=/abs/path/to/repo&view=board
 ```
 
-Bundled `start-server.mjs` launchers detect a running server via `$MINIMAP_HOME/server.json` and reuse it instead of spawning a second one. Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
+Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
+
+## Server lifecycle
+
+Each skill exposes the same four scripts under `scripts/`:
+
+| Script | What it does |
+|---|---|
+| `start-server.mjs` | Start, or detect + reuse a running instance. |
+| `status.mjs` | Print port/pid/version. Exit 0 running, 1 stale, 3 not running. |
+| `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
+| `restart-server.mjs` | Compose stop + start. |
+
+Agents use only these scripts — no direct curl, signals, or registry edits.
 
 ## Agent hookup
 
-Add a short pointer to the host repo's `AGENTS.md` (or equivalent). Use whichever skill matches the work:
+Add a short pointer to the host repo's `AGENTS.md` (or equivalent). Use whichever skill matches the work — see [`AGENTS_SNIPPET.md`](AGENTS_SNIPPET.md) for ready-to-paste text.
 
-```md
-For spec/design review on a specific file, follow `tools/minimap/skills/minimap-spec-review/SKILL.md`.
-For roadmap planning and roadmap file updates, follow `tools/minimap/skills/minimap-roadmap/SKILL.md`.
-```
-
-The spec-review skill works from any repo (including repos that don't host minimap). The roadmap skill assumes the host repo follows the minimap roadmap convention.
+The spec-review skill works from any repo (including repos that don't host minimap). The roadmap skill assumes the active repo follows the minimap roadmap convention; it discovers the active repo from the `repo=` URL hash and the `X-Minimap-Repo` header.
 
 ## What's in here
 
-- local UI and server, shared by both modes
+- two self-contained skills (`skills/minimap-spec-review/`, `skills/minimap-roadmap/`), each with its own bundled `runtime/` and lifecycle `scripts/`
+- shared local UI and server source (`server.js`, `cli.js`, `src/`, `ui/`) — mirrored into both skill bundles; tri-tree parity is enforced by tests
 - spec-session store, anchoring, comments, suggestions, preview/apply
 - roadmap parsing and file save logic
-- the `minimap-spec-review` and `minimap-roadmap` skill instructions
-- a self-contained runtime for the spec-review skill, for global installs
 - starter roadmap templates
-- the roadmap file contract
+- the roadmap file contract ([`CONTRACT.md`](CONTRACT.md))

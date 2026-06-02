@@ -15,7 +15,9 @@ Minimap is a local workbench for repo planning and spec review. It exposes two c
 
 - **Spec sessions** — collaborating around one specific spec, idea, design, or text file, especially across multiple agents or repos that do not host minimap.
 
-  Follow [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md). The skill is self-contained and bundles its own server runtime and CLI launcher.
+  Follow [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md).
+
+Both skills are self-contained: each bundles its own server runtime, lifecycle scripts (`start-server.mjs`, `status.mjs`, `stop-server.mjs`, `restart-server.mjs`), and CLI launcher. A single running server is shared across both skills and across any number of repos.
 
 ## Why The Split
 
