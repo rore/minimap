@@ -1393,3 +1393,27 @@ test("spec session of a roadmap item strips YAML frontmatter from the rendered b
   // Sanity: the body SHOULD contain real section headings from the file.
   expect(bodyText).toMatch(/Summary/i);
 });
+
+test("spec session of a roadmap item shows the same title + badges as the roadmap Read view", async ({ page }) => {
+  // Open the roadmap item first to capture the roadmap-mode header values.
+  await page.goto(repoUrl());
+  await page.locator(".board-item").first().click();
+  // Read mode is the default editor mode; the preview surface holds the title + badges.
+  const expectedTitle = (await page.locator(".preview-title").first().textContent())?.trim() ?? "";
+  expect(expectedTitle.length, "roadmap preview should have a title").toBeGreaterThan(0);
+  const expectedBadgesRaw = (await page.locator(".preview-meta").first().textContent()) ?? "";
+  // Normalize whitespace; the spec doc renders the same badge HTML.
+  const normalizeBadgeText = (s) => s.replace(/\s+/g, " ").trim();
+  const expectedBadges = normalizeBadgeText(expectedBadgesRaw);
+  expect(expectedBadges.length, "roadmap preview should have at least one badge").toBeGreaterThan(0);
+
+  // Now open the same item as a spec session.
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  const specTitle = (await page.locator(".spec-doc-title").textContent())?.trim() ?? "";
+  const specBadges = normalizeBadgeText(await page.locator(".spec-doc-meta").textContent() ?? "");
+  expect(specTitle, "spec doc title should match roadmap preview title").toBe(expectedTitle);
+  expect(specBadges, "spec doc badges should match roadmap preview badges").toBe(expectedBadges);
+});

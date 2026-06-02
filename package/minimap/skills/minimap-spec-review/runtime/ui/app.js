@@ -316,6 +316,66 @@ function stripLeadingFrontmatter(text) {
   return String(text || "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
+function parseLeadingFrontmatter(text) {
+  // Lightweight client-side parser for the common shape: `key: value` per
+  // line, plus YAML-style list values written as either inline `[a, b]` or
+  // on subsequent indented `- item` lines (which is how `labels:` looks).
+  // We ignore anything more exotic — the server is the source of truth for
+  // strict parsing; this is only used for the spec view's metadata header.
+  const match = String(text || "").match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return null;
+  const lines = match[1].split(/\r?\n/);
+  const metadata = {};
+  let currentKey = null;
+  for (const line of lines) {
+    const keyMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (keyMatch) {
+      const key = keyMatch[1];
+      const rest = keyMatch[2].trim();
+      if (rest === "" || rest === "[]") {
+        metadata[key] = rest === "[]" ? [] : "";
+        currentKey = key;
+        continue;
+      }
+      // Inline list: [a, b, c]
+      const inlineList = rest.match(/^\[(.*)\]$/);
+      if (inlineList) {
+        metadata[key] = inlineList[1].split(",").map((s) => s.trim()).filter(Boolean);
+        currentKey = null;
+        continue;
+      }
+      // Plain scalar; trim surrounding quotes so badge text reads cleanly.
+      metadata[key] = rest.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+      currentKey = null;
+      continue;
+    }
+    // Continuation of a list value: an indented `- item` line.
+    const listItemMatch = line.match(/^\s+-\s+(.+)$/);
+    if (listItemMatch && currentKey) {
+      const value = listItemMatch[1].trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+      if (!Array.isArray(metadata[currentKey])) {
+        metadata[currentKey] = metadata[currentKey] === "" || metadata[currentKey] === undefined ? [] : [metadata[currentKey]];
+      }
+      metadata[currentKey].push(value);
+    }
+  }
+  return metadata;
+}
+
+function buildSpecDocHeaderHtml(frontmatter) {
+  // Mirror the roadmap "Read" view header: a big title, then a row of
+  // canonical metadata pills. Render only when the file's frontmatter
+  // actually contains values worth showing — otherwise return empty so
+  // a plain spec/note file stays clean.
+  if (!frontmatter || typeof frontmatter !== "object") return "";
+  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : "";
+  const badges = renderMetadataBadges(frontmatter);
+  if (!title && !badges) return "";
+  const titleHtml = title ? `<h1 class="spec-doc-title">${escapeHtml(title)}</h1>` : "";
+  const badgesHtml = badges ? `<div class="spec-doc-meta">${badges}</div>` : "";
+  return `<header class="spec-doc-header">${titleHtml}${badgesHtml}</header>`;
+}
+
 function renderMarkdownToHtml(markdown) {
   const normalized = String(markdown || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const sourceLines = normalized.split("\n");
@@ -3932,9 +3992,18 @@ function renderSpecFile() {
   specFileTitleElement.textContent = context.session.title || "File";
   specFileSubtitleElement.textContent = context.session.relativePath || context.session.targetFile;
   specFileContentElement.className = context.session.markdown ? "spec-body spec-body-markdown" : "spec-body spec-body-plain";
-  specFileContentElement.innerHTML = context.session.markdown
-    ? renderMarkdownToHtml(stripLeadingFrontmatter(state.spec.content))
-    : `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
+  if (context.session.markdown) {
+    const frontmatter = parseLeadingFrontmatter(state.spec.content);
+    const headerHtml = buildSpecDocHeaderHtml(frontmatter);
+    // If the frontmatter has a title, mirror it into the toolbar slot so the
+    // tab title and the doc heading agree. Roadmap items reach this branch.
+    if (frontmatter && typeof frontmatter.title === "string" && frontmatter.title.trim()) {
+      specFileTitleElement.textContent = frontmatter.title.trim();
+    }
+    specFileContentElement.innerHTML = headerHtml + renderMarkdownToHtml(stripLeadingFrontmatter(state.spec.content));
+  } else {
+    specFileContentElement.innerHTML = `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
+  }
 
   // Wrap quote-anchored ranges so they're hoverable + clickable.
   decorateSpecAnchors();

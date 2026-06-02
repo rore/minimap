@@ -948,6 +948,24 @@ h3 {
 .spec-file-error-card h2 { margin: 0 0 10px; font-size: 1.1rem; }
 .spec-file-error-card p { margin: 0 0 12px; color: var(--spec-muted); }
 
+.spec-doc-header {
+  margin: 0 0 24px;
+}
+.spec-doc-title {
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--spec-text);
+  margin: 0 0 12px;
+}
+.spec-doc-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
 .spec-body h1 {
   font-size: 1.7rem;
   margin: 0 0 16px;
