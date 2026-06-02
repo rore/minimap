@@ -1680,10 +1680,6 @@ body[data-app-mode="spec"] .app-mode-button.is-active {
   box-shadow: inset 0 0 0 0.5px var(--spec-line-strong, #d6d6df);
 }
 body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
-body[data-app-mode="spec"] #refresh-button {
-  padding: 4px 10px;
-  font-size: 0.78rem;
-}
 
 .layout[data-scope-collapsed="true"] {
   grid-template-columns: minmax(290px, 340px) minmax(620px, 1fr) 0px var(--scope-width-collapsed);
