@@ -13,22 +13,35 @@ For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/m
 
 ## Install
 
-A skill is just a folder under your global Claude Code skills directory. Install minimap by copying the two skill folders into place — no separate runtime, no `npm install`, the skills carry everything they need.
+Each mode is a Claude Code skill — a folder containing a `SKILL.md` file plus its bundled runtime. Claude Code picks up skills from two places:
+
+- `~/.claude/skills/` — **personal**, available in every repo you open
+- `<repo>/.claude/skills/` — **project**, available only inside that repo (and committed with it, so anyone working in the repo gets it)
+
+The two skills fit different scopes:
+
+- **Spec sessions** works on any markdown file anywhere, so install it personally and you get spec review in every repo.
+- **Roadmap** only does something in repos that follow the minimap roadmap convention. Install it personally if you want it everywhere, or commit it under the repo's `.claude/skills/` so anyone cloning the repo (and any agent in that repo) gets it without an extra step.
+
+Either way, install is just copying the skill folder. Clone this repo somewhere, then:
+
+**Personal (both skills, available everywhere):**
 
 ```bash
-git clone https://github.com/rore/minimap.git
 cp -R minimap/package/minimap/skills/minimap-spec-review ~/.claude/skills/
 cp -R minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/
 ```
 
-On Windows, replace the last two lines with:
+**Project (roadmap committed alongside the repo it serves):**
 
-```text
-xcopy /E /I minimap\package\minimap\skills\minimap-spec-review %USERPROFILE%\.claude\skills\minimap-spec-review
-xcopy /E /I minimap\package\minimap\skills\minimap-roadmap     %USERPROFILE%\.claude\skills\minimap-roadmap
+```bash
+mkdir -p <your-repo>/.claude/skills
+cp -R minimap/package/minimap/skills/minimap-roadmap <your-repo>/.claude/skills/
 ```
 
-Restart Claude Code (or refresh skills) and your agents pick them up. From there you ask for a roadmap or a spec session and the agent gives you a URL to open.
+On Windows, replace `cp -R` with `xcopy /E /I` and `~/.claude/skills/` with `%USERPROFILE%\.claude\skills\`.
+
+The skills carry their own server runtime and lifecycle scripts — no `npm install`, no system service. Claude Code picks up newly-dropped skills automatically; no restart needed unless `~/.claude/skills/` itself didn't exist when the session started. Once installed, you ask for a roadmap or a spec session and the agent gives you a URL to open.
 
 > Contributor note: if you're working on minimap itself, link the skill folders to this checkout instead of copying so edits propagate — `ln -s <path>/package/minimap/skills/minimap-<name> ~/.claude/skills/minimap-<name>` on macOS/Linux, `mklink /J %USERPROFILE%\.claude\skills\minimap-<name> <path>\package\minimap\skills\minimap-<name>` on Windows.
 
