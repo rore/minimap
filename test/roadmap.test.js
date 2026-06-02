@@ -825,7 +825,20 @@ test("portable minimap package includes app, skills, and starter templates", asy
     const packageFile = await fs.readFile(path.join(projectRoot, "package", "minimap", ...segments), "utf8");
     const runtimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "runtime", ...segments), "utf8");
     assert.equal(runtimeFile, packageFile, `Bundled spec-review runtime is stale: ${segments.join("/")}`);
+    const roadmapRuntimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "runtime", ...segments), "utf8");
+    assert.equal(roadmapRuntimeFile, packageFile, `Bundled roadmap runtime is stale: ${segments.join("/")}`);
   }
+
+  // Both skills' scripts/ directories carry health-check.mjs; the two copies must stay identical.
+  const specHealthCheck = await fs.readFile(
+    path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "health-check.mjs"),
+    "utf8",
+  );
+  const roadmapHealthCheck = await fs.readFile(
+    path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "health-check.mjs"),
+    "utf8",
+  );
+  assert.equal(roadmapHealthCheck, specHealthCheck, "Bundled roadmap health-check.mjs is stale vs spec-review");
 });
 
 test("self-contained spec-review skill runs when copied outside the repo", async () => {
