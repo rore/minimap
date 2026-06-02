@@ -29,6 +29,7 @@ import {
   updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
+import { writeServerRegistry, deleteServerRegistry } from "./src/server-registry.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,9 @@ const repoRoot = process.cwd();
 const requestedPort = Number(process.env.PORT || 4312);
 const maxPortAttempts = 20;
 const repoName = path.basename(path.resolve(repoRoot));
+
+const packageJsonPath = path.join(__dirname, "package.json");
+const serverVersion = JSON.parse(await fs.readFile(packageJsonPath, "utf8")).version || "0.0.0";
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -448,14 +452,38 @@ async function listenOnAvailablePort(server, startingPort) {
 const server = http.createServer(requestListener);
 
 listenOnAvailablePort(server, requestedPort)
-  .then((boundPort) => {
+  .then(async (boundPort) => {
     const fallbackNote = boundPort === requestedPort ? "" : ` (requested ${requestedPort})`;
+    await writeServerRegistry({
+      pid: process.pid,
+      port: boundPort,
+      startedAt: new Date().toISOString(),
+      version: serverVersion,
+    });
     process.stdout.write(`Minimap running at http://localhost:${boundPort}${fallbackNote}\n`);
   })
-  .catch((error) => {
+  .catch(async (error) => {
+    try { await deleteServerRegistry(); } catch {}
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   });
+
+async function shutdown(signal) {
+  try {
+    await deleteServerRegistry();
+  } catch (error) {
+    process.stderr.write(`Registry cleanup failed: ${error.message}\n`);
+  }
+  process.exit(signal === "SIGINT" ? 130 : 0);
+}
+
+// Graceful shutdown handlers. On Linux/Mac, SIGTERM and SIGINT both reach this
+// handler. On Windows, terminal Ctrl-C is delivered as SIGINT (works); but
+// child_process.kill() bypasses signal delivery via TerminateProcess() (does
+// not work — registry cleanup relies on probeRunningServer's /health check
+// to detect stale entries on the next launch).
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
 
 
 

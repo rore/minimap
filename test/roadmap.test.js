@@ -815,6 +815,7 @@ test("portable minimap package includes app, skills, and starter templates", asy
     ["cli.js"],
     ["src", "roadmap.js"],
     ["src", "sessions.js"],
+    ["src", "server-registry.js"],
     ["ui", "index.html"],
     ["ui", "app.js"],
     ["ui", "styles.css"],
@@ -1795,4 +1796,69 @@ test("server-registry: writeServerRegistry creates the directory if missing", as
   await writeServerRegistry({ pid: 99, port: 4312, startedAt: "x", version: "y" }, { minimapHome: home });
   const value = await readServerRegistry({ minimapHome: home });
   assert.equal(value.pid, 99);
+});
+
+test("server writes registry on start and removes it on SIGTERM",
+  { skip: process.platform === "win32" ? "Windows: child.kill() uses TerminateProcess() which does not deliver SIGTERM to Node's event loop. Real Ctrl-C from a terminal works correctly because Windows maps CTRL_C_EVENT to SIGINT for the JS handler." : false },
+  async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4413", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    child.stdout.on("data", (chunk) => {
+      if (String(chunk).includes("http://localhost:4413")) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.on("exit", (code) => reject(new Error(`Server exited early with code ${code}.`)));
+  });
+
+  try {
+    const registryRaw = await fs.readFile(path.join(home, "server.json"), "utf8");
+    const registry = JSON.parse(registryRaw);
+    assert.equal(registry.port, 4413);
+    assert.equal(typeof registry.pid, "number");
+    assert.match(registry.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(typeof registry.version, "string");
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+
+  // After clean shutdown, registry should be gone.
+  await assert.rejects(fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+});
+
+test("server removes registry on SIGINT as well as SIGTERM",
+  { skip: process.platform === "win32" ? "Windows: see the SIGTERM test for the same reason." : false },
+  async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4424", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    child.stdout.on("data", (chunk) => {
+      if (String(chunk).includes("http://localhost:4424")) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  child.kill("SIGINT");
+  await new Promise((resolve) => child.on("exit", resolve));
+
+  await assert.rejects(fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
