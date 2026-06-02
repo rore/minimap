@@ -4233,17 +4233,18 @@ function truncate(text, max = 64) {
 // the CLI reference at one point switched to `claude:local` /
 // `codex:local`; new defaults emit short names (`human`, `claude`,
 // `codex`).  The display layer normalizes all of these to a short
-// label so the card header stays readable at the 110px width budget.
+// label so the card header stays readable.
 //
-// Rule: strip a leading `human:` or `ai:`, strip a trailing `:local`,
-// strip a trailing `@host` suffix; whatever's left is the label.
-// Unknown shapes pass through unchanged and the existing ellipsis
-// handles overflow.
+// Rule: strip a trailing `:local` first (so `human:local` collapses
+// to `human` rather than to `local` after the kind prefix is
+// removed), then strip a leading `human:` or `ai:`, then strip a
+// trailing `@host` suffix.  Whatever's left is the label.  Unknown
+// shapes pass through unchanged.
 function formatActorLabel(by) {
   let value = String(by || "").trim();
   if (!value) return "";
-  value = value.replace(/^(human|ai):/i, "");
   value = value.replace(/:local$/i, "");
+  value = value.replace(/^(human|ai):/i, "");
   value = value.replace(/@.+$/, "");
   return value;
 }

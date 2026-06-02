@@ -1265,8 +1265,13 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   font-weight: 600;
   color: var(--spec-text);
   font-size: 0.78rem;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  flex: 0 1 auto; min-width: 0; max-width: 110px;
+  white-space: nowrap;
+  /* The label is short by construction (formatActorLabel collapses
+     stored actors to `human` / `claude` / `codex` / etc.).  Don't let
+     flexbox shrink it when the anchor tag is long — the anchor tag
+     should absorb all the squeeze, the author should always render
+     fully. */
+  flex: 0 0 auto;
 }
 /* Channel colors for the author label.  Reused by reply authors and
    by the inline diff meta line.  We color text only — no background
