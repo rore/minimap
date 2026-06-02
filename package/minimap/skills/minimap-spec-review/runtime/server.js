@@ -451,22 +451,30 @@ async function listenOnAvailablePort(server, startingPort) {
 
 const server = http.createServer(requestListener);
 
-listenOnAvailablePort(server, requestedPort)
-  .then(async (boundPort) => {
-    const fallbackNote = boundPort === requestedPort ? "" : ` (requested ${requestedPort})`;
+const noFallback = process.env.MINIMAP_NO_PORT_FALLBACK === "1";
+
+async function startServer() {
+  try {
+    const boundPort = noFallback ? await listenOnce(server, requestedPort) || requestedPort : await listenOnAvailablePort(server, requestedPort);
+    const actualPort = typeof boundPort === "number" ? boundPort : requestedPort;
+    const fallbackNote = actualPort === requestedPort ? "" : ` (requested ${requestedPort})`;
     await writeServerRegistry({
       pid: process.pid,
-      port: boundPort,
+      port: actualPort,
       startedAt: new Date().toISOString(),
       version: serverVersion,
     });
-    process.stdout.write(`Minimap running at http://localhost:${boundPort}${fallbackNote}\n`);
-  })
-  .catch(async (error) => {
+    process.stdout.write(`Minimap running at http://localhost:${actualPort}${fallbackNote}\n`);
+  } catch (error) {
+    if (error && error.code === "EADDRINUSE" && noFallback) {
+      // The launcher will re-probe.
+      throw error;
+    }
     try { await deleteServerRegistry(); } catch {}
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
-  });
+  }
+}
 
 async function shutdown(signal) {
   try {
@@ -485,6 +493,4 @@ async function shutdown(signal) {
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));
 
-
-
-
+await startServer();

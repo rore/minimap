@@ -1877,3 +1877,109 @@ test("server removes registry on SIGINT as well as SIGTERM",
 
   await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
+
+test("start-server.mjs reuses a running server instead of spawning a second one", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+
+  // Spawn first server.
+  const first = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4414", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("First server did not start.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`First server exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4414")) {
+        clearTimeout(timeout);
+        first.stdout.off("data", onData);
+        first.off("exit", onExit);
+        resolve();
+      }
+    };
+    first.stdout.on("data", onData);
+    first.on("exit", onExit);
+  });
+
+  try {
+    const launcherPath = path.join(
+      projectRoot,
+      "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+    );
+    const second = spawn(process.execPath, [launcherPath], {
+      cwd: repoRoot,
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    second.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    const exitCode = await new Promise((resolve) => second.on("exit", resolve));
+    assert.equal(exitCode, 0, "launcher must exit cleanly when reusing");
+    assert.match(stdout, /already running/i);
+    assert.match(stdout, /4414/);
+  } finally {
+    first.kill("SIGTERM");
+    await new Promise((resolve) => first.on("exit", resolve));
+  }
+});
+
+test("two launchers racing for the same port: only one server ends up running", async () => {
+  // Race: both launchers see no registry, both try to bind. The loser's
+  // EADDRINUSE on the first attempt must NOT fall forward to a different port —
+  // it must re-probe the registry, find the winner, and exit cleanly.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const launcherPath = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+  );
+
+  const sharedEnv = { ...process.env, PORT: "4422", MINIMAP_HOME: home };
+  const a = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: sharedEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const b = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: sharedEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const collect = (child) => new Promise((resolve) => {
+    let out = "";
+    child.stdout.on("data", (chunk) => { out += String(chunk); });
+    child.on("exit", (code) => resolve({ code, out }));
+  });
+
+  // Whoever ends up serving stays running; whoever loses must exit cleanly.
+  // Give them up to 3s before we forcibly kill both.
+  const timeout = setTimeout(() => { a.kill("SIGTERM"); b.kill("SIGTERM"); }, 3000);
+
+  // One of them may run forever (the winner). Wait until at least one exits or 3s elapses.
+  const finishedFirst = await Promise.race([
+    collect(a).then((r) => ({ winner: "a-exited-first", r })),
+    collect(b).then((r) => ({ winner: "b-exited-first", r })),
+  ]);
+  clearTimeout(timeout);
+  // Kill whichever is still running.
+  a.kill("SIGTERM");
+  b.kill("SIGTERM");
+  await new Promise((resolve) => {
+    if (a.exitCode !== null || a.signalCode !== null) return resolve();
+    a.on("exit", resolve);
+  });
+  await new Promise((resolve) => {
+    if (b.exitCode !== null || b.signalCode !== null) return resolve();
+    b.on("exit", resolve);
+  });
+
+  // What we actively guard against: a "Minimap running at http://localhost:4423" line
+  // anywhere, which would prove the fall-forward bug.
+  assert.doesNotMatch(finishedFirst.r.out, /4423/, "must not fall forward to 4423");
+});
