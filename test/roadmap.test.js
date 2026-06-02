@@ -2726,3 +2726,170 @@ test("restart-server.mjs survives back-to-back restarts (Windows TIME_WAIT regre
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 });
+
+// --- Anchor tolerance regression tests (heading cascade + quote markdown-strip)
+
+const sampleSpecMarkdown = `# Top
+
+## Outer Section
+
+Some text under outer.
+
+### Inner Heading
+
+Body of inner.
+
+## Another Section
+
+A paragraph that says \`(category, command_family, scope_kind)\` is the identity tuple.
+
+### Schema
+
+Inner of another.
+`;
+
+test("addFileSessionComment section anchor: full path matches exactly (regression)", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = await fs.mkdtemp(path.join(os.tmpdir(), "spec-"));
+  const file = path.join(specPath, "spec.md");
+  await fs.writeFile(file, sampleSpecMarkdown, "utf8");
+
+  await attachFileSession(file, { cwd: specPath, minimapHome: home });
+  const result = await addFileSessionComment(file, {
+    by: "tester",
+    kind: "concern",
+    text: "thoughts",
+    scope: "section",
+    headingPath: ["Top", "Outer Section", "Inner Heading"],
+  }, { cwd: specPath, minimapHome: home });
+  assert.equal(result.comment.anchor.scope, "section");
+  assert.deepEqual(result.comment.anchor.headingPath, ["Top", "Outer Section", "Inner Heading"]);
+});
+
+test("addFileSessionComment section anchor: suffix match resolves to canonical full path", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = await fs.mkdtemp(path.join(os.tmpdir(), "spec-"));
+  const file = path.join(specPath, "spec.md");
+  await fs.writeFile(file, sampleSpecMarkdown, "utf8");
+
+  await attachFileSession(file, { cwd: specPath, minimapHome: home });
+  const result = await addFileSessionComment(file, {
+    by: "tester",
+    kind: "concern",
+    text: "thoughts",
+    scope: "section",
+    // Suffix of the full canonical path (no "Top" prefix).
+    headingPath: ["Outer Section", "Inner Heading"],
+  }, { cwd: specPath, minimapHome: home });
+  assert.deepEqual(result.comment.anchor.headingPath, ["Top", "Outer Section", "Inner Heading"]);
+});
+
+test("addFileSessionComment section anchor: leaf-only match resolves to canonical full path", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = await fs.mkdtemp(path.join(os.tmpdir(), "spec-"));
+  const file = path.join(specPath, "spec.md");
+  await fs.writeFile(file, sampleSpecMarkdown, "utf8");
+
+  await attachFileSession(file, { cwd: specPath, minimapHome: home });
+  const result = await addFileSessionComment(file, {
+    by: "tester",
+    kind: "concern",
+    text: "thoughts",
+    scope: "section",
+    headingPath: ["Inner Heading"],
+  }, { cwd: specPath, minimapHome: home });
+  // Stored path should be the canonical full path, not what the caller sent.
+  assert.deepEqual(result.comment.anchor.headingPath, ["Top", "Outer Section", "Inner Heading"]);
+});
+
+test("addFileSessionComment section anchor: leaf collision raises anchor_ambiguous", async () => {
+  // Two headings titled "Schema" — leaf-only would be ambiguous.
+  const text = `# Top
+
+## A
+### Schema
+text
+
+## B
+### Schema
+more text
+`;
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = await fs.mkdtemp(path.join(os.tmpdir(), "spec-"));
+  const file = path.join(specPath, "spec.md");
+  await fs.writeFile(file, text, "utf8");
+
+  await attachFileSession(file, { cwd: specPath, minimapHome: home });
+  await assert.rejects(
+    () => addFileSessionComment(file, {
+      by: "tester",
+      kind: "concern",
+      text: "x",
+      scope: "section",
+      headingPath: ["Schema"],
+    }, { cwd: specPath, minimapHome: home }),
+    (error) => {
+      assert.equal(error.code, "anchor_ambiguous");
+      assert.match(error.message, /A > Schema/);
+      assert.match(error.message, /B > Schema/);
+      return true;
+    },
+  );
+});
+
+test("addFileSessionComment section anchor: case- and dash-insensitive Unicode match", async () => {
+  const text = `# Top
+
+## Tier 2 — UserPromptSubmit
+body
+`;
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = await fs.mkdtemp(path.join(os.tmpdir(), "spec-"));
+  const file = path.join(specPath, "spec.md");
+  await fs.writeFile(file, text, "utf8");
+
+  await attachFileSession(file, { cwd: specPath, minimapHome: home });
+
+  // Hyphen instead of em-dash; lowercased.
+  const result = await addFileSessionComment(file, {
+    by: "tester",
+    kind: "concern",
+    text: "x",
+    scope: "section",
+    headingPath: ["tier 2 - userpromptsubmit"],
+  }, { cwd: specPath, minimapHome: home });
+  // Stored path is the canonical (em-dash, original casing) full outline path.
+  assert.deepEqual(result.comment.anchor.headingPath, ["Top", "Tier 2 — UserPromptSubmit"]);
+});
+
+test("addFileSessionComment quote anchor: markdown-stripped fallback finds the line", async () => {
+  // The user's quote omits backticks (e.g. captured from a rendered view).
+  // The raw markdown has them. Literal indexOf would miss; fallback should match.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = await fs.mkdtemp(path.join(os.tmpdir(), "spec-"));
+  const file = path.join(specPath, "spec.md");
+  await fs.writeFile(file, sampleSpecMarkdown, "utf8");
+
+  await attachFileSession(file, { cwd: specPath, minimapHome: home });
+  const result = await addFileSessionComment(file, {
+    by: "tester",
+    kind: "concern",
+    text: "thoughts",
+    quote: "(category, command_family, scope_kind) is the identity tuple",
+  }, { cwd: specPath, minimapHome: home });
+  assert.equal(result.comment.anchor.scope, "anchor");
+  assert.equal(result.comment.anchor.quote, "(category, command_family, scope_kind) is the identity tuple");
+});
+
+test("createTextAnchor: literal match still preferred over fallback when both present", async () => {
+  // If the quote literally appears in the file, do not use the fallback —
+  // the literal match preserves byte-perfect anchor semantics.
+  const text = `# Top
+
+The phrase "exact text here" appears literally in this file.
+`;
+  const anchor = createTextAnchor(text, { quote: 'exact text here' });
+  assert.equal(anchor.scope, "anchor");
+  assert.equal(anchor.quote, "exact text here");
+  assert.ok(anchor.lineStart > 0);
+});
