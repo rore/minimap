@@ -44,6 +44,16 @@ node tools/minimap/server.js
 
 The server uses the current working directory as the repo root, so launch it from the host repo root.
 
+### Multiple repos
+
+A single running minimap server can serve roadmap for any number of repos. Pass the absolute repo path in the URL hash:
+
+```text
+http://localhost:4312/#repo=/abs/path/to/repo&view=board
+```
+
+Bundled `start-server.mjs` launchers detect a running server via `$MINIMAP_HOME/server.json` and reuse it instead of spawning a second one. Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
+
 ## Agent hookup
 
 Add a short pointer to the host repo's `AGENTS.md` (or equivalent). Use whichever skill matches the work:
