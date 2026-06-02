@@ -1788,3 +1788,11 @@ test("server-registry: readServerRegistry returns null on malformed JSON", async
   const value = await readServerRegistry({ minimapHome: home });
   assert.equal(value, null);
 });
+
+test("server-registry: writeServerRegistry creates the directory if missing", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const home = path.join(parent, "subdir-that-does-not-exist");
+  await writeServerRegistry({ pid: 99, port: 4312, startedAt: "x", version: "y" }, { minimapHome: home });
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value.pid, 99);
+});
