@@ -1,6 +1,6 @@
 # Minimap
 
-Minimap is a small local app for working on repo content together with AI agents. It has two modes:
+Minimap is a single-developer workbench for working on repo content together with AI agents. It runs on your machine; there's no shared service, no team mode. It has two modes:
 
 - **[Spec sessions](#spec-sessions)** — review one specific file (a spec, design, RFC, idea) with anchored comments, threaded replies, and proposed edits. Multiple agents and a human can review the same file and reply to each other.
 - **[Roadmap](#roadmap)** — a repo-local roadmap and feature-planning workspace backed by markdown files in `roadmap/`.
@@ -82,7 +82,7 @@ A suggestion is a proposed edit (replace / insert / delete) anchored to a quote.
 
 Anchors are designed to survive small edits to the surrounding text. When an anchor becomes ambiguous or stale, minimap surfaces that state explicitly instead of silently re-attaching feedback to the wrong place.
 
-### Multi-party review
+### One human, multiple agents
 
 Each comment, suggestion, and applied edit carries an explicit actor (`human:local`, `ai:claude`, `ai:codex`, …). That makes it possible to run reviews like:
 
@@ -94,7 +94,7 @@ The point is that review state is persistent and attributed instead of disappear
 
 ### Agent driver
 
-Agents drive spec sessions through the [`minimap-spec-review`](package/minimap/skills/minimap-spec-review/SKILL.md) skill, which includes a self-contained server runtime and a CLI launcher. Mutations require an explicit `--by` actor on every write. The deeper design — anchoring model, comment kinds and statuses, suggestion lifecycle, server API — lives in [`docs/global-spec-sessions-plan.md`](docs/global-spec-sessions-plan.md).
+Agents drive spec sessions through the [`minimap-spec-review`](package/minimap/skills/minimap-spec-review/SKILL.md) skill, which includes a self-contained server runtime and a CLI launcher. Mutations require an explicit `--by` actor on every write.
 
 ---
 
