@@ -165,6 +165,38 @@ async function runCli(args, options = {}) {
   return { exitCode, stdout, stderr };
 }
 
+async function startServerOnPort(port, options = {}) {
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: options.cwd || projectRoot,
+    env: { ...process.env, PORT: String(port), ...(options.env || {}) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited with ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes(`http://localhost:${port}`)) {
+        clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.off("exit", onExit);
+        resolve();
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", (chunk) => reject(new Error(String(chunk))));
+    child.on("exit", onExit);
+  });
+  return child;
+}
+
+async function stopServer(child) {
+  child.kill("SIGTERM");
+  await new Promise((resolve) => child.on("exit", resolve));
+}
+
 
 test("parseBoardText reads groups and item order", () => {
   const groups = parseBoardText("# Now\n- feature-a\n- feature-b\n\n# Next\n- feature-c\n");
@@ -2044,5 +2076,95 @@ test("roadmap and spec-review launchers share a single running server via $MINIM
   } finally {
     first.kill("SIGTERM");
     await new Promise((resolve) => first.on("exit", resolve));
+  }
+});
+
+test("server serves roadmap for the repo named by X-Minimap-Repo header", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoA = await makeTempRepo();
+  const repoB = await makeTempRepo();
+  await fs.writeFile(path.join(repoB, "roadmap", "scope.md"), "Repo B focus.\n", "utf8");
+
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cwd-"));
+  const child = await startServerOnPort(4418, { cwd, env: { MINIMAP_HOME: home } });
+
+  try {
+    const respA = await fetch("http://localhost:4418/api/workspace", {
+      headers: { "X-Minimap-Repo": repoA },
+    });
+    const wsA = await respA.json();
+    assert.equal(wsA.repoName, path.basename(repoA));
+    assert.equal(wsA.scopeText.trim(), "Current focus.");
+
+    const respB = await fetch("http://localhost:4418/api/workspace", {
+      headers: { "X-Minimap-Repo": repoB },
+    });
+    const wsB = await respB.json();
+    assert.equal(wsB.repoName, path.basename(repoB));
+    assert.equal(wsB.scopeText.trim(), "Repo B focus.");
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("server serves two repos concurrently without cross-contamination", async () => {
+  // Catches any per-process module-scope state in loadWorkspace that would leak
+  // between simultaneous requests.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoA = await makeTempRepo();
+  const repoB = await makeTempRepo();
+  await fs.writeFile(path.join(repoB, "roadmap", "scope.md"), "Repo B concurrent.\n", "utf8");
+
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cwd-"));
+  const child = await startServerOnPort(4427, { cwd, env: { MINIMAP_HOME: home } });
+
+  try {
+    // Fire 8 interleaved requests at once.
+    const targets = [];
+    for (let i = 0; i < 4; i += 1) {
+      targets.push({ repo: repoA, expectedScope: "Current focus." });
+      targets.push({ repo: repoB, expectedScope: "Repo B concurrent." });
+    }
+    const results = await Promise.all(targets.map((t) =>
+      fetch("http://localhost:4427/api/workspace", { headers: { "X-Minimap-Repo": t.repo } })
+        .then((r) => r.json())
+        .then((ws) => ({ ws, expected: t.expectedScope, repo: t.repo })),
+    ));
+    for (const { ws, expected, repo } of results) {
+      assert.equal(ws.repoName, path.basename(repo), `repoName must match ${repo}`);
+      assert.equal(ws.scopeText.trim(), expected, `scope must match ${repo}`);
+    }
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("server falls back to cwd when no X-Minimap-Repo header is present", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4419, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const resp = await fetch("http://localhost:4419/api/workspace");
+    const ws = await resp.json();
+    assert.equal(ws.repoName, path.basename(repoRoot));
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("server rejects X-Minimap-Repo pointing at a non-existent path", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const child = await startServerOnPort(4421, { env: { MINIMAP_HOME: home } });
+
+  try {
+    const resp = await fetch("http://localhost:4421/api/workspace", {
+      headers: { "X-Minimap-Repo": "/definitely/not/a/real/path/zzz" },
+    });
+    assert.equal(resp.status, 400);
+    const body = await resp.json();
+    assert.equal(body.error.code, "bad_request");
+  } finally {
+    await stopServer(child);
   }
 });
