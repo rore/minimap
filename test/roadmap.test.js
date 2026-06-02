@@ -1983,3 +1983,53 @@ test("two launchers racing for the same port: only one server ends up running", 
   // anywhere, which would prove the fall-forward bug.
   assert.doesNotMatch(finishedFirst.r.out, /4423/, "must not fall forward to 4423");
 });
+
+test("roadmap and spec-review launchers share a single running server via $MINIMAP_HOME", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+
+  const specLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs");
+  const roadmapLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "start-server.mjs");
+
+  // First launcher starts the server.
+  const first = spawn(process.execPath, [specLauncher], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4417", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("First launcher did not start server.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`First launcher exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4417")) {
+        clearTimeout(timeout);
+        first.stdout.off("data", onData);
+        first.off("exit", onExit);
+        resolve();
+      }
+    };
+    first.stdout.on("data", onData);
+    first.on("exit", onExit);
+  });
+
+  try {
+    // Second launcher (different skill) reuses it.
+    const second = spawn(process.execPath, [roadmapLauncher], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4417", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    second.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    const exitCode = await new Promise((resolve) => second.on("exit", resolve));
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /already running/i);
+    assert.match(stdout, /4417/);
+  } finally {
+    first.kill("SIGTERM");
+    await new Promise((resolve) => first.on("exit", resolve));
+  }
+});
