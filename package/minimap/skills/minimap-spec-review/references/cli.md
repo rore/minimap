@@ -32,42 +32,42 @@ The context intentionally excludes full target file content. Read the target fil
 
 ## Comments
 
-Use a stable actor identity in `--by`, such as `codex:local`, `claude:local`, or `human:local`.
+Use a stable actor identity in `--by`, such as `codex`, `claude`, or `human` (or your own short label).
 
 Specific quote:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs comment add path/to/spec.md --by codex:local --kind concern --quote "exact text from the file" --text "The issue or recommendation." --json
+node <path-to-this-skill>/scripts/minimap.mjs comment add path/to/spec.md --by codex --kind concern --quote "exact text from the file" --text "The issue or recommendation." --json
 ```
 
 Section-level:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs comment add path/to/spec.md --by codex:local --kind recommendation --heading "Heading > Subheading" --text "Section-level feedback." --json
+node <path-to-this-skill>/scripts/minimap.mjs comment add path/to/spec.md --by codex --kind recommendation --heading "Heading > Subheading" --text "Section-level feedback." --json
 ```
 
 Global:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs comment add path/to/spec.md --by codex:local --kind question --global --text "File-level question." --json
+node <path-to-this-skill>/scripts/minimap.mjs comment add path/to/spec.md --by codex --kind question --global --text "File-level question." --json
 ```
 
 Reply:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs comment reply path/to/spec.md comment-id --by codex:local --text "Reply text." --json
+node <path-to-this-skill>/scripts/minimap.mjs comment reply path/to/spec.md comment-id --by codex --text "Reply text." --json
 ```
 
 Resolve:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs comment resolve path/to/spec.md comment-id --by codex:local --json
+node <path-to-this-skill>/scripts/minimap.mjs comment resolve path/to/spec.md comment-id --by codex --json
 ```
 
 Reopen:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs comment reopen path/to/spec.md comment-id --by codex:local --json
+node <path-to-this-skill>/scripts/minimap.mjs comment reopen path/to/spec.md comment-id --by codex --json
 ```
 
 ## Suggestions
@@ -77,7 +77,7 @@ Use suggestions for exact proposed file edits. Suggestions are separate from com
 Add a suggestion:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs suggest add path/to/spec.md --by codex:local --kind replace --quote "exact text from the file" --content "replacement text" --rationale "Why this edit helps." --json
+node <path-to-this-skill>/scripts/minimap.mjs suggest add path/to/spec.md --by codex --kind replace --quote "exact text from the file" --content "replacement text" --rationale "Why this edit helps." --json
 ```
 
 Supported suggestion kinds:
@@ -89,15 +89,15 @@ Supported suggestion kinds:
 Accept or reject a suggestion without changing the target file:
 
 ```sh
-node <path-to-this-skill>/scripts/minimap.mjs suggest accept path/to/spec.md sug_000001 --by human:local --json
-node <path-to-this-skill>/scripts/minimap.mjs suggest reject path/to/spec.md sug_000001 --by human:local --json
+node <path-to-this-skill>/scripts/minimap.mjs suggest accept path/to/spec.md sug_000001 --by human --json
+node <path-to-this-skill>/scripts/minimap.mjs suggest reject path/to/spec.md sug_000001 --by human --json
 ```
 
 Preview and apply:
 
 ```sh
 node <path-to-this-skill>/scripts/minimap.mjs suggest preview path/to/spec.md sug_000001 --json
-node <path-to-this-skill>/scripts/minimap.mjs suggest apply path/to/spec.md sug_000001 --by human:local --json
+node <path-to-this-skill>/scripts/minimap.mjs suggest apply path/to/spec.md sug_000001 --by human --json
 ```
 
 Preview re-resolves the anchor and does not write the target file. Apply writes the target file and should only be used when the user explicitly asks.

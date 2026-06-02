@@ -4039,7 +4039,7 @@ function renderMarginCommentCard(comment) {
 
   const replies = (comment.replies || []).map((reply) => `
     <div class="spec-card-reply">
-      <span class="spec-card-reply-author">${escapeHtml(reply.by)}</span>
+      <span class="spec-card-reply-author ${actorColorClass(reply.by)}">${escapeHtml(formatActorLabel(reply.by))}</span>
       <p>${escapeHtml(reply.text)}</p>
     </div>`).join("");
 
@@ -4076,7 +4076,7 @@ function renderMarginCommentCard(comment) {
   return `
     <article class="${cls}" data-comment-id="${escapeHtml(comment.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to jump to anchor">
       <header class="spec-card-head">
-        <span class="spec-card-author">${escapeHtml(comment.by)}</span>
+        <span class="spec-card-author ${actorColorClass(comment.by)}">${escapeHtml(formatActorLabel(comment.by))}</span>
         <span class="spec-card-anchor-tag${isFile ? " is-file" : ""}">${escapeHtml(anchorTag || "")}</span>
         <span class="spec-card-when">${escapeHtml(formatRelativeTime(comment.createdAt))}</span>
       </header>
@@ -4193,7 +4193,7 @@ function renderMarginSuggestionCard(suggestion) {
 
   const replies = (suggestion.replies || []).map((reply) => `
     <div class="spec-card-reply">
-      <span class="spec-card-reply-author">${escapeHtml(reply.by)}</span>
+      <span class="spec-card-reply-author ${actorColorClass(reply.by)}">${escapeHtml(formatActorLabel(reply.by))}</span>
       <p>${escapeHtml(reply.text)}</p>
     </div>`).join("");
   const replyForm = isReplying ? `
@@ -4209,7 +4209,7 @@ function renderMarginSuggestionCard(suggestion) {
   return `
     <article class="${cls}" data-suggestion-id="${escapeHtml(suggestion.id)}" data-card-anchor-id="${escapeHtml(dataAnchorId)}" title="Click to view the change in the spec">
       <header class="spec-card-head">
-        <span class="spec-card-author">${escapeHtml(suggestion.by)}</span>
+        <span class="spec-card-author ${actorColorClass(suggestion.by)}">${escapeHtml(formatActorLabel(suggestion.by))}</span>
         <span class="spec-card-anchor-tag is-suggestion">${kindTag}</span>
         <span class="spec-card-when">${escapeHtml(formatRelativeTime(suggestion.createdAt))}</span>
       </header>
@@ -4226,6 +4226,39 @@ function truncate(text, max = 64) {
   const value = String(text || "").replace(/\s+/g, " ").trim();
   if (value.length <= max) return value;
   return value.slice(0, max - 1) + "…";
+}
+
+// Actor strings have drifted across forms over the project's life:
+// the original plan used `human:local` / `ai:claude` / `ai:codex`;
+// the CLI reference at one point switched to `claude:local` /
+// `codex:local`; new defaults emit short names (`human`, `claude`,
+// `codex`).  The display layer normalizes all of these to a short
+// label so the card header stays readable at the 110px width budget.
+//
+// Rule: strip a leading `human:` or `ai:`, strip a trailing `:local`,
+// strip a trailing `@host` suffix; whatever's left is the label.
+// Unknown shapes pass through unchanged and the existing ellipsis
+// handles overflow.
+function formatActorLabel(by) {
+  let value = String(by || "").trim();
+  if (!value) return "";
+  value = value.replace(/^(human|ai):/i, "");
+  value = value.replace(/:local$/i, "");
+  value = value.replace(/@.+$/, "");
+  return value;
+}
+
+// Map a normalized actor label to a CSS class so cards can color the
+// author by channel (human / claude / codex) without each card having
+// to know the palette.  Anything we don't recognize falls back to the
+// neutral `is-other` class, which inherits the default text color.
+function actorColorClass(by) {
+  const label = formatActorLabel(by).toLowerCase();
+  if (!label) return "is-other";
+  if (label === "human") return "is-human";
+  if (label === "claude") return "is-claude";
+  if (label === "codex") return "is-codex";
+  return "is-other";
 }
 
 function closeAllComposers() {
@@ -4291,7 +4324,7 @@ function insertSpecDiffBlock(suggestion) {
   block.innerHTML = `
     <div class="spec-diff-meta">
       <span class="spec-diff-pill is-${escapeHtml(suggestion.kind)}">${escapeHtml(suggestion.kind)}</span>
-      <span>· ${escapeHtml(suggestion.by)}</span>
+      <span>· <span class="${actorColorClass(suggestion.by)}">${escapeHtml(formatActorLabel(suggestion.by))}</span></span>
       <span class="spec-diff-meta-spacer"></span>
       <span class="spec-diff-status is-${escapeHtml(suggestion.status)}">${escapeHtml(suggestion.status)}</span>
     </div>
@@ -4735,7 +4768,7 @@ async function replyToSpecComment(commentId, text) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: state.spec.selectedPath,
-      by: specCommentByInput.value || "human:local",
+      by: specCommentByInput.value || "human",
       text,
     }),
   });
@@ -4752,7 +4785,7 @@ async function replyToSpecSuggestion(suggestionId, text) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+      by: specSuggestionByInput.value || specCommentByInput.value || "human",
       text,
     }),
   });
@@ -4771,7 +4804,7 @@ async function setSpecCommentStatus(commentId, action) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: state.spec.selectedPath,
-      by: specCommentByInput.value || "human:local",
+      by: specCommentByInput.value || "human",
     }),
   });
   await refreshSpecReviewState({ quiet: true });
@@ -4789,7 +4822,7 @@ async function setSpecSuggestionStatus(suggestionId, action) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+      by: specSuggestionByInput.value || specCommentByInput.value || "human",
     }),
   });
   await refreshSpecReviewState({ quiet: true });
@@ -4826,7 +4859,7 @@ async function applySpecSuggestion(suggestionId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+      by: specSuggestionByInput.value || specCommentByInput.value || "human",
     }),
   });
   state.spec.previewSuggestionId = "";
@@ -4842,7 +4875,7 @@ async function rollbackSpecSuggestion(suggestionId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human:local",
+      by: specSuggestionByInput.value || specCommentByInput.value || "human",
     }),
   });
   state.spec.previewSuggestionId = "";

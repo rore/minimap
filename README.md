@@ -84,7 +84,7 @@ Anchors are designed to survive small edits to the surrounding text. When an anc
 
 ### One human, multiple agents
 
-Each comment, suggestion, and applied edit carries an explicit actor (`human:local`, `ai:claude`, `ai:codex`, …). That makes it possible to run reviews like:
+Each comment, suggestion, and applied edit carries an explicit actor (`human`, `claude`, `codex`, …). That makes it possible to run reviews like:
 
 1. The human attaches a target file and asks one agent (e.g. Claude) to review it. Claude leaves anchored comments and concrete suggestions.
 2. The human asks a second agent (e.g. Codex) to review *Claude's review* — confirm what looks right, disagree where appropriate, add evidence, propose alternative suggestions. Codex replies to specific comment ids; the threads accumulate.

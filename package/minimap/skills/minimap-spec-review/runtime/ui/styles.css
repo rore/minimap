@@ -36,6 +36,15 @@
   --spec-success-soft: #e6f1ec;
   --spec-warn: #a36b14;
   --spec-warn-soft: #f5ecd9;
+  /* Author colors per actor channel.  The `formatActorLabel` helper in
+     app.js normalizes any stored actor (`human:local`, `ai:claude`,
+     `claude:local`, `human`, …) to a short label, then assigns one of
+     these classes.  Keeping the palette centralized here makes it one
+     edit to retune. */
+  --actor-human: #1c2331;
+  --actor-claude: #c2570c;
+  --actor-codex: #1a7558;
+  --actor-other: #6c7385;
   --spec-shadow-soft: 0 1px 2px rgba(20, 26, 40, 0.04), 0 1px 3px rgba(20, 26, 40, 0.04);
   --spec-shadow-pop: 0 4px 14px rgba(20, 26, 40, 0.10);
   --scope-width: 272px;
@@ -462,6 +471,10 @@ h3 {
   --spec-success-soft: #e6f1ec;
   --spec-warn: #a36b14;
   --spec-warn-soft: #f5ecd9;
+  --actor-human: #1c2331;
+  --actor-claude: #c2570c;
+  --actor-codex: #1a7558;
+  --actor-other: #6c7385;
   --spec-shadow-soft: 0 1px 2px rgba(20, 26, 40, 0.04), 0 1px 3px rgba(20, 26, 40, 0.04);
   --spec-shadow-pop: 0 4px 14px rgba(20, 26, 40, 0.10);
 
@@ -1255,6 +1268,13 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   flex: 0 1 auto; min-width: 0; max-width: 110px;
 }
+/* Channel colors for the author label.  Reused by reply authors and
+   by the inline diff meta line.  We color text only — no background
+   fills, no borders — so cards stay quiet in a long list. */
+.spec-card-author.is-human, .spec-card-reply-author.is-human, .is-human { color: var(--actor-human); }
+.spec-card-author.is-claude, .spec-card-reply-author.is-claude, .is-claude { color: var(--actor-claude); }
+.spec-card-author.is-codex, .spec-card-reply-author.is-codex, .is-codex { color: var(--actor-codex); }
+.spec-card-author.is-other, .spec-card-reply-author.is-other, .is-other { color: var(--actor-other); }
 .spec-card-when { margin-left: auto; flex: none; white-space: nowrap; font-size: 0.7rem; }
 .spec-card-anchor-tag {
   font-size: 0.7rem;
