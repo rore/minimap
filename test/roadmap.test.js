@@ -38,6 +38,12 @@ import {
   updateFileSessionSuggestionStatus,
   removeFileSession,
 } from "../package/minimap/src/sessions.js";
+import {
+  readServerRegistry,
+  writeServerRegistry,
+  deleteServerRegistry,
+  registryPath,
+} from "../package/minimap/src/server-registry.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -157,6 +163,38 @@ async function runCli(args, options = {}) {
   });
 
   return { exitCode, stdout, stderr };
+}
+
+async function startServerOnPort(port, options = {}) {
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: options.cwd || projectRoot,
+    env: { ...process.env, PORT: String(port), ...(options.env || {}) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited with ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes(`http://localhost:${port}`)) {
+        clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.off("exit", onExit);
+        resolve();
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", (chunk) => reject(new Error(String(chunk))));
+    child.on("exit", onExit);
+  });
+  return child;
+}
+
+async function stopServer(child) {
+  child.kill("SIGTERM");
+  await new Promise((resolve) => child.on("exit", resolve));
 }
 
 
@@ -809,6 +847,7 @@ test("portable minimap package includes app, skills, and starter templates", asy
     ["cli.js"],
     ["src", "roadmap.js"],
     ["src", "sessions.js"],
+    ["src", "server-registry.js"],
     ["ui", "index.html"],
     ["ui", "app.js"],
     ["ui", "styles.css"],
@@ -818,6 +857,30 @@ test("portable minimap package includes app, skills, and starter templates", asy
     const packageFile = await fs.readFile(path.join(projectRoot, "package", "minimap", ...segments), "utf8");
     const runtimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "runtime", ...segments), "utf8");
     assert.equal(runtimeFile, packageFile, `Bundled spec-review runtime is stale: ${segments.join("/")}`);
+    const roadmapRuntimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "runtime", ...segments), "utf8");
+    assert.equal(roadmapRuntimeFile, packageFile, `Bundled roadmap runtime is stale: ${segments.join("/")}`);
+  }
+
+  // Both skills' scripts/ directories carry the same set of lifecycle scripts
+  // and helpers; every pair must stay identical.
+  const sharedScripts = [
+    "health-check.mjs",
+    "start-server.mjs",
+    "stop-server.mjs",
+    "status.mjs",
+    "restart-server.mjs",
+    "minimap.mjs",
+  ];
+  for (const scriptName of sharedScripts) {
+    const specScript = await fs.readFile(
+      path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", scriptName),
+      "utf8",
+    );
+    const roadmapScript = await fs.readFile(
+      path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", scriptName),
+      "utf8",
+    );
+    assert.equal(roadmapScript, specScript, `Bundled roadmap ${scriptName} is stale vs spec-review`);
   }
 });
 
@@ -1751,4 +1814,881 @@ test("saveItemById updates generic metadata and can move an item between feature
   assert.equal(saved.kind, "idea");
   assert.equal(await fs.readFile(ideaFilePath, "utf8").then((content) => content.includes("team: platform")), true);
   await assert.rejects(() => fs.access(featureFilePath));
+});
+
+test("server-registry: writeServerRegistry then readServerRegistry round-trips", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry({ pid: 1234, port: 4312, startedAt: "2026-06-02T10:00:00Z", version: "0.1.0" }, { minimapHome: home });
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.deepEqual(value, { pid: 1234, port: 4312, startedAt: "2026-06-02T10:00:00Z", version: "0.1.0" });
+});
+
+test("server-registry: readServerRegistry returns null when missing", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value, null);
+});
+
+test("server-registry: deleteServerRegistry removes the file and is idempotent", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry({ pid: 1, port: 4312, startedAt: "x", version: "y" }, { minimapHome: home });
+  await deleteServerRegistry({ minimapHome: home });
+  await deleteServerRegistry({ minimapHome: home }); // second call must not throw
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value, null);
+});
+
+test("server-registry: readServerRegistry returns null on malformed JSON", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await fs.mkdir(home, { recursive: true });
+  await fs.writeFile(registryPath(home), "{ not json", "utf8");
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value, null);
+});
+
+test("server-registry: writeServerRegistry creates the directory if missing", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const home = path.join(parent, "subdir-that-does-not-exist");
+  await writeServerRegistry({ pid: 99, port: 4312, startedAt: "x", version: "y" }, { minimapHome: home });
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value.pid, 99);
+});
+
+test("server writes registry on start and removes it on SIGTERM",
+  { skip: process.platform === "win32" ? "Windows: child.kill() uses TerminateProcess() which does not deliver SIGTERM to Node's event loop. Real Ctrl-C from a terminal works correctly because Windows maps CTRL_C_EVENT to SIGINT for the JS handler." : false },
+  async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4413", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4413")) {
+        clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.off("exit", onExit);
+        resolve();
+      }
+    };
+    child.stdout.on("data", onData);
+    child.on("exit", onExit);
+  });
+
+  try {
+    const registryRaw = await fs.readFile(path.join(home, "server.json"), "utf8");
+    const registry = JSON.parse(registryRaw);
+    assert.equal(registry.port, 4413);
+    assert.equal(typeof registry.pid, "number");
+    assert.match(registry.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(typeof registry.version, "string");
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+
+  // After clean shutdown, registry should be gone.
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+});
+
+test("server removes registry on SIGINT as well as SIGTERM",
+  { skip: process.platform === "win32" ? "Windows: see the SIGTERM test for the same reason." : false },
+  async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4424", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4424")) {
+        clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.off("exit", onExit);
+        resolve();
+      }
+    };
+    child.stdout.on("data", onData);
+    child.on("exit", onExit);
+  });
+
+  child.kill("SIGINT");
+  await new Promise((resolve) => child.on("exit", resolve));
+
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+});
+
+test("start-server.mjs reuses a running server instead of spawning a second one", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+
+  // Spawn first server.
+  const first = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4414", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("First server did not start.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`First server exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4414")) {
+        clearTimeout(timeout);
+        first.stdout.off("data", onData);
+        first.off("exit", onExit);
+        resolve();
+      }
+    };
+    first.stdout.on("data", onData);
+    first.on("exit", onExit);
+  });
+
+  try {
+    const launcherPath = path.join(
+      projectRoot,
+      "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+    );
+    const second = spawn(process.execPath, [launcherPath], {
+      cwd: repoRoot,
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    second.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    const exitCode = await new Promise((resolve) => second.on("exit", resolve));
+    assert.equal(exitCode, 0, "launcher must exit cleanly when reusing");
+    assert.match(stdout, /already running/i);
+    assert.match(stdout, /4414/);
+  } finally {
+    first.kill("SIGTERM");
+    await new Promise((resolve) => first.on("exit", resolve));
+  }
+});
+
+test("two launchers racing for the same port: only one server ends up running", async () => {
+  // Race: both launchers see no registry, both try to bind. The loser's
+  // EADDRINUSE on the first attempt must NOT fall forward to a different port —
+  // it must re-probe the registry, find the winner, and exit cleanly.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const launcherPath = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+  );
+
+  const sharedEnv = { ...process.env, PORT: "4422", MINIMAP_HOME: home };
+  const a = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: sharedEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const b = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: sharedEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const collect = (child) => new Promise((resolve) => {
+    let out = "";
+    child.stdout.on("data", (chunk) => { out += String(chunk); });
+    child.on("exit", (code) => resolve({ code, out }));
+  });
+
+  // Whoever ends up serving stays running; whoever loses must exit cleanly.
+  // Give them up to 3s before we forcibly kill both.
+  const timeout = setTimeout(() => { a.kill("SIGTERM"); b.kill("SIGTERM"); }, 3000);
+
+  // One of them may run forever (the winner). Wait until at least one exits or 3s elapses.
+  const finishedFirst = await Promise.race([
+    collect(a).then((r) => ({ winner: "a-exited-first", r })),
+    collect(b).then((r) => ({ winner: "b-exited-first", r })),
+  ]);
+  clearTimeout(timeout);
+  // Kill whichever is still running.
+  a.kill("SIGTERM");
+  b.kill("SIGTERM");
+  await new Promise((resolve) => {
+    if (a.exitCode !== null || a.signalCode !== null) return resolve();
+    a.on("exit", resolve);
+  });
+  await new Promise((resolve) => {
+    if (b.exitCode !== null || b.signalCode !== null) return resolve();
+    b.on("exit", resolve);
+  });
+
+  // What we actively guard against: a "Minimap running at http://localhost:4423" line
+  // anywhere, which would prove the fall-forward bug.
+  assert.doesNotMatch(finishedFirst.r.out, /4423/, "must not fall forward to 4423");
+});
+
+test("roadmap and spec-review launchers share a single running server via $MINIMAP_HOME", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+
+  const specLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs");
+  const roadmapLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "start-server.mjs");
+
+  // First launcher starts the server.
+  const first = spawn(process.execPath, [specLauncher], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4417", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("First launcher did not start server.")), 5000);
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`First launcher exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
+      if (String(chunk).includes("http://localhost:4417")) {
+        clearTimeout(timeout);
+        first.stdout.off("data", onData);
+        first.off("exit", onExit);
+        resolve();
+      }
+    };
+    first.stdout.on("data", onData);
+    first.on("exit", onExit);
+  });
+
+  try {
+    // Second launcher (different skill) reuses it.
+    const second = spawn(process.execPath, [roadmapLauncher], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4417", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    second.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    const exitCode = await new Promise((resolve) => second.on("exit", resolve));
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /already running/i);
+    assert.match(stdout, /4417/);
+  } finally {
+    first.kill("SIGTERM");
+    await new Promise((resolve) => first.on("exit", resolve));
+  }
+});
+
+test("server serves roadmap for the repo named by X-Minimap-Repo header", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoA = await makeTempRepo();
+  const repoB = await makeTempRepo();
+  await fs.writeFile(path.join(repoB, "roadmap", "scope.md"), "Repo B focus.\n", "utf8");
+
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cwd-"));
+  const child = await startServerOnPort(4418, { cwd, env: { MINIMAP_HOME: home } });
+
+  try {
+    const respA = await fetch("http://localhost:4418/api/workspace", {
+      headers: { "X-Minimap-Repo": repoA },
+    });
+    const wsA = await respA.json();
+    assert.equal(wsA.repoName, path.basename(repoA));
+    assert.equal(wsA.scopeText.trim(), "Current focus.");
+
+    const respB = await fetch("http://localhost:4418/api/workspace", {
+      headers: { "X-Minimap-Repo": repoB },
+    });
+    const wsB = await respB.json();
+    assert.equal(wsB.repoName, path.basename(repoB));
+    assert.equal(wsB.scopeText.trim(), "Repo B focus.");
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("server serves two repos concurrently without cross-contamination", async () => {
+  // Catches any per-process module-scope state in loadWorkspace that would leak
+  // between simultaneous requests.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoA = await makeTempRepo();
+  const repoB = await makeTempRepo();
+  await fs.writeFile(path.join(repoB, "roadmap", "scope.md"), "Repo B concurrent.\n", "utf8");
+
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cwd-"));
+  const child = await startServerOnPort(4427, { cwd, env: { MINIMAP_HOME: home } });
+
+  try {
+    // Fire 8 interleaved requests at once.
+    const targets = [];
+    for (let i = 0; i < 4; i += 1) {
+      targets.push({ repo: repoA, expectedScope: "Current focus." });
+      targets.push({ repo: repoB, expectedScope: "Repo B concurrent." });
+    }
+    const results = await Promise.all(targets.map((t) =>
+      fetch("http://localhost:4427/api/workspace", { headers: { "X-Minimap-Repo": t.repo } })
+        .then((r) => r.json())
+        .then((ws) => ({ ws, expected: t.expectedScope, repo: t.repo })),
+    ));
+    for (const { ws, expected, repo } of results) {
+      assert.equal(ws.repoName, path.basename(repo), `repoName must match ${repo}`);
+      assert.equal(ws.scopeText.trim(), expected, `scope must match ${repo}`);
+    }
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("server falls back to cwd when no X-Minimap-Repo header is present", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4419, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const resp = await fetch("http://localhost:4419/api/workspace");
+    const ws = await resp.json();
+    assert.equal(ws.repoName, path.basename(repoRoot));
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("server rejects X-Minimap-Repo pointing at a non-existent path", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const child = await startServerOnPort(4421, { env: { MINIMAP_HOME: home } });
+
+  try {
+    const resp = await fetch("http://localhost:4421/api/workspace", {
+      headers: { "X-Minimap-Repo": "/definitely/not/a/real/path/zzz" },
+    });
+    assert.equal(resp.status, 400);
+    const body = await resp.json();
+    assert.equal(body.error.code, "bad_request");
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("launcher self-heals when registry points at a dead server", async () => {
+  // Stale registry with a port nothing listens on.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry(
+    { pid: 99999, port: 4426, startedAt: "2026-01-01T00:00:00Z", version: "0.0.0" },
+    { minimapHome: home },
+  );
+
+  const repoRoot = await makeTempRepo();
+  const launcherPath = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+  );
+  const child = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4428", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Launcher did not start fresh server.")), 5000);
+    const interval = setInterval(() => {
+      if (/Minimap running at http:\/\/localhost:4428/.test(stdout)) {
+        clearTimeout(timeout);
+        clearInterval(interval);
+        resolve();
+      }
+    }, 100);
+  });
+
+  try {
+    // Registry should now point at 4428, not the stale 4426.
+    const registryRaw = await fs.readFile(path.join(home, "server.json"), "utf8");
+    const registry = JSON.parse(registryRaw);
+    assert.equal(registry.port, 4428, "registry must be overwritten with fresh port");
+    assert.notEqual(registry.pid, 99999, "registry must reflect the new process pid");
+
+    const health = await fetch("http://localhost:4428/health").then((r) => r.json());
+    assert.equal(health.ok, true);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+});
+
+test("launcher times out and self-heals when /health hangs forever", async () => {
+  // A TCP server that accepts connections but never replies. /health will time
+  // out after ~1500ms and probeRunningServer returns null.
+  const stuckServer = http.createServer(() => { /* never respond */ });
+  await new Promise((resolve) => stuckServer.listen(4429, "127.0.0.1", resolve));
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry(
+    { pid: 99998, port: 4429, startedAt: "2026-01-01T00:00:00Z", version: "0.0.0" },
+    { minimapHome: home },
+  );
+
+  const repoRoot = await makeTempRepo();
+  const launcherPath = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+  );
+  const child = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4430", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+
+  const startedAt = Date.now();
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Launcher did not bind a fresh port.")), 8000);
+    const interval = setInterval(() => {
+      if (/Minimap running at http:\/\/localhost:4430/.test(stdout)) {
+        clearTimeout(timeout);
+        clearInterval(interval);
+        resolve();
+      }
+    }, 100);
+  });
+  const elapsed = Date.now() - startedAt;
+
+  try {
+    // Health-check timeout is 1500ms; a full launch including bind should land
+    // well under 5s. If we waited the full 8s, the timeout machinery is broken.
+    assert.ok(elapsed < 5000, `launcher took ${elapsed}ms — health-check timeout may not be firing`);
+
+    const health = await fetch("http://localhost:4430/health").then((r) => r.json());
+    assert.equal(health.ok, true);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.on("exit", resolve));
+    stuckServer.close();
+  }
+});
+
+test("launcher rejects when port is held by a non-minimap HTTP server", async () => {
+  // Port held by a stranger that responds 200 but with the wrong shape.
+  // Bind on the same interface the minimap server uses (0.0.0.0 default), so
+  // the launcher's listenOnce() will hit EADDRINUSE — otherwise on Windows a
+  // 127.0.0.1 stranger and 0.0.0.0 minimap can coexist on the same port.
+  const stranger = http.createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ service: "not-minimap" }));
+  });
+  await new Promise((resolve, reject) => {
+    stranger.once("listening", resolve);
+    stranger.once("error", reject);
+    stranger.listen(4431);
+  });
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  // No registry — launcher will probe registry (null), set NO_PORT_FALLBACK,
+  // try to bind 4431, get EADDRINUSE, re-probe 4431, see non-minimap shape,
+  // exit 1 with "non-minimap process" message.
+  const repoRoot = await makeTempRepo();
+  const launcherPath = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+  );
+  const child = spawn(process.execPath, [launcherPath], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: "4431", MINIMAP_HOME: home },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  let stdout = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+
+  const exitCode = await new Promise((resolve) => child.on("exit", resolve));
+
+  try {
+    assert.equal(exitCode, 1, "launcher must exit 1 when port is held by a stranger");
+    assert.match(stderr, /non-minimap process/i, "stderr must explain why");
+    assert.doesNotMatch(stdout, /already running/i, "must not falsely claim 'already running'");
+  } finally {
+    stranger.close();
+  }
+});
+
+test("spec-session attach with a relative path fails when cwd is unrelated to the file's repo", async () => {
+  // Pinning the contract: when the launcher is started from /tmp/random and the
+  // CLI passes a relative path, attach resolves under cwd, not under the file's
+  // real repo. The test confirms a 404-equivalent error so anyone changing this
+  // behavior gets a fail signal.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const fileRepo = await makeTempRepo();
+  await fs.writeFile(path.join(fileRepo, "spec.md"), "# Spec\n", "utf8");
+
+  const unrelatedCwd = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cwd-"));
+  const child = await startServerOnPort(4432, { cwd: unrelatedCwd, env: { MINIMAP_HOME: home } });
+
+  try {
+    // Relative path: server resolves "spec.md" under unrelatedCwd, where it does not exist.
+    const relResp = await fetch("http://localhost:4432/api/spec-sessions/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: "spec.md" }),
+    });
+    assert.ok(
+      relResp.status >= 400 && relResp.status < 500,
+      `relative path must 4xx when cwd is wrong (got ${relResp.status})`,
+    );
+    const relBody = await relResp.json();
+    assert.ok(relBody.error, "must return an error body");
+
+    // Absolute path: server resolves directly to the file's real location and succeeds.
+    const absResp = await fetch("http://localhost:4432/api/spec-sessions/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: path.join(fileRepo, "spec.md") }),
+    });
+    assert.equal(absResp.status, 200, "absolute path must succeed regardless of cwd");
+    const absBody = await absResp.json();
+    assert.ok(absBody.session, "must return a session");
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("POST /api/shutdown returns 200, deletes registry, frees the port", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4433, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  // Sanity: registry exists, /health is ok.
+  await fs.access(path.join(home, "server.json"));
+  const healthResp = await fetch("http://localhost:4433/health");
+  assert.equal((await healthResp.json()).ok, true);
+
+  // Trigger graceful shutdown.
+  const stopResp = await fetch("http://localhost:4433/api/shutdown", { method: "POST" });
+  assert.equal(stopResp.status, 200);
+  const stopBody = await stopResp.json();
+  assert.equal(stopBody.shuttingDown, true);
+
+  // Wait for the server process to actually exit.
+  await new Promise((resolve) => child.on("exit", resolve));
+
+  // Registry should be gone (graceful path runs the same shutdown() helper).
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+
+  // Port should be free — fetching /health rejects with a connection error.
+  await assert.rejects(() => fetch("http://localhost:4433/health"));
+});
+
+test("stop-server.mjs gracefully stops a running server", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4434, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  const stopScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "stop-server.mjs",
+  );
+  const result = await new Promise((resolve, reject) => {
+    const stop = spawn(process.execPath, [stopScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    stop.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    stop.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    stop.on("exit", (code) => resolve({ code, stdout, stderr }));
+    stop.on("error", reject);
+  });
+
+  // The server child should have exited as a side-effect of /api/shutdown.
+  // Guard against the listener-attached-after-event race: child may already be
+  // gone by the time we await here.
+  if (child.exitCode === null && child.signalCode === null) {
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+
+  assert.equal(result.code, 0, `stop-server expected exit 0, got ${result.code} (stderr: ${result.stderr})`);
+  assert.match(result.stdout, /Minimap stopped/i);
+  assert.match(result.stdout, /4434/);
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+  await assert.rejects(() => fetch("http://localhost:4434/health"));
+});
+
+test("stop-server.mjs reports 'not running' when no registry exists", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const stopScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "stop-server.mjs",
+  );
+  const result = await new Promise((resolve) => {
+    const stop = spawn(process.execPath, [stopScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    stop.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    stop.on("exit", (code) => resolve({ code, stdout }));
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /not running/i);
+});
+
+test("stop-server.mjs cleans up stale registry pointing at a dead server", async () => {
+  // Registry points at a port nothing listens on. stop-server should detect
+  // the staleness, delete the file, and exit 0 without touching anything.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry(
+    { pid: 99997, port: 4435, startedAt: "2026-01-01T00:00:00Z", version: "0.0.0" },
+    { minimapHome: home },
+  );
+
+  const stopScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "stop-server.mjs",
+  );
+  const result = await new Promise((resolve) => {
+    const stop = spawn(process.execPath, [stopScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    stop.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    stop.on("exit", (code) => resolve({ code, stdout }));
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /stale registry/i);
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+});
+
+async function runStatusScript(home) {
+  const statusScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "status.mjs",
+  );
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, [statusScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+test("status.mjs exits 0 with port/pid/version when server is running", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4436, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const result = await runStatusScript(home);
+    assert.equal(result.code, 0, `status expected 0, got ${result.code} (stderr: ${result.stderr})`);
+    assert.match(result.stdout, /Minimap is running/i);
+    assert.match(result.stdout, /port:\s*4436/);
+    assert.match(result.stdout, /pid:\s*\d+/);
+    assert.match(result.stdout, /url:\s*http:\/\/localhost:4436/);
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("status.mjs exits 3 when registry is missing", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const result = await runStatusScript(home);
+  assert.equal(result.code, 3);
+  assert.match(result.stdout, /not running/i);
+});
+
+test("status.mjs exits 1 when registry is stale (server gone)", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry(
+    { pid: 99996, port: 4437, startedAt: "2026-01-01T00:00:00Z", version: "0.0.0" },
+    { minimapHome: home },
+  );
+  const result = await runStatusScript(home);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /stale/i);
+  assert.match(result.stderr, /4437/);
+  // status does NOT delete the registry — that's stop-server's job.
+  await fs.access(path.join(home, "server.json"));
+});
+
+test("restart-server.mjs cycles a running server: new pid, same port, healthy", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4438, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  const oldPid = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid;
+  assert.equal(typeof oldPid, "number");
+
+  const restartScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "restart-server.mjs",
+  );
+  const result = await new Promise((resolve) => {
+    const proc = spawn(process.execPath, [restartScript], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4438", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  // The original child should be gone.
+  if (child.exitCode === null && child.signalCode === null) {
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+
+  try {
+    assert.equal(result.code, 0, `restart expected exit 0, got ${result.code} (stderr: ${result.stderr})`);
+    assert.match(result.stdout, /Minimap restarted/i);
+    assert.match(result.stdout, /4438/);
+
+    // Registry now points at a different pid on the same port.
+    const newRegistry = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8"));
+    assert.equal(newRegistry.port, 4438);
+    assert.notEqual(newRegistry.pid, oldPid, "pid must change after restart");
+
+    const health = await fetch("http://localhost:4438/health").then((r) => r.json());
+    assert.equal(health.ok, true);
+  } finally {
+    // Clean up the detached server we just started.
+    try {
+      await fetch("http://localhost:4438/api/shutdown", { method: "POST" });
+    } catch { /* already gone */ }
+    // Wait briefly for it to finish exiting before the next test.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+});
+
+test("/api/workspace includes specSessionsByItemId when items have spec sessions", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4439, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    // Sanity: no sessions yet, map is empty.
+    const empty = await fetch("http://localhost:4439/api/workspace").then((r) => r.json());
+    assert.deepEqual(empty.specSessionsByItemId, {});
+
+    // Attach a spec session on feature-a (a known item from makeTempRepo).
+    const featurePath = path.join(repoRoot, "roadmap", "features", "feature-a.md");
+    const attach = await fetch("http://localhost:4439/api/spec-sessions/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: featurePath }),
+    });
+    assert.equal(attach.status, 200);
+
+    // Add an open comment so the count is non-zero.
+    const comment = await fetch("http://localhost:4439/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: featurePath, by: "tester", kind: "question", text: "thoughts?", scope: "global" }),
+    });
+    assert.equal(comment.status, 200);
+
+    // Workspace now includes the cross-link.
+    const populated = await fetch("http://localhost:4439/api/workspace").then((r) => r.json());
+    assert.ok(populated.specSessionsByItemId["feature-a"], "feature-a should be linked");
+    assert.equal(populated.specSessionsByItemId["feature-a"].openComments, 1);
+    assert.equal(populated.specSessionsByItemId["feature-a"].pendingSuggestions, 0);
+    assert.equal(typeof populated.specSessionsByItemId["feature-a"].sessionId, "string");
+    // idea-a never had a session attached.
+    assert.equal(populated.specSessionsByItemId["idea-a"], undefined);
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("/api/workspace specSessionsByItemId is empty when no sessions in MINIMAP_HOME", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4440, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const ws = await fetch("http://localhost:4440/api/workspace").then((r) => r.json());
+    assert.deepEqual(ws.specSessionsByItemId, {});
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("restart-server.mjs survives back-to-back restarts (Windows TIME_WAIT regression)", async () => {
+  // Earlier the script set MINIMAP_NO_PORT_FALLBACK=1 and waited only on
+  // /health to stop responding. On Windows the port can stay in TIME_WAIT
+  // for a moment after the old server exits, and the new bind() fails
+  // immediately. Two restarts in a row would intermittently fail with
+  // "New server did not come up on port X within 5000ms."
+  //
+  // Fix: poll for canBindPort, drop the port pin, and let listenOnAvailablePort
+  // tolerate the brief TIME_WAIT window. This regression test exercises the
+  // tight loop the original failure was reproducing.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4441, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  const restartScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "restart-server.mjs",
+  );
+
+  const runRestart = () => new Promise((resolve) => {
+    const proc = spawn(process.execPath, [restartScript], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4441", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  // Drop the original child's reference once it's been torn down by the first restart.
+  if (child.exitCode === null && child.signalCode === null) {
+    // First restart will SIGINT/POST-shutdown the original; await to avoid leaks.
+  }
+
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      const result = await runRestart();
+      assert.equal(result.code, 0, `restart #${i + 1} expected exit 0, got ${result.code} (stderr: ${result.stderr})`);
+      assert.match(result.stdout, /Minimap restarted/i, `restart #${i + 1} stdout: ${result.stdout}`);
+    }
+
+    // Final state should be a healthy server on 4441 (or one of its fallbacks if
+    // something else snatched the port — accept any responding minimap).
+    const status = await fetch("http://localhost:4441/health").then((r) => r.json()).catch(() => null);
+    assert.ok(status?.ok, "server should be healthy after the restart loop");
+  } finally {
+    // Clean up whatever server is currently running on the registry port.
+    try {
+      await fetch("http://localhost:4441/api/shutdown", { method: "POST" });
+    } catch { /* already gone */ }
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => child.on("exit", resolve));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
 });

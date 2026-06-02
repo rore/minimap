@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
@@ -10,6 +11,22 @@ const ideaCreatePath = path.join(process.cwd(), "roadmap", "ideas", "idea-create
 const derivedLensesFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-derived-roadmap-lenses.md");
 const configPath = path.join(process.cwd(), "roadmap.config.json");
 const setupSandboxPath = path.join(process.cwd(), "playwright-setup-roadmap");
+
+const repoHashParam = `repo=${encodeURIComponent(process.cwd())}`;
+
+function repoUrl(suffix = "") {
+  // suffix is either "" (root) or starts with "/#..." or "/#" (hash with item params).
+  // We want the repo= param to come FIRST in the hash so it's clearly visible.
+  if (!suffix || suffix === "/") {
+    return `/#${repoHashParam}`;
+  }
+  if (suffix.startsWith("/#")) {
+    const tail = suffix.slice(2); // strip the leading "/#"
+    return `/#${repoHashParam}&${tail}`;
+  }
+  // Anything else: prepend / and the hash.
+  return `${suffix}#${repoHashParam}`;
+}
 
 function extractHeadings(boardText) {
   return boardText
@@ -135,7 +152,7 @@ test.afterEach(async () => {
 });
 
 test("shows repo name and ASCII workspace summary in the header", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await expect(page).toHaveTitle(/Minimap.*minimap.*Roadmap/);
   await expect(page.locator("#repo-name")).toHaveText("minimap");
@@ -146,7 +163,7 @@ test("shows repo name and ASCII workspace summary in the header", async ({ page 
 
 test("shows guided setup state and can create a starter workspace", async ({ page }) => {
   await fs.writeFile(configPath, JSON.stringify({ roadmapPath: "playwright-setup-roadmap" }), "utf8");
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await expect(page.locator("#workspace-summary")).toContainText("Setup required");
   await expect(page.locator("#editor-title")).toContainText("Roadmap workspace needs setup");
@@ -161,7 +178,7 @@ test("shows guided setup state and can create a starter workspace", async ({ pag
 });
 test("keeps scope on the right side of the editor and narrower on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const editorBox = await page.locator(".editor-panel").boundingBox();
   const scopeBox = await page.locator(".scope-panel").boundingBox();
@@ -173,7 +190,7 @@ test("keeps scope on the right side of the editor and narrower on desktop", asyn
 });
 
 test("renders scope markdown instead of raw text", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await expect(page.locator("#scope-content ul li").first()).toContainText("keep the canonical minimap contract as small as possible");
   await expect(page.locator("#scope-content")).not.toContainText("- keep the canonical minimap contract as small as possible");
@@ -181,7 +198,7 @@ test("renders scope markdown instead of raw text", async ({ page }) => {
 
 test("allows resizing the scope panel on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const handle = page.locator("#scope-resizer");
   await expect(handle).toBeVisible();
@@ -210,7 +227,7 @@ test("allows resizing the scope panel on desktop", async ({ page }) => {
 
 test("keeps the board visible at medium widths and pushes scope below", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const boardBox = await page.locator('.board-panel').boundingBox();
   const editorBox = await page.locator('.editor-panel').boundingBox();
@@ -232,7 +249,7 @@ test("keeps the board visible at medium widths and pushes scope below", async ({
 
 test("renders a denser board rail on desktop", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const firstCard = page.locator(".board-item").first();
   await expect(firstCard).toBeVisible();
@@ -244,7 +261,7 @@ test("renders a denser board rail on desktop", async ({ page }) => {
 
 test("renders compact board group controls that stay on one row", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const firstHeader = page.locator(".board-group-header").first();
   const toggle = firstHeader.locator(".collapse-toggle");
@@ -269,7 +286,7 @@ test("renders compact board group controls that stay on one row", async ({ page 
 
 test("collapses scope into a narrow rail and gives space back to the editor", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const editorPanel = page.locator(".editor-panel");
   const scopePanel = page.locator(".scope-panel");
@@ -298,7 +315,7 @@ test("collapses scope into a narrow rail and gives space back to the editor", as
 });
 
 test("shows only the active editor pane for each mode", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await expect(page.locator('[data-mode-pane="structured"]')).toBeHidden();
   await expect(page.locator('[data-mode-pane="preview"]')).toBeVisible();
@@ -316,7 +333,7 @@ test("shows only the active editor pane for each mode", async ({ page }) => {
 });
 
 test("uses the tabs as the only mode chrome in the editor header", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await expect(page.locator("#editor-mode-pill")).toHaveCount(0);
   await expect(page.locator("#editor-mode-description")).toHaveCount(0);
@@ -330,7 +347,7 @@ test("uses the tabs as the only mode chrome in the editor header", async ({ page
 });
 
 test("edit mode starts with details collapsed so content shows earlier", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator('[data-editor-mode="structured"]').click();
 
   const details = page.locator(".metadata-details");
@@ -345,7 +362,7 @@ test("edit mode starts with details collapsed so content shows earlier", async (
 });
 
 test("edit mode stacks sections in one clean column and autosizes long content", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator('[data-editor-mode="structured"]').click();
   await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
   await expect(page.locator('[data-mode-pane="structured"]')).toBeVisible();
@@ -368,7 +385,7 @@ test("edit mode stacks sections in one clean column and autosizes long content",
 });
 
 test("opens another board item in read mode before entering edit mode", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const targetCard = page.locator('[data-item-id="feature-edit-board-and-scope"]');
   await expect(targetCard.locator('.board-item-overview')).toContainText('Add first-class editing for board.md and scope.md');
@@ -390,33 +407,33 @@ test("opens another board item in read mode before entering edit mode", async ({
 
 
 test("keeps the selected item in the URL so refresh returns to it", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
-  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
+  await expect(page).toHaveURL(/[#&]item=feature-edit-board-and-scope$/);
 
   await page.reload();
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
-  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
+  await expect(page).toHaveURL(/[#&]item=feature-edit-board-and-scope$/);
 });
 
 test("supports direct item links and back-forward navigation through the URL", async ({ page }) => {
-  await page.goto('/#item=feature-edit-board-and-scope&mode=structured');
+  await page.goto(repoUrl("/#item=feature-edit-board-and-scope&mode=structured"));
 
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
   await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
 
   await page.locator('[data-item-id="feature-search-and-filters"]').click();
-  await expect(page).toHaveURL(/#item=feature-search-and-filters$/);
+  await expect(page).toHaveURL(/[#&]item=feature-search-and-filters$/);
   await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
 
   await page.goBack();
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
-  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope&mode=structured$/);
+  await expect(page).toHaveURL(/[#&]item=feature-edit-board-and-scope&mode=structured$/);
 });
 
 test("collapses and expands a board section", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const firstGroup = page.locator(".board-group").first();
   const toggle = firstGroup.locator(".collapse-toggle");
@@ -433,7 +450,7 @@ test("reorders board sections and persists after reload", async ({ page }) => {
   const originalHeadings = extractHeadings(originalBoardText);
   expect(originalHeadings.length).toBeGreaterThan(1);
 
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const firstGroup = page.locator(".board-group").first();
   await expect(firstGroup.locator('[data-move-group="up"]')).toContainText("Up");
@@ -453,7 +470,7 @@ test("reorders board sections and persists after reload", async ({ page }) => {
 });
 
 test("saves optional milestone metadata and reflects it in the board", async ({ page }) => {
-  await page.goto("/#item=feature-setup-guidance");
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
 
@@ -471,7 +488,7 @@ test("renders extra sections from the item file in the structured editor", async
   const nextText = addExtraSection(addMilestone(originalFeatureText, "P3"), "Decision Locks", "- keep the file contract thin");
   await fs.writeFile(featurePath, nextText, "utf8");
 
-  await page.goto("/#item=feature-setup-guidance");
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await page.locator("#refresh-button").click();
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
@@ -484,7 +501,7 @@ test("renders extra sections from the item file in the structured editor", async
 test("edit mode renders the item's real section headings for repo-specific item shapes", async ({ page }) => {
   await fs.writeFile(featurePath, repoSpecificFeatureText, "utf8");
 
-  await page.goto("/#item=feature-setup-guidance");
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await page.locator("#refresh-button").click();
   await page.locator('[data-editor-mode="structured"]').click();
 
@@ -497,7 +514,7 @@ test("edit mode renders the item's real section headings for repo-specific item 
 });
 
 test("read mode shows the full item and reflects the current edit state", async ({ page }) => {
-  await page.goto('/#item=feature-setup-guidance&mode=structured');
+  await page.goto(repoUrl("/#item=feature-setup-guidance&mode=structured"));
 
   await page.locator('[data-section-heading="Summary"]').fill('Keep planning in the repo, show board changes clearly, and tighten review workflow.');
   await page.locator('[data-section-heading="Why"]').fill('Read mode should show the whole item while still reflecting the current edit state.');
@@ -514,7 +531,7 @@ test("read mode shows the full item and reflects the current edit state", async 
 test("renders and edits generic scalar metadata fields like lane", async ({ page }) => {
   await fs.writeFile(featurePath, addFrontmatterField(originalFeatureText, "lane", "integration-feedback"), "utf8");
 
-  await page.goto('/#item=feature-setup-guidance');
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await page.locator('#refresh-button').click();
 
   const boardCard = page.locator('[data-item-id="feature-setup-guidance"]').first();
@@ -547,7 +564,7 @@ test("renders nested and wrapped markdown list content in read mode", async ({ p
 
   await fs.writeFile(featurePath, replaceSectionContent(originalFeatureText, "In Scope", nestedInScope), "utf8");
 
-  await page.goto("/#item=feature-setup-guidance");
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await page.locator("#refresh-button").click();
 
   const section = page.locator(".preview-section", { has: page.locator("h2", { hasText: "In Scope" }) });
@@ -561,7 +578,7 @@ test("renders nested and wrapped markdown list content in read mode", async ({ p
   expect(html).not.toContain("</li><p>prior events</p>");
 });
 test("prompts before discarding unsaved structured changes when switching items from the board", async ({ page }) => {
-  await page.goto('/#item=feature-setup-guidance&mode=structured');
+  await page.goto(repoUrl("/#item=feature-setup-guidance&mode=structured"));
   await openMetadataDetails(page);
   await page.locator('#field-title').fill('Unsaved setup title');
 
@@ -572,7 +589,7 @@ test("prompts before discarding unsaved structured changes when switching items 
   await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
 
   await expect(page.locator('#field-title')).toHaveValue('Unsaved setup title');
-  await expect(page).toHaveURL(/#item=feature-setup-guidance&mode=structured$/);
+  await expect(page).toHaveURL(/[#&]item=feature-setup-guidance&mode=structured$/);
 
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toContain('Discard unsaved item changes');
@@ -580,13 +597,13 @@ test("prompts before discarding unsaved structured changes when switching items 
   });
   await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
 
-  await expect(page).toHaveURL(/#item=feature-edit-board-and-scope$/);
+  await expect(page).toHaveURL(/[#&]item=feature-edit-board-and-scope$/);
   await expect(page.locator('#tab-preview')).toHaveClass(/is-active/);
   await expect(page.locator('#save-button')).toBeHidden();
 });
 
 test("inline edit mode shows cancel beside save and discards changes back to read", async ({ page }) => {
-  await page.goto("/#item=feature-setup-guidance&mode=structured");
+  await page.goto(repoUrl("/#item=feature-setup-guidance&mode=structured"));
 
   await expect(page.locator("#editor-cancel-button")).toBeVisible();
   await openMetadataDetails(page);
@@ -601,7 +618,7 @@ test("inline edit mode shows cancel beside save and discards changes back to rea
 });
 
 test("raw mode saves full-file edits", async ({ page }) => {
-  await page.goto("/#item=feature-setup-guidance");
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
 
   await page.locator('[data-editor-mode="raw"]').click();
   await page.locator("#raw-text").fill(replaceTitle(originalFeatureText, "Search roadmap items through raw mode"));
@@ -617,7 +634,7 @@ test("raw mode saves full-file edits", async ({ page }) => {
 });
 
 test("refresh reloads the workspace after an external file edit", async ({ page }) => {
-  await page.goto("/#item=feature-setup-guidance");
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
 
   const changedTitle = "Search roadmap items with guided setup";
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, changedTitle), "utf8");
@@ -632,7 +649,7 @@ test("refresh reloads the workspace after an external file edit", async ({ page 
 
 test("edits scope from the UI and saves markdown back to scope.md", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator("#scope-edit-button").click();
   await expect(page.locator("#scope-toggle")).toBeHidden();
@@ -649,7 +666,7 @@ test("edits scope from the UI and saves markdown back to scope.md", async ({ pag
 });
 
 test("edits board groups, moves items, and saves the updated board", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator("#board-edit-button").click();
   await page.locator('[data-board-group-name="0"]').fill("Ready");
@@ -667,7 +684,7 @@ test("edits board groups, moves items, and saves the updated board", async ({ pa
 });
 
 test("moves an item to another board group from the structured editor and saves board.md", async ({ page }) => {
-  await page.goto("/#item=idea-timeline-view&mode=structured");
+  await page.goto(repoUrl("/#item=idea-timeline-view&mode=structured"));
 
   await openMetadataDetails(page);
   await page.locator("#field-board-group").selectOption({ label: "Next" });
@@ -684,7 +701,7 @@ test("moves an item to another board group from the structured editor and saves 
 
 test("prioritizes the selected item before the board on a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const boardBox = await page.locator(".board-panel").boundingBox();
   const editorBox = await page.locator(".editor-panel").boundingBox();
@@ -701,7 +718,7 @@ test("prioritizes the selected item before the board on a narrow viewport", asyn
 
 test("mobile scope toggle collapses and expands the scope panel", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const scopePanel = page.locator(".scope-panel");
   const scopeToggle = page.locator("#scope-toggle");
@@ -722,7 +739,7 @@ test("mobile scope toggle collapses and expands the scope panel", async ({ page 
 
 test("stacked layout provides working jumps between board and item", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await expect(page.locator("#jump-to-board")).toBeVisible();
   await page.locator("#jump-to-board").click();
@@ -741,7 +758,7 @@ test("stacked layout provides working jumps between board and item", async ({ pa
 
 test("selecting a board item in stacked layout returns focus to the editor", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator(".board-panel").scrollIntoViewIfNeeded();
   await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
@@ -757,7 +774,7 @@ test("search filters the grouped board by item body text and persists in the URL
   const nextText = originalSearchFeatureText.replace("Add fast search plus dynamic filter controls", "Add fast search plus dynamic filter controls for lighthouse review");
   await fs.writeFile(searchFeaturePath, nextText, "utf8");
 
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator("#board-search").fill("lighthouse review");
 
@@ -771,7 +788,7 @@ test("search filters the grouped board by item body text and persists in the URL
 });
 
 test("generic metadata filters render from file frontmatter and combine with search", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator("#board-filter-toggle").click();
   await expect(page.locator('[data-filter-key="commitment"][data-filter-value="committed"]')).toBeVisible();
@@ -797,7 +814,7 @@ test("generic metadata filters render from file frontmatter and combine with sea
   await expect(page).not.toHaveURL(/f=commitment%3Auncommitted/);
 });
 test("switches to the status lens, hides board editing, and restores from the URL", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
@@ -819,7 +836,7 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="milestone"]').click();
@@ -842,7 +859,7 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
 
 test("anchors the group-by chooser to the trigger instead of the far board edge", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
 
@@ -855,7 +872,7 @@ test("anchors the group-by chooser to the trigger instead of the far board edge"
   expect((chooserBox?.y ?? 0)).toBeGreaterThan((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) - 6);
 });
 test("status columns keep empty built-in lanes visible in columns mode", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="status"]').click();
@@ -869,7 +886,7 @@ test("status columns keep empty built-in lanes visible in columns mode", async (
   await expect(page.locator(".board-column").nth(2).locator(".board-column-empty")).toContainText("No visible items.");
 });
 test("dragging an item in the status lens updates the canonical frontmatter", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
 
@@ -895,7 +912,7 @@ test("dragging an item in the status lens updates the canonical frontmatter", as
 });
 test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const modeRow = page.locator(".board-mode-row");
   const groupBy = page.locator("#board-view-toggle");
@@ -921,7 +938,7 @@ test("uses a board-first columns layout when many groups are visible", async ({ 
   await fs.writeFile(boardPath, sixGroupBoard, "utf8");
 
   await page.setViewportSize({ width: 1180, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator("#board-layout-columns").click();
 
@@ -942,7 +959,7 @@ test("opens a card in an overlay from columns and keeps the full title as a tool
   const longTitle = "Add a recurring-question value benchmark with a long descriptive title that still needs the full tooltip";
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, longTitle), "utf8");
 
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator("#board-layout-columns").click();
 
@@ -969,7 +986,7 @@ test("overlay scroll locks the page background and scrolls the item instead", as
   await fs.writeFile(featurePath, addExtraSection(originalFeatureText, "Overlay Scroll Notes", longNotes), "utf8");
 
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
@@ -1007,7 +1024,7 @@ test("overlay scroll locks the page background and scrolls the item instead", as
   expect(after.previewScroll).toBeGreaterThan(before.previewScroll + 40);
 });
 test("overlay edit mode shows cancel beside save and returns to read mode", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
 
@@ -1027,7 +1044,7 @@ test("overlay edit mode shows cancel beside save and returns to read mode", asyn
 
 test("switches to columns layout, keeps the lens, and restores from the URL", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
@@ -1058,7 +1075,7 @@ test("switches to columns layout, keeps the lens, and restores from the URL", as
 });
 
 test("dragging between board columns rewrites the canonical board groups", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await expect(page.locator('[data-drag-item-id="idea-parent-grouping-overview"]')).toBeVisible();
   await expect(page.locator('[data-board-drop-group-index="1"]').first()).toBeVisible();
@@ -1089,7 +1106,7 @@ test("dragging within a board column reprioritizes items in canonical board orde
 `;
   await fs.writeFile(boardPath, customBoard, "utf8");
 
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator("#board-layout-columns").click();
   await expect(page.locator('[data-drag-item-id="feature-setup-guidance"]')).toBeVisible();
@@ -1106,7 +1123,7 @@ test("dragging within a board column reprioritizes items in canonical board orde
 });
 
 test("dragging between status columns uses the handle and updates the canonical frontmatter", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="status"]').click();
@@ -1126,7 +1143,7 @@ test("milestone columns stay browse-only without drag handles", async ({ page })
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#refresh-button").click();
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
@@ -1139,7 +1156,7 @@ test("milestone columns stay browse-only without drag handles", async ({ page })
 
 test("lets a crowded desktop column scroll inside the lane", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 720 });
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
 
   const doneColumn = page.locator(".board-column").filter({ has: page.locator(".board-column-name", { hasText: "Done" }) }).first();
@@ -1164,7 +1181,7 @@ test("lets a crowded desktop column scroll inside the lane", async ({ page }) =>
 
 test("mobile list view keeps board mode and search rows stacked cleanly", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 900 });
-  await page.goto("/");
+  await page.goto(repoUrl());
 
   const modeRow = page.locator(".board-mode-row");
   const groupBy = page.locator("#board-view-toggle");
@@ -1193,7 +1210,7 @@ test("mobile list view keeps board mode and search rows stacked cleanly", async 
 
 test("mobile columns view stays usable for grouping and opening items", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 900 });
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="status"]').click();
@@ -1220,7 +1237,7 @@ test("mobile columns view stays usable for grouping and opening items", async ({
 });
 
 test("uses restrained semantic badge tones without coloring every field", async ({ page }) => {
-  await page.goto("/");
+  await page.goto(repoUrl());
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="priority"]').click();
@@ -1236,4 +1253,167 @@ test("uses restrained semantic badge tones without coloring every field", async 
 
   await page.locator('[data-item-open="feature-column-board-view"]').first().click();
   await expect(page.locator('.preview-meta .badge').first()).toHaveClass(/badge-tone-status-done/);
+});
+
+test("repo= URL hash param survives item-click navigation", async ({ page }) => {
+  await page.goto(repoUrl());
+
+  // Wait for the board to be visible (proxies for "workspace loaded").
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  // Click any board item that should be present.
+  const firstItem = page.locator(".board-item").first();
+  await firstItem.click();
+
+  // After click, the hash should still include repo=.
+  const hash = await page.evaluate(() => window.location.hash);
+  expect(hash).toContain("repo=");
+  expect(decodeURIComponent(hash)).toContain(process.cwd());
+});
+
+test("changing #repo= reloads the workspace for the new repo", async ({ page }) => {
+  // Create a separate sandbox repo on disk with its own roadmap/ shape.
+  const sandboxRepo = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-pw-multirepo-"));
+  await fs.mkdir(path.join(sandboxRepo, "roadmap", "features"), { recursive: true });
+  await fs.mkdir(path.join(sandboxRepo, "roadmap", "ideas"), { recursive: true });
+  await fs.writeFile(path.join(sandboxRepo, "roadmap", "board.md"), "# Now\n", "utf8");
+  await fs.writeFile(path.join(sandboxRepo, "roadmap", "scope.md"), "Sandbox focus.\n", "utf8");
+
+  try {
+    // First load: minimap repo (process.cwd()).
+    await page.goto(repoUrl());
+    await expect(page.locator("#mode-title")).toContainText("Roadmap");
+    const initialHeader = await page.locator("#repo-name").textContent();
+    expect(initialHeader).toBe(path.basename(process.cwd()));
+
+    // Update the URL hash to point at the sandbox repo (full absolute path).
+    await page.evaluate((repo) => {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      params.set("repo", repo);
+      window.location.hash = `#${params.toString()}`;
+    }, sandboxRepo);
+
+    // The UI must re-fetch the workspace and render the sandbox repo's name.
+    await page.waitForFunction(
+      (expected) => document.querySelector("#repo-name")?.textContent === expected,
+      path.basename(sandboxRepo),
+      { timeout: 5000 },
+    );
+    await expect(page.locator("#repo-name")).toHaveText(path.basename(sandboxRepo));
+  } finally {
+    await fs.rm(sandboxRepo, { recursive: true, force: true });
+  }
+});
+
+test("Review button on a roadmap item opens it as a spec session", async ({ page }) => {
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  // Open any item — the first board item works.
+  const firstItem = page.locator(".board-item").first();
+  await firstItem.click();
+
+  // Editor header gains a Review button only when an item is loaded.
+  const reviewButton = page.locator("#open-in-spec-button");
+  await expect(reviewButton).toBeVisible();
+  await reviewButton.click();
+
+  // Switches to spec mode and the spec session for this item is selected.
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  // Banner reflects the attach (created or reopened).
+  await expect(page.locator("#status-banner")).toContainText(/Spec session (attached|reopened)/i);
+
+  // The hash should still contain repo= and now also view=spec & file=...
+  const hash = await page.evaluate(() => window.location.hash);
+  expect(hash).toContain("repo=");
+  expect(hash).toContain("view=spec");
+  expect(hash).toContain("file=");
+});
+
+test("board badge appears on items with an active spec session", async ({ page }) => {
+  // Open the UI, click an item, click Review to open it as a spec session.
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  const firstItem = page.locator(".board-item").first();
+  const firstItemId = await firstItem.getAttribute("data-item-id");
+  await firstItem.click();
+  await expect(page.locator("#open-in-spec-button")).toBeVisible();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+
+  // Add a global comment so openComments > 0.
+  // Easier path: hit the API directly with the active repo header.
+  const repoPath = process.cwd();
+  // Find the spec session targetFile from the spec list.
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  await page.evaluate(async (file) => {
+    await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "tester", kind: "question", text: "?", scope: "global" }),
+    });
+  }, targetFile);
+
+  // Go back to roadmap and verify the badge shows up on the item.
+  // applyRouteStateFromLocation refreshes the workspace when leaving spec mode,
+  // so the spec-session counts reach the board renderer.
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  const badge = page.locator(`[data-item-id="${firstItemId}"] .board-item-spec-badge`);
+  await expect(badge).toBeVisible({ timeout: 5000 });
+  await expect(badge).toContainText("1");
+});
+
+test("spec session of a roadmap item strips YAML frontmatter from the rendered body", async ({ page }) => {
+  // Open a roadmap item, click Review to open it as a spec session, then
+  // check that the rendered body does not contain frontmatter keys like
+  // `id:` / `title:` / `status:` (which would mean the YAML block was being
+  // rendered as text).
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  await page.locator(".board-item").first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+
+  // Wait for the file body to render.
+  const body = page.locator(".spec-body-markdown");
+  await expect(body).toBeVisible({ timeout: 5000 });
+
+  const bodyText = await body.textContent();
+  // Roadmap items always start with id/title/status/priority/commitment in
+  // the YAML block. None of these should reach the rendered body.
+  expect(bodyText, "frontmatter id should not be in body").not.toMatch(/^\s*id:\s/m);
+  expect(bodyText, "frontmatter title should not be in body").not.toMatch(/title:\s/);
+  expect(bodyText, "frontmatter status should not be in body").not.toMatch(/^\s*status:\s/m);
+
+  // Sanity: the body SHOULD contain real section headings from the file.
+  expect(bodyText).toMatch(/Summary/i);
+});
+
+test("spec session of a roadmap item shows the same title + badges as the roadmap Read view", async ({ page }) => {
+  // Open the roadmap item first to capture the roadmap-mode header values.
+  await page.goto(repoUrl());
+  await page.locator(".board-item").first().click();
+  // Read mode is the default editor mode; the preview surface holds the title + badges.
+  const expectedTitle = (await page.locator(".preview-title").first().textContent())?.trim() ?? "";
+  expect(expectedTitle.length, "roadmap preview should have a title").toBeGreaterThan(0);
+  const expectedBadgesRaw = (await page.locator(".preview-meta").first().textContent()) ?? "";
+  // Normalize whitespace; the spec doc renders the same badge HTML.
+  const normalizeBadgeText = (s) => s.replace(/\s+/g, " ").trim();
+  const expectedBadges = normalizeBadgeText(expectedBadgesRaw);
+  expect(expectedBadges.length, "roadmap preview should have at least one badge").toBeGreaterThan(0);
+
+  // Now open the same item as a spec session.
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  const specTitle = (await page.locator(".spec-doc-title").textContent())?.trim() ?? "";
+  const specBadges = normalizeBadgeText(await page.locator(".spec-doc-meta").textContent() ?? "");
+  expect(specTitle, "spec doc title should match roadmap preview title").toBe(expectedTitle);
+  expect(specBadges, "spec doc badges should match roadmap preview badges").toBe(expectedBadges);
 });

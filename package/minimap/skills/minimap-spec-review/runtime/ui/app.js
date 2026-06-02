@@ -29,6 +29,7 @@ const EDITOR_MODES = new Set(["preview", "structured", "raw"]);
 
 const state = {
   appMode: "roadmap",
+  repoPath: "",
   workspace: null,
   setupState: null,
   selectedItemId: null,
@@ -167,6 +168,7 @@ const editorOverlayElement = document.querySelector("#editor-overlay");
 const editorOverlaySlotElement = document.querySelector("#editor-overlay-slot");
 const editorOverlayBackdrop = document.querySelector("#editor-overlay-backdrop");
 const editorCancelButton = document.querySelector("#editor-cancel-button");
+const openInSpecButton = document.querySelector("#open-in-spec-button");
 const editorOverlayCloseButton = document.querySelector("#editor-overlay-close");
 const saveButton = document.querySelector("#save-button");
 const refreshButton = document.querySelector("#refresh-button");
@@ -303,6 +305,75 @@ function renderInlineMarkdown(value) {
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
   return html;
+}
+
+function stripLeadingFrontmatter(text) {
+  // YAML frontmatter at the start of a markdown file: a `---` fence on its
+  // own line, then arbitrary content, then a closing `---` fence. We render
+  // the body only; the frontmatter is structured metadata that the roadmap
+  // mode surfaces separately, and bare YAML rendered as markdown produces
+  // the noisy "id: ... title: ... labels:" paragraphs we want to avoid.
+  return String(text || "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+}
+
+function parseLeadingFrontmatter(text) {
+  // Lightweight client-side parser for the common shape: `key: value` per
+  // line, plus YAML-style list values written as either inline `[a, b]` or
+  // on subsequent indented `- item` lines (which is how `labels:` looks).
+  // We ignore anything more exotic — the server is the source of truth for
+  // strict parsing; this is only used for the spec view's metadata header.
+  const match = String(text || "").match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return null;
+  const lines = match[1].split(/\r?\n/);
+  const metadata = {};
+  let currentKey = null;
+  for (const line of lines) {
+    const keyMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (keyMatch) {
+      const key = keyMatch[1];
+      const rest = keyMatch[2].trim();
+      if (rest === "" || rest === "[]") {
+        metadata[key] = rest === "[]" ? [] : "";
+        currentKey = key;
+        continue;
+      }
+      // Inline list: [a, b, c]
+      const inlineList = rest.match(/^\[(.*)\]$/);
+      if (inlineList) {
+        metadata[key] = inlineList[1].split(",").map((s) => s.trim()).filter(Boolean);
+        currentKey = null;
+        continue;
+      }
+      // Plain scalar; trim surrounding quotes so badge text reads cleanly.
+      metadata[key] = rest.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+      currentKey = null;
+      continue;
+    }
+    // Continuation of a list value: an indented `- item` line.
+    const listItemMatch = line.match(/^\s+-\s+(.+)$/);
+    if (listItemMatch && currentKey) {
+      const value = listItemMatch[1].trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+      if (!Array.isArray(metadata[currentKey])) {
+        metadata[currentKey] = metadata[currentKey] === "" || metadata[currentKey] === undefined ? [] : [metadata[currentKey]];
+      }
+      metadata[currentKey].push(value);
+    }
+  }
+  return metadata;
+}
+
+function buildSpecDocHeaderHtml(frontmatter) {
+  // Mirror the roadmap "Read" view header: a big title, then a row of
+  // canonical metadata pills. Render only when the file's frontmatter
+  // actually contains values worth showing — otherwise return empty so
+  // a plain spec/note file stays clean.
+  if (!frontmatter || typeof frontmatter !== "object") return "";
+  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : "";
+  const badges = renderMetadataBadges(frontmatter);
+  if (!title && !badges) return "";
+  const titleHtml = title ? `<h1 class="spec-doc-title">${escapeHtml(title)}</h1>` : "";
+  const badgesHtml = badges ? `<div class="spec-doc-meta">${badges}</div>` : "";
+  return `<header class="spec-doc-header">${titleHtml}${badgesHtml}</header>`;
 }
 
 function renderMarkdownToHtml(markdown) {
@@ -1251,11 +1322,16 @@ function readRouteState() {
     layout: normalizeBoardLayout(params.get("layout") || DEFAULT_BOARD_LAYOUT),
     query: normalizeSearchQuery(params.get("q") || ""),
     filters: parseRouteFilters(params),
+    repo: params.get("repo") || "",
   };
 }
 
 function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) {
   const params = new URLSearchParams();
+
+  if (state.repoPath) {
+    params.set("repo", state.repoPath);
+  }
 
   if (state.appMode === "spec") {
     params.set("view", "spec");
@@ -1606,6 +1682,14 @@ function renderEditorChrome() {
   if (editorOverlayCloseButton) {
     editorOverlayCloseButton.hidden = true;
     editorOverlayCloseButton.disabled = true;
+  }
+
+  if (openInSpecButton) {
+    // The Review button stays visible in every editor mode while an item is
+    // loaded — it opens a spec session on the item file regardless of whether
+    // the user is in read, edit, or raw mode.
+    openInSpecButton.hidden = setupMode || !hasItem;
+    openInSpecButton.disabled = !hasItem;
   }
 
   if (setupMode) {
@@ -2134,6 +2218,10 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
 
   const metaHtml = metaParts.length > 0 ? `<span class="board-item-meta">${metaParts.join("")}</span>` : "";
   const overview = item.overviewExcerpt ? `<span class="board-item-overview">${escapeHtml(item.overviewExcerpt)}</span>` : "";
+  const specLink = state.workspace?.specSessionsByItemId?.[item.id];
+  const specBadge = specLink
+    ? `<span class="board-item-spec-badge" title="${escapeHtml(buildSpecBadgeTitle(specLink))}" aria-label="${escapeHtml(buildSpecBadgeTitle(specLink))}">💬 ${specLink.openComments}${specLink.pendingSuggestions > 0 ? ` · ✎ ${specLink.pendingSuggestions}` : ""}</span>`
+    : "";
 
   return `
     <span class="board-item-top">
@@ -2142,8 +2230,22 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
     </span>
     <span class="board-item-id">${escapeHtml(item.id)}</span>
     ${overview}
-    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}</span>
+    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}${specBadge}</span>
   `;
+}
+
+function buildSpecBadgeTitle(specLink) {
+  const parts = [];
+  if (specLink.openComments > 0) {
+    parts.push(`${specLink.openComments} open comment${specLink.openComments === 1 ? "" : "s"}`);
+  }
+  if (specLink.pendingSuggestions > 0) {
+    parts.push(`${specLink.pendingSuggestions} pending suggestion${specLink.pendingSuggestions === 1 ? "" : "s"}`);
+  }
+  if (parts.length === 0) {
+    return "Spec session attached";
+  }
+  return `Spec session: ${parts.join(", ")}`;
 }
 
 function buildBoardGroupsPayload(boardGroups = state.workspace?.boardGroups ?? []) {
@@ -3045,7 +3147,25 @@ function renderItem(item) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const isRoadmapEndpoint =
+    url.startsWith("/api/workspace")
+    || url.startsWith("/api/board")
+    || url.startsWith("/api/scope")
+    || url.startsWith("/api/items/")
+    || url.startsWith("/api/setup/");
+
+  let finalOptions = options;
+  // Empty state.repoPath is deliberate single-repo cwd-fallback mode — the server
+  // resolves to its own cwd. Don't "fix" this by sending an empty header; do that
+  // and any user without #repo= will get a 400 if the server is launched from a
+  // directory unrelated to the repo they expect to see.
+  if (isRoadmapEndpoint && state.repoPath) {
+    const headers = new Headers(options.headers || {});
+    headers.set("X-Minimap-Repo", state.repoPath);
+    finalOptions = { ...options, headers };
+  }
+
+  const response = await fetch(url, finalOptions);
   const payload = await response.json();
 
   if (!response.ok) {
@@ -3872,9 +3992,18 @@ function renderSpecFile() {
   specFileTitleElement.textContent = context.session.title || "File";
   specFileSubtitleElement.textContent = context.session.relativePath || context.session.targetFile;
   specFileContentElement.className = context.session.markdown ? "spec-body spec-body-markdown" : "spec-body spec-body-plain";
-  specFileContentElement.innerHTML = context.session.markdown
-    ? renderMarkdownToHtml(state.spec.content)
-    : `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
+  if (context.session.markdown) {
+    const frontmatter = parseLeadingFrontmatter(state.spec.content);
+    const headerHtml = buildSpecDocHeaderHtml(frontmatter);
+    // If the frontmatter has a title, mirror it into the toolbar slot so the
+    // tab title and the doc heading agree. Roadmap items reach this branch.
+    if (frontmatter && typeof frontmatter.title === "string" && frontmatter.title.trim()) {
+      specFileTitleElement.textContent = frontmatter.title.trim();
+    }
+    specFileContentElement.innerHTML = headerHtml + renderMarkdownToHtml(stripLeadingFrontmatter(state.spec.content));
+  } else {
+    specFileContentElement.innerHTML = `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
+  }
 
   // Wrap quote-anchored ranges so they're hoverable + clickable.
   decorateSpecAnchors();
@@ -4680,6 +4809,42 @@ async function refreshSpecReviewState(options = {}) {
   }
 }
 
+// Build an absolute filesystem path by combining the active repo with a
+// repo-relative path. Tolerant of mixed separators because state.repoPath
+// can be a Windows path while the relative side comes from server JSON
+// (which uses path.relative — also platform-dependent). Server-side
+// path.resolve handles either as long as we don't mash a leading "/" into
+// a Windows root.
+function joinRepoPath(repoPath, relPath) {
+  if (!repoPath) return relPath;
+  if (!relPath) return repoPath;
+  const trimmedRepo = repoPath.replace(/[\\/]+$/, "");
+  const trimmedRel = relPath.replace(/^[\\/]+/, "");
+  // Use the separator the repo path is already using; default to / for portability.
+  const sep = trimmedRepo.includes("\\") ? "\\" : "/";
+  return `${trimmedRepo}${sep}${trimmedRel}`;
+}
+
+async function openCurrentItemAsSpecSession() {
+  const item = state.currentItem;
+  if (!item || !item.filePath) {
+    setBanner("No item is loaded.", "error");
+    return;
+  }
+  // item.filePath is repo-relative (path.relative(repoRoot, item.filePath) on
+  // the server). Build the absolute path so the spec-session attach succeeds
+  // regardless of the server's cwd.
+  const absolutePath = state.repoPath
+    ? joinRepoPath(state.repoPath, item.filePath)
+    : item.filePath;
+  try {
+    await switchAppMode("spec");
+    await attachSpecSession(absolutePath);
+  } catch (error) {
+    setBanner(error.message || "Could not open spec session for this item.", "error");
+  }
+}
+
 async function attachSpecSession(filePath) {
   const result = await fetchJson("/api/spec-sessions/attach", {
     method: "POST",
@@ -4971,6 +5136,11 @@ async function syncVisibleSelection(options = {}) {
 
 async function applyRouteStateFromLocation() {
   const route = readRouteState();
+  const repoChanged = route.repo && route.repo !== state.repoPath;
+  const exitedSpecMode = state.appMode === "spec" && route.view !== "spec";
+  if (route.repo) {
+    state.repoPath = route.repo;
+  }
   if (route.view === "spec") {
     state.appMode = "spec";
     state.spec.selectedPath = route.specFile || state.spec.selectedPath;
@@ -4992,6 +5162,17 @@ async function applyRouteStateFromLocation() {
   if (nextMode !== state.editorMode) {
     state.editorMode = nextMode;
     applyEditorMode();
+  }
+
+  // If the URL points at a different repo than what state currently holds,
+  // reload the workspace before reconciling selection. Without this, navigating
+  // to a new #repo=... silently keeps showing the previous repo's data.
+  // Same applies when leaving spec mode: spec sessions may have changed while
+  // the user was in spec mode, so the badge counts in workspace.specSessionsByItemId
+  // need a refresh.
+  if (repoChanged || exitedSpecMode) {
+    await loadWorkspace(route.itemId || "", { syncRoute: false });
+    return;
   }
 
   await syncVisibleSelection({
@@ -6059,6 +6240,10 @@ editorCancelButton?.addEventListener("click", () => {
   cancelCurrentItemEdits();
 });
 
+openInSpecButton?.addEventListener("click", () => {
+  void openCurrentItemAsSpecSession();
+});
+
 form.addEventListener("input", (event) => {
   if (event.target instanceof HTMLTextAreaElement) {
     autosizeTextarea(event.target);
@@ -6115,6 +6300,17 @@ window.setInterval(() => {
 
 resetEditor();
 const initialRoute = readRouteState();
+state.repoPath = initialRoute.repo || "";
+if (state.repoPath && repoNameElement) {
+  // Best-effort: extract the trailing path segment as a placeholder.
+  // /api/workspace will overwrite with the canonical name when it loads.
+  const segments = state.repoPath.replaceAll("\\", "/").split("/").filter(Boolean);
+  const placeholderName = segments[segments.length - 1] || "";
+  if (placeholderName) {
+    repoNameElement.textContent = placeholderName;
+    document.title = `Minimap — ${placeholderName}`;
+  }
+}
 state.appMode = initialRoute.view === "spec" ? "spec" : "roadmap";
 state.spec.selectedPath = initialRoute.specFile;
 applyAppMode();

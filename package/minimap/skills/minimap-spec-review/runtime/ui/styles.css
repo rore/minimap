@@ -291,6 +291,20 @@ h3 {
   gap: 5px;
 }
 
+.board-item-spec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  font-size: 0.78em;
+  font-weight: 500;
+  border-radius: 999px;
+  background: var(--accent-subtle, rgba(82, 113, 255, 0.13));
+  color: var(--accent, #4a63d6);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
 .ghost-button,
 .primary-button,
 .order-button,
@@ -933,6 +947,24 @@ h3 {
 }
 .spec-file-error-card h2 { margin: 0 0 10px; font-size: 1.1rem; }
 .spec-file-error-card p { margin: 0 0 12px; color: var(--spec-muted); }
+
+.spec-doc-header {
+  margin: 0 0 24px;
+}
+.spec-doc-title {
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--spec-text);
+  margin: 0 0 12px;
+}
+.spec-doc-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
 
 .spec-body h1 {
   font-size: 1.7rem;
