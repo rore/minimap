@@ -2516,3 +2516,55 @@ test("status.mjs exits 1 when registry is stale (server gone)", async () => {
   // status does NOT delete the registry — that's stop-server's job.
   await fs.access(path.join(home, "server.json"));
 });
+
+test("restart-server.mjs cycles a running server: new pid, same port, healthy", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4438, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  const oldPid = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid;
+  assert.equal(typeof oldPid, "number");
+
+  const restartScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "restart-server.mjs",
+  );
+  const result = await new Promise((resolve) => {
+    const proc = spawn(process.execPath, [restartScript], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4438", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  // The original child should be gone.
+  if (child.exitCode === null && child.signalCode === null) {
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+
+  try {
+    assert.equal(result.code, 0, `restart expected exit 0, got ${result.code} (stderr: ${result.stderr})`);
+    assert.match(result.stdout, /Minimap restarted/i);
+    assert.match(result.stdout, /4438/);
+
+    // Registry now points at a different pid on the same port.
+    const newRegistry = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8"));
+    assert.equal(newRegistry.port, 4438);
+    assert.notEqual(newRegistry.pid, oldPid, "pid must change after restart");
+
+    const health = await fetch("http://localhost:4438/health").then((r) => r.json());
+    assert.equal(health.ok, true);
+  } finally {
+    // Clean up the detached server we just started.
+    try {
+      await fetch("http://localhost:4438/api/shutdown", { method: "POST" });
+    } catch { /* already gone */ }
+    // Wait briefly for it to finish exiting before the next test.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+});
