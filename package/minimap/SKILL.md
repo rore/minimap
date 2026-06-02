@@ -21,4 +21,8 @@ Minimap is a local workbench for repo planning and spec review. It exposes two c
 
 Roadmap work updates files inside the host repo and treats those files as canonical. Spec sessions attach to one external target file, store collaboration state in a global local minimap home, and never modify the target file unless the user explicitly applies a previewed suggestion. The two flows have different ownership and different guardrails, so they live as separate skills with separate references.
 
-Use whichever skill fits the task. Do not use the roadmap skill for arbitrary spec review, and do not use the spec-review skill to mutate roadmap files.
+## How They Compose
+
+The two skills are not mutually exclusive — they layer. A roadmap item is just a markdown file: `roadmap/features/<id>.md` or `roadmap/ideas/<id>.md`. To collaborate around one specific item's content (comments, suggestions, anchored discussion), attach that file as a spec session. The roadmap skill keeps managing the file's role in planning (status, board placement, scope); the spec-review skill manages the conversation around its content. Spec sessions never auto-mutate the file, so layering is safe.
+
+Use `minimap-roadmap` to plan, prioritize, and update roadmap state. Use `minimap-spec-review` for review threads on a specific spec, design, or roadmap item file.

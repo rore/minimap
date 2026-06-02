@@ -26,6 +26,10 @@ The UI is only a lens over those files. Agents and humans must operate on the sa
 
 A single running minimap server can serve roadmap for any number of repos. The launcher detects an already-running instance and reuses it; switching repos in the UI means changing the `repo=` value in the URL.
 
+## Collaborate On A Specific Item
+
+A roadmap item is just a markdown file. To open a review thread on one specific item (anchored comments, suggestions, replies), attach the item file as a spec session via [`minimap-spec-review`](../minimap-spec-review/SKILL.md). The roadmap skill keeps managing the item's role in planning; the spec-review skill manages the conversation around its content. Spec sessions never auto-mutate the file, so the two layers are safe to use together.
+
 ## Load More When Needed
 
 - For server lifecycle and discovery, read [references/server.md](references/server.md).

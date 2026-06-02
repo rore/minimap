@@ -11,6 +11,8 @@ Use minimap as a global local coordinator for review and ideation around one tar
 
 The target file stays canonical and keeps its own structure. Minimap owns only the collaboration layer: session identity, comments, replies, anchors, status, and UI state.
 
+Valid targets include any markdown spec, design doc, idea, or roadmap item file (`roadmap/features/<id>.md`, `roadmap/ideas/<id>.md`). When the target is a roadmap item, this skill complements [`minimap-roadmap`](../minimap-roadmap/SKILL.md): the roadmap skill manages planning state, this skill manages the conversation around the item's content.
+
 ## Quick Workflow
 
 1. Identify the exact target file.
