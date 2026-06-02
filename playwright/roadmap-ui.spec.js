@@ -1703,3 +1703,58 @@ test("commenting on a selection that crosses backticks saves successfully", asyn
   const count = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
   expect(count, "comment count must increase after submit").toBeGreaterThanOrEqual(1);
 });
+
+test("rendered spec view finds anchored quotes that include markdown syntax", async ({ page }) => {
+  // Regression for the "Could not find the anchored text in the rendered file"
+  // banner that fired when an agent saved a comment whose quote included
+  // markdown inline code (backticks) or a heading prefix (### ). The renderer's
+  // textContent has neither, so a literal whitespace-only normalization missed.
+  // The fallback strips markdown syntax on both sides; clicking the comment
+  // should now scroll-and-highlight the matching block instead of erroring.
+  const probe = "\n\n### Probe Heading\n\nA line that contains `code-quote-marker` mid-sentence.\n";
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probe, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  const targetFile = await page.locator("[data-spec-session-path]").first().getAttribute("data-spec-session-path");
+
+  // Save two comments via the API: one anchored on a heading-prefixed quote,
+  // one anchored on a backtick-bracketed code span. Both quotes carry markdown
+  // syntax that does NOT appear in the rendered HTML.
+  await page.evaluate(async ({ file }) => {
+    await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "tester", kind: "concern", text: "h", quote: "### Probe Heading" }),
+    });
+    await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "tester", kind: "concern", text: "c", quote: "`code-quote-marker`" }),
+    });
+  }, { file: targetFile });
+
+  // Refresh so the new comments appear in the side rail.
+  await page.locator("#refresh-button").click();
+  await page.waitForTimeout(500);
+
+  // Click each comment card. The error banner used to show "Could not find
+  // the anchored text in the rendered file" — assert it does NOT appear.
+  const cards = page.locator("[data-comment-id]");
+  const count = await cards.count();
+  expect(count).toBeGreaterThanOrEqual(2);
+
+  for (let i = 0; i < count; i += 1) {
+    await cards.nth(i).click();
+    await page.waitForTimeout(150);
+    const banner = page.locator("#status-banner");
+    if (await banner.isVisible()) {
+      const text = (await banner.textContent()) || "";
+      expect(text, `clicking comment ${i} should not fire 'Could not find' banner`).not.toMatch(/Could not find the anchored text/i);
+    }
+  }
+});
