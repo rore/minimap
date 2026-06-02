@@ -2632,3 +2632,63 @@ test("/api/workspace specSessionsByItemId is empty when no sessions in MINIMAP_H
     await stopServer(child);
   }
 });
+
+test("restart-server.mjs survives back-to-back restarts (Windows TIME_WAIT regression)", async () => {
+  // Earlier the script set MINIMAP_NO_PORT_FALLBACK=1 and waited only on
+  // /health to stop responding. On Windows the port can stay in TIME_WAIT
+  // for a moment after the old server exits, and the new bind() fails
+  // immediately. Two restarts in a row would intermittently fail with
+  // "New server did not come up on port X within 5000ms."
+  //
+  // Fix: poll for canBindPort, drop the port pin, and let listenOnAvailablePort
+  // tolerate the brief TIME_WAIT window. This regression test exercises the
+  // tight loop the original failure was reproducing.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4441, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  const restartScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "restart-server.mjs",
+  );
+
+  const runRestart = () => new Promise((resolve) => {
+    const proc = spawn(process.execPath, [restartScript], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4441", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  // Drop the original child's reference once it's been torn down by the first restart.
+  if (child.exitCode === null && child.signalCode === null) {
+    // First restart will SIGINT/POST-shutdown the original; await to avoid leaks.
+  }
+
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      const result = await runRestart();
+      assert.equal(result.code, 0, `restart #${i + 1} expected exit 0, got ${result.code} (stderr: ${result.stderr})`);
+      assert.match(result.stdout, /Minimap restarted/i, `restart #${i + 1} stdout: ${result.stdout}`);
+    }
+
+    // Final state should be a healthy server on 4441 (or one of its fallbacks if
+    // something else snatched the port — accept any responding minimap).
+    const status = await fetch("http://localhost:4441/health").then((r) => r.json()).catch(() => null);
+    assert.ok(status?.ok, "server should be healthy after the restart loop");
+  } finally {
+    // Clean up whatever server is currently running on the registry port.
+    try {
+      await fetch("http://localhost:4441/api/shutdown", { method: "POST" });
+    } catch { /* already gone */ }
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => child.on("exit", resolve));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+});
