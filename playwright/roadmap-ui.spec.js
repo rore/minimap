@@ -1758,3 +1758,97 @@ test("rendered spec view finds anchored quotes that include markdown syntax", as
     }
   }
 });
+
+test("participants facepile lists comment authors plus the viewer", async ({ page, baseURL, request }) => {
+  // Open a roadmap item as a spec session, then post comments by two
+  // distinct authors via the API. The facepile should render their initials,
+  // and the popover should list them along with the viewer (whatever value
+  // is in #spec-comment-by — defaults to "human").
+  await page.goto(repoUrl());
+  const itemId = await page.locator(".board-item").first().getAttribute("data-item-id");
+  await page.locator(".board-item").first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  const sessionsResp = await request.get(`${baseURL}/api/spec-sessions`);
+  const { sessions } = await sessionsResp.json();
+  // Prior tests may leave attached sessions for other files. Pick the
+  // session whose targetFile ends in the item id we just opened, not just
+  // sessions[0] — race-safe across the serial suite.
+  const targetFile = sessions.find((s) => (s.targetFile || "").includes(itemId))?.targetFile
+    ?? sessions[0]?.targetFile;
+  expect(targetFile, `must find a spec session for ${itemId}`).toBeTruthy();
+
+  const startCount = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
+
+  // Two distinct authors, two comments.
+  for (const by of ["codex", "claude"]) {
+    const post = await request.post(`${baseURL}/api/spec-sessions/by-file/comments`, {
+      data: { file: targetFile, by, kind: "question", scope: "global", text: `note from ${by}` },
+    });
+    expect(post.ok(), `comment by ${by} should post (${post.status()})`).toBe(true);
+  }
+
+  // Wait for auto-refresh to pull our two new comments (5s setInterval).
+  await expect.poll(
+    async () => Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0"),
+    { timeout: 10_000 }
+  ).toBeGreaterThanOrEqual(startCount + 2);
+
+  // Facepile must be visible. The participant count includes the viewer
+  // (always) plus everyone who has authored content. Earlier tests in the
+  // suite may leave additional authors attached, so we assert the SET
+  // contains codex / claude / human, not that it equals exactly those.
+  const facepile = page.locator("#spec-participants-facepile");
+  await expect(facepile).toBeVisible();
+  const participantsLabel = (await facepile.locator("[data-spec-participants-label]").textContent()) || "";
+  expect(participantsLabel).toMatch(/^\d+ participants?$/);
+
+  // Open the popover and verify the named participants are listed.
+  await facepile.click();
+  const popover = page.locator("#spec-participants-popover");
+  await expect(popover).toBeVisible();
+  await expect(popover.locator(".spec-popover-item.is-viewer")).toContainText("human");
+  // codex and claude both appear with at least one action recorded — there
+  // may be more if prior runs accumulated comments under the same names,
+  // so we just assert they're present.
+  await expect(popover.locator(".spec-popover-item").filter({ hasText: /\bcodex\b/ })).toBeVisible();
+  await expect(popover.locator(".spec-popover-item").filter({ hasText: /\bclaude\b/ })).toBeVisible();
+  // Viewer (human) — if no prior tests authored under "human" they show
+  // "viewing"; otherwise their action count. Either is valid.
+  const viewerMeta = (await popover.locator(".spec-popover-item.is-viewer .spec-popover-meta").textContent()) || "";
+  expect(viewerMeta).toMatch(/(viewing|action)/);
+
+  // Esc closes the popover.
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+});
+
+test("participants facepile updates when the viewer edits the actor field", async ({ page }) => {
+  // The viewer's identity comes from #spec-comment-by (defaults to "human").
+  // Editing it should immediately update the facepile so the user sees
+  // themselves as a participant under the new name.
+  await page.goto(repoUrl());
+  await page.locator(".board-item").first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  // The facepile starts with at least the viewer.
+  await expect(page.locator("#spec-participants-facepile")).toBeVisible();
+
+  // Drive the actor input directly via the DOM and dispatch an `input` event
+  // (the listener that drives the facepile fires on `input`). The composer's
+  // visibility / focus is irrelevant here — identity is just the field's
+  // value, and the listener picks it up the same way regardless.
+  await page.evaluate(() => {
+    const el = document.querySelector("#spec-comment-by");
+    el.value = "rore";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  // Initials should now be RO somewhere in the facepile.
+  const initials = await page.locator("#spec-participants-facepile .spec-facepile-circle").allTextContents();
+  expect(initials.map((s) => s.trim())).toContain("RO");
+});

@@ -67,6 +67,18 @@
                 <button class="spec-seg-button is-on" type="button" data-spec-layer="suggestions" aria-pressed="true">Suggestions <span class="spec-seg-count" data-spec-count="suggestions">0</span></button>
               </div>
               <button id="spec-resolved-toggle" class="spec-toolbar-button" type="button" aria-pressed="false">Resolved</button>
+              <button id="spec-participants-facepile"
+                      class="spec-facepile"
+                      type="button"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                      aria-controls="spec-participants-popover"
+                      title="Participants">
+                <span class="spec-facepile-circles" aria-hidden="true"></span>
+                <span class="spec-facepile-overflow" aria-hidden="true" hidden></span>
+                <span class="visually-hidden" data-spec-participants-label>0 participants</span>
+              </button>
+              <div id="spec-participants-popover" class="spec-popover" role="dialog" aria-label="Participants" hidden></div>
             </div>
           </div>
 
