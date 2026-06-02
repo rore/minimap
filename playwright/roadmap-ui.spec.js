@@ -1366,3 +1366,30 @@ test("board badge appears on items with an active spec session", async ({ page }
   await expect(badge).toBeVisible({ timeout: 5000 });
   await expect(badge).toContainText("1");
 });
+
+test("spec session of a roadmap item strips YAML frontmatter from the rendered body", async ({ page }) => {
+  // Open a roadmap item, click Review to open it as a spec session, then
+  // check that the rendered body does not contain frontmatter keys like
+  // `id:` / `title:` / `status:` (which would mean the YAML block was being
+  // rendered as text).
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  await page.locator(".board-item").first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+
+  // Wait for the file body to render.
+  const body = page.locator(".spec-body-markdown");
+  await expect(body).toBeVisible({ timeout: 5000 });
+
+  const bodyText = await body.textContent();
+  // Roadmap items always start with id/title/status/priority/commitment in
+  // the YAML block. None of these should reach the rendered body.
+  expect(bodyText, "frontmatter id should not be in body").not.toMatch(/^\s*id:\s/m);
+  expect(bodyText, "frontmatter title should not be in body").not.toMatch(/title:\s/);
+  expect(bodyText, "frontmatter status should not be in body").not.toMatch(/^\s*status:\s/m);
+
+  // Sanity: the body SHOULD contain real section headings from the file.
+  expect(bodyText).toMatch(/Summary/i);
+});

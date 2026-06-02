@@ -307,6 +307,15 @@ function renderInlineMarkdown(value) {
   return html;
 }
 
+function stripLeadingFrontmatter(text) {
+  // YAML frontmatter at the start of a markdown file: a `---` fence on its
+  // own line, then arbitrary content, then a closing `---` fence. We render
+  // the body only; the frontmatter is structured metadata that the roadmap
+  // mode surfaces separately, and bare YAML rendered as markdown produces
+  // the noisy "id: ... title: ... labels:" paragraphs we want to avoid.
+  return String(text || "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+}
+
 function renderMarkdownToHtml(markdown) {
   const normalized = String(markdown || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const sourceLines = normalized.split("\n");
@@ -3924,7 +3933,7 @@ function renderSpecFile() {
   specFileSubtitleElement.textContent = context.session.relativePath || context.session.targetFile;
   specFileContentElement.className = context.session.markdown ? "spec-body spec-body-markdown" : "spec-body spec-body-plain";
   specFileContentElement.innerHTML = context.session.markdown
-    ? renderMarkdownToHtml(state.spec.content)
+    ? renderMarkdownToHtml(stripLeadingFrontmatter(state.spec.content))
     : `<pre><code>${escapeHtml(state.spec.content)}</code></pre>`;
 
   // Wrap quote-anchored ranges so they're hoverable + clickable.
