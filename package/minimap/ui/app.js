@@ -4995,6 +4995,7 @@ async function syncVisibleSelection(options = {}) {
 
 async function applyRouteStateFromLocation() {
   const route = readRouteState();
+  const repoChanged = route.repo && route.repo !== state.repoPath;
   if (route.repo) {
     state.repoPath = route.repo;
   }
@@ -5019,6 +5020,14 @@ async function applyRouteStateFromLocation() {
   if (nextMode !== state.editorMode) {
     state.editorMode = nextMode;
     applyEditorMode();
+  }
+
+  // If the URL points at a different repo than what state currently holds,
+  // reload the workspace before reconciling selection. Without this, navigating
+  // to a new #repo=... silently keeps showing the previous repo's data.
+  if (repoChanged) {
+    await loadWorkspace(route.itemId || "", { syncRoute: false });
+    return;
   }
 
   await syncVisibleSelection({

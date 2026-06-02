@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
@@ -1268,4 +1269,38 @@ test("repo= URL hash param survives item-click navigation", async ({ page }) => 
   const hash = await page.evaluate(() => window.location.hash);
   expect(hash).toContain("repo=");
   expect(decodeURIComponent(hash)).toContain(process.cwd());
+});
+
+test("changing #repo= reloads the workspace for the new repo", async ({ page }) => {
+  // Create a separate sandbox repo on disk with its own roadmap/ shape.
+  const sandboxRepo = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-pw-multirepo-"));
+  await fs.mkdir(path.join(sandboxRepo, "roadmap", "features"), { recursive: true });
+  await fs.mkdir(path.join(sandboxRepo, "roadmap", "ideas"), { recursive: true });
+  await fs.writeFile(path.join(sandboxRepo, "roadmap", "board.md"), "# Now\n", "utf8");
+  await fs.writeFile(path.join(sandboxRepo, "roadmap", "scope.md"), "Sandbox focus.\n", "utf8");
+
+  try {
+    // First load: minimap repo (process.cwd()).
+    await page.goto(repoUrl());
+    await expect(page.locator("#mode-title")).toContainText("Roadmap");
+    const initialHeader = await page.locator("#repo-name").textContent();
+    expect(initialHeader).toBe(path.basename(process.cwd()));
+
+    // Update the URL hash to point at the sandbox repo (full absolute path).
+    await page.evaluate((repo) => {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      params.set("repo", repo);
+      window.location.hash = `#${params.toString()}`;
+    }, sandboxRepo);
+
+    // The UI must re-fetch the workspace and render the sandbox repo's name.
+    await page.waitForFunction(
+      (expected) => document.querySelector("#repo-name")?.textContent === expected,
+      path.basename(sandboxRepo),
+      { timeout: 5000 },
+    );
+    await expect(page.locator("#repo-name")).toHaveText(path.basename(sandboxRepo));
+  } finally {
+    await fs.rm(sandboxRepo, { recursive: true, force: true });
+  }
 });
