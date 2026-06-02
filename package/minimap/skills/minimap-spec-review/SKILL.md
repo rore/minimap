@@ -15,17 +15,49 @@ Valid targets include any markdown spec, design doc, idea, or roadmap item file 
 
 ## Quick Workflow
 
-1. Identify the exact target file.
-2. Start or verify the bundled server:
-   `node <path-to-this-skill>/scripts/start-server.mjs`
-   To check status, stop, or restart, use the matching scripts in the same directory (`status.mjs`, `stop-server.mjs`, `restart-server.mjs`). Do not curl the server, send signals, or edit `$MINIMAP_HOME/server.json` by hand.
-3. Attach the file:
+When the user asks to view a spec session for a file, give them a URL. When they ask you to drive the review (read context, leave comments, propose suggestions), use the bundled CLI. The two paths share steps 1 and 2.
+
+### 1. Identify the exact target file
+
+The target may be any markdown spec, design doc, idea, or roadmap item file. Resolve it to an absolute path before the next step.
+
+### 2. Make sure the server is running
+
+```bash
+node <path-to-this-skill>/scripts/start-server.mjs
+```
+
+Output is one line, either `Minimap running at http://localhost:<port>` (just started) or `Minimap already running at http://localhost:<port>` (reused). Capture the port — the default is 4312 but the launcher falls forward if busy. To check status, stop, or restart, use the matching scripts in the same directory (`status.mjs`, `stop-server.mjs`, `restart-server.mjs`). Do not curl the server, send signals, or edit `$MINIMAP_HOME/server.json` by hand.
+
+### 3a. Showing the spec session to the user
+
+Attach the file and reply with the URL:
+
+```bash
+node <path-to-this-skill>/scripts/minimap.mjs attach <absolute-file-path> --json
+```
+
+Then give the user:
+
+```text
+http://localhost:<port>/#view=spec&file=<absolute-file-path>
+```
+
+Use forward slashes in the path even on Windows (`C:/foo/bar.md`); they work cross-platform and avoid the URL-encoding complications of backslashes. If the path contains spaces, `&`, `=`, or `#`, URL-encode the whole path with `encodeURIComponent`.
+
+The user opens the URL and reads or replies in the UI. They don't need to know about the server, the port-fallback, or the registry.
+
+### 3b. Driving the review yourself
+
+Use the bundled CLI for read-and-write operations. After step 2:
+
+1. Attach the target file:
    `node <path-to-this-skill>/scripts/minimap.mjs attach <file> --json`
-4. Read context:
+2. Read context:
    `node <path-to-this-skill>/scripts/minimap.mjs context <file> --json`
-5. Read the target file directly before substantive review.
-6. Add comments, replies, or suggestions through minimap.
-7. Preview suggestions before applying them, and apply only when the user explicitly asks.
+3. Read the target file directly before substantive review.
+4. Add comments, replies, or suggestions through minimap.
+5. Preview suggestions before applying them, and apply only when the user explicitly asks.
 
 ## Load More When Needed
 
