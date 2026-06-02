@@ -101,7 +101,6 @@ const specFileTitleElement = document.querySelector("#spec-file-title");
 const specFileSubtitleElement = document.querySelector("#spec-file-subtitle");
 const specFileContentElement = document.querySelector("#spec-file-content");
 const specContextToolbarElement = document.querySelector("#spec-context-toolbar");
-const specRefreshButton = document.querySelector("#spec-refresh-button");
 const specDocElement = document.querySelector("#spec-doc");
 const specGutterElement = document.querySelector("#spec-gutter");
 const specMarginElement = document.querySelector("#spec-margin");
@@ -4911,7 +4910,7 @@ async function removeSpecSession(filePath) {
   setBanner("Spec session removed.", "success");
 }
 
-async function refreshSpecReviewState(options = {}) {
+async function refreshSpecReviewState() {
   if (!state.spec.selectedPath) {
     return;
   }
@@ -4927,10 +4926,6 @@ async function refreshSpecReviewState(options = {}) {
 
   if (shouldRestoreReplyFocus) {
     focusActiveSpecReplyDraft();
-  }
-
-  if (!options.quiet) {
-    setBanner("Review refreshed.", "success");
   }
 }
 
@@ -5013,7 +5008,7 @@ async function addSpecComment() {
   setSpecCommentAnchorMode("global");
   specCommentAnchorInput.value = "";
   specCommentTextInput.value = "";
-  await refreshSpecReviewState({ quiet: true });
+  await refreshSpecReviewState();
   setBanner("Comment added.", "success");
 }
 
@@ -5049,7 +5044,7 @@ async function addSpecSuggestion() {
   specSuggestionAnchorInput.value = "";
   specSuggestionContentInput.value = "";
   specSuggestionRationaleInput.value = "";
-  await refreshSpecReviewState({ quiet: true });
+  await refreshSpecReviewState();
   setBanner("Suggestion added.", "success");
 }
 
@@ -5065,7 +5060,7 @@ async function replyToSpecComment(commentId, text) {
   });
   state.spec.replyComposerCommentId = "";
   state.spec.replyDrafts.delete(commentId);
-  await refreshSpecReviewState({ quiet: true });
+  await refreshSpecReviewState();
   scrollSpecReviewCardIntoView(commentId);
   setBanner("Reply added.", "success");
 }
@@ -5085,7 +5080,7 @@ async function replyToSpecSuggestion(suggestionId, text) {
   const key = `suggestion:${suggestionId}`;
   state.spec.replyComposerCommentId = "";
   state.spec.replyDrafts.delete(key);
-  await refreshSpecReviewState({ quiet: true });
+  await refreshSpecReviewState();
   setBanner("Reply added.", "success");
 }
 
@@ -5098,7 +5093,7 @@ async function setSpecCommentStatus(commentId, action) {
       by: specCommentByInput.value || "human",
     }),
   });
-  await refreshSpecReviewState({ quiet: true });
+  await refreshSpecReviewState();
   setBanner(action === "resolve" ? "Comment resolved." : "Comment reopened.", "success");
 }
 
@@ -5116,7 +5111,7 @@ async function setSpecSuggestionStatus(suggestionId, action) {
       by: specSuggestionByInput.value || specCommentByInput.value || "human",
     }),
   });
-  await refreshSpecReviewState({ quiet: true });
+  await refreshSpecReviewState();
   setBanner(action === "accept" ? "Suggestion accepted." : action === "reopen" ? "Suggestion reopened." : "Suggestion dismissed.", "success");
 }
 
@@ -5655,17 +5650,6 @@ roadmapModeButton.addEventListener("click", () => {
 
 specModeButton.addEventListener("click", () => {
   void switchAppMode("spec");
-});
-
-specRefreshButton.addEventListener("click", () => {
-  if (!state.spec.selectedPath) {
-    return;
-  }
-  void loadSpecSession(state.spec.selectedPath, { clearBanner: false }).then(() => {
-    setBanner("Spec refreshed.", "success");
-  }).catch((error) => {
-    setBanner(error.message, "error");
-  });
 });
 
 specFilesToggleButton.addEventListener("click", () => {
@@ -6418,7 +6402,7 @@ window.setInterval(() => {
     return;
   }
 
-  void refreshSpecReviewState({ quiet: true }).catch(() => {
+  void refreshSpecReviewState().catch(() => {
     // Automatic refresh should never interrupt local reading or drafting.
   });
 }, SPEC_REVIEW_REFRESH_MS);

@@ -21,7 +21,13 @@
           </div>
           <span id="workspace-summary" class="chip chip-muted">Loading items...</span>
           <span id="roadmap-path" class="chip">Loading...</span>
-          <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+          <button id="refresh-button" class="ghost-button icon-button" type="button" title="Refresh" aria-label="Refresh">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M13.5 4.5V1.5"></path>
+              <path d="M13.5 4.5h-3"></path>
+              <path d="M13.2 8a5.2 5.2 0 1 1-1.7-3.9"></path>
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -62,7 +68,6 @@
                 <button class="spec-seg-button is-on" type="button" data-spec-layer="suggestions" aria-pressed="true">Suggestions <span class="spec-seg-count" data-spec-count="suggestions">0</span></button>
               </div>
               <button id="spec-resolved-toggle" class="spec-toolbar-button" type="button" aria-pressed="false">Resolved</button>
-              <button id="spec-refresh-button" class="spec-toolbar-icon-button" type="button" title="Refresh review state" aria-label="Refresh">↻</button>
             </div>
           </div>
 

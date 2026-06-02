@@ -1469,3 +1469,86 @@ test("orphan board ids: full page screenshot for visual review", async ({ page }
   await expect(page.locator(".board-item-missing, .board-column-card-missing").first()).toBeVisible();
   await page.screenshot({ path: "playwright/.artifacts/missing-item-fullpage.png", fullPage: false });
 });
+
+test("topbar Refresh is an icon-only button with an accessible label", async ({ page }) => {
+  await page.goto(repoUrl());
+  const refresh = page.locator("#refresh-button");
+  await expect(refresh).toBeVisible();
+  await expect(refresh).toHaveAttribute("aria-label", "Refresh");
+  await expect(refresh).toHaveAttribute("title", "Refresh");
+  // No literal "Refresh" text node — the icon is an inline <svg>.
+  const text = (await refresh.textContent() || "").trim();
+  expect(text, "topbar refresh button should not render the word 'Refresh'").toBe("");
+  await expect(refresh.locator("svg")).toBeVisible();
+});
+
+test("topbar Refresh re-fetches the spec session in spec mode", async ({ page }) => {
+  // The spec view used to have its own refresh button next to Resolved; that
+  // button is gone, and the topbar Refresh button now drives both modes.
+  await page.goto(repoUrl());
+  await page.locator(".board-item").first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  // The duplicate refresh button must NOT exist anymore.
+  await expect(page.locator("#spec-refresh-button")).toHaveCount(0);
+
+  // Count network calls to the context endpoint while we click Refresh.
+  const contextCalls = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/spec-sessions/by-file/context")) {
+      contextCalls.push(request.url());
+    }
+  });
+  const before = contextCalls.length;
+  await page.locator("#refresh-button").click();
+  // Give the click handler time to issue both context + content fetches.
+  await page.waitForTimeout(300);
+  expect(contextCalls.length, "topbar Refresh in spec mode must re-fetch session context").toBeGreaterThan(before);
+
+  // No success banner should appear after a refresh.
+  await page.waitForTimeout(200);
+  const bannerHidden = await page.locator("#status-banner").isHidden();
+  expect(bannerHidden, "no banner should appear after refresh").toBe(true);
+});
+
+test("auto-refresh in spec mode picks up externally-added comments", async ({ page, baseURL, request }) => {
+  // Open a roadmap item as a spec session, then poke a comment into the
+  // session's storage via the public API. The 5s setInterval should pull it
+  // and the comments-count chip in the toolbar should tick up.
+  await page.goto(repoUrl());
+  const itemId = await page.locator(".board-item").first().getAttribute("data-item-id");
+  expect(itemId).toBeTruthy();
+  await page.locator(".board-item").first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  const startCount = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
+
+  // Use the absolute path the UI itself attached the session with — pull it
+  // from /api/spec-sessions so we hit the exact session record.
+  const sessionsResp = await request.get(`${baseURL}/api/spec-sessions`);
+  expect(sessionsResp.ok()).toBe(true);
+  const { sessions } = await sessionsResp.json();
+  const targetFile = sessions[0]?.targetFile;
+  expect(targetFile, "spec session must be attached before posting a comment").toBeTruthy();
+
+  const post = await request.post(`${baseURL}/api/spec-sessions/by-file/comments`, {
+    data: {
+      file: targetFile,
+      by: "auto-refresh-test",
+      kind: "question",
+      scope: "global",
+      text: "auto refresh probe",
+    },
+  });
+  expect(post.status(), `comment POST should succeed (got ${post.status()}: ${await post.text()})`).toBe(200);
+
+  // The setInterval is 5s; allow up to ~10s to be safe in slow CI.
+  await expect.poll(
+    async () => Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0"),
+    { timeout: 10_000, intervals: [500, 1000, 1500] }
+  ).toBeGreaterThan(startCount);
+});
