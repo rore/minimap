@@ -41,6 +41,11 @@ const maxPortAttempts = 20;
 const packageJsonPath = path.join(__dirname, "package.json");
 const serverVersion = JSON.parse(await fs.readFile(packageJsonPath, "utf8")).version || "0.0.0";
 
+// Set when /api/shutdown has been observed once; prevents a second concurrent
+// caller from scheduling a duplicate shutdown() (which would race process.exit
+// against the second response being flushed).
+let shuttingDown = false;
+
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
@@ -133,10 +138,13 @@ async function handleApi(request, response, requestUrl) {
     // handler. We send the response first, then exit on the next tick so the
     // client sees a clean 200 before the socket closes.
     sendJson(response, 200, { shuttingDown: true });
-    response.on("finish", () => {
-      // Defer one tick so the kernel has flushed the response.
-      setImmediate(() => { void shutdown("SHUTDOWN_API"); });
-    });
+    if (!shuttingDown) {
+      shuttingDown = true;
+      response.on("finish", () => {
+        // Defer one tick so the kernel has flushed the response.
+        setImmediate(() => { void shutdown("SHUTDOWN_API"); });
+      });
+    }
     return true;
   }
 

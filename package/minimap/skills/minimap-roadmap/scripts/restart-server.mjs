@@ -56,10 +56,13 @@ if (existing && typeof existing.port === "number") {
 }
 
 // 2. Spawn the new server, detached, so it outlives this script.
+//    MINIMAP_NO_PORT_FALLBACK pins the new server to the requested port — if
+//    something snatched the port during the brief gap between stop and start,
+//    we want a fast failure instead of silently binding a different port.
 const bundledServer = path.join(__dirname, "..", "runtime", "server.js");
 const child = spawn(process.execPath, [bundledServer], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(requestedPort) },
+  env: { ...process.env, PORT: String(requestedPort), MINIMAP_NO_PORT_FALLBACK: "1" },
   detached: true,
   stdio: "ignore",
 });
