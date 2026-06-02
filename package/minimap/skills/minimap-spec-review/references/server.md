@@ -36,7 +36,7 @@ node package/minimap/server.js
 ## Verify Server
 
 ```sh
-curl http://localhost:5812/health
+curl http://localhost:4312/health
 ```
 
 The expected response includes:
@@ -45,14 +45,18 @@ The expected response includes:
 {"ok":true}
 ```
 
-If port 5812 is busy, minimap may fall forward to the next free port. Use the actual printed server URL.
+If port 4312 is busy, minimap may fall forward to the next free port. Use the actual printed server URL.
 
 ## UI URL
 
 Open the spec session in the minimap UI using the server URL:
 
 ```text
-http://localhost:5812/#view=spec&file=path/to/spec.md
+http://localhost:4312/#view=spec&file=path/to/spec.md
 ```
 
 The UI supports selecting text in the rendered file and opening a comment pre-anchored to that selection.
+
+## Discovery
+
+The bundled `start-server.mjs` first checks `$MINIMAP_HOME/server.json` and probes `/health` on the listed port. If a minimap server is already running, the launcher exits without spawning a second one. The running server transparently serves spec sessions and any roadmap that requests it (see the `#repo=` URL convention).
