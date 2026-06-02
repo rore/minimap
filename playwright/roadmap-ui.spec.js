@@ -1417,3 +1417,55 @@ test("spec session of a roadmap item shows the same title + badges as the roadma
   expect(specTitle, "spec doc title should match roadmap preview title").toBe(expectedTitle);
   expect(specBadges, "spec doc badges should match roadmap preview badges").toBe(expectedBadges);
 });
+
+test("orphan board ids render as inert placeholder cards and surface a warning banner", async ({ page }) => {
+  // Append a fake orphan id to the minimap repo's own board.md (afterEach
+  // restores from originalBoardText). The orphan must NOT have a matching
+  // file under roadmap/features/ or roadmap/ideas/.
+  const orphanId = "ghost-orphan-feature";
+  const mutatedBoard = `${originalBoardText.trimEnd()}\n- ${orphanId}\n`;
+  await fs.writeFile(boardPath, mutatedBoard, "utf8");
+
+  await page.goto(repoUrl());
+
+  // Workspace must still load — the rest of the board renders, items index
+  // does not include the orphan, and the warning banner is visible.
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
+  await expect(page.locator("#status-banner")).toBeVisible();
+  await expect(page.locator("#status-banner")).toContainText(orphanId);
+  await expect(page.locator("#status-banner")).toHaveAttribute("data-tone", "warning");
+
+  // The orphan must render as a placeholder card showing the id, the explain
+  // line, and the fix hint — visible regardless of board layout (read-mode
+  // uses .board-item-missing, columns mode uses .board-column-card-missing).
+  const placeholder = page.locator(".board-item-missing, .board-column-card-missing").first();
+  await expect(placeholder).toBeVisible();
+  await expect(placeholder).toContainText("Missing roadmap item");
+  await expect(placeholder).toContainText(orphanId);
+  await expect(placeholder).toContainText("no matching file");
+  await expect(placeholder).toContainText(`roadmap/features/${orphanId}.md`);
+
+  // Both Copy buttons must exist and be enabled.
+  await expect(placeholder.locator(".board-item-missing-copy", { hasText: "Copy id" })).toBeEnabled();
+  await expect(placeholder.locator(".board-item-missing-copy", { hasText: "Copy fix instructions" })).toBeEnabled();
+
+  // Capture a screenshot of the placeholder so the visual is captured in the
+  // playwright-report on every run. The test artifact lives next to the spec.
+  await placeholder.scrollIntoViewIfNeeded();
+  await placeholder.screenshot({ path: "playwright/.artifacts/missing-item-card.png" });
+});
+
+test("orphan board ids: full page screenshot for visual review", async ({ page }) => {
+  // Sister of the previous test — this one captures a full-page screenshot
+  // of the workspace with the warning banner and placeholder visible so the
+  // overall layout can be eyeballed. Same fixture pattern.
+  const orphanId = "ghost-orphan-feature";
+  const mutatedBoard = `${originalBoardText.trimEnd()}\n- ${orphanId}\n`;
+  await fs.writeFile(boardPath, mutatedBoard, "utf8");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(repoUrl());
+  await expect(page.locator("#status-banner")).toBeVisible();
+  await expect(page.locator(".board-item-missing, .board-column-card-missing").first()).toBeVisible();
+  await page.screenshot({ path: "playwright/.artifacts/missing-item-fullpage.png", fullPage: false });
+});

@@ -401,6 +401,40 @@ test("loadWorkspace surfaces malformed items as parse errors", async () => {
   );
 });
 
+test("loadWorkspace tolerates orphan board ids and surfaces them as missing placeholders", async () => {
+  const repoRoot = await makeTempRepo();
+  // board.md references an id with no matching feature/idea file. This used
+  // to throw and blank the entire workspace; now it should render the rest
+  // of the board, emit a placeholder for the orphan, and report it via warnings.
+  await fs.writeFile(
+    path.join(repoRoot, "roadmap", "board.md"),
+    "# Now\n- feature-a\n- ghost-feature\n\n# Ideas\n- idea-a\n",
+    "utf8",
+  );
+
+  const workspace = await loadWorkspace(repoRoot);
+
+  // Real items still render.
+  assert.equal(workspace.boardGroups[0].name, "Now");
+  assert.equal(workspace.boardGroups[0].items[0].id, "feature-a");
+  assert.equal(workspace.boardGroups[0].items[0].missing, undefined, "real items must not be flagged missing");
+
+  // Orphan is rendered as an inert placeholder in the same column.
+  const orphan = workspace.boardGroups[0].items[1];
+  assert.equal(orphan.id, "ghost-feature");
+  assert.equal(orphan.missing, true);
+  assert.equal(orphan.groupName, "Now");
+
+  // Warnings array surfaces the drift to the UI.
+  assert.ok(Array.isArray(workspace.warnings), "workspace.warnings must be an array");
+  const warning = workspace.warnings.find((entry) => entry.code === "orphan_board_item");
+  assert.ok(warning, "orphan_board_item warning must be present");
+  assert.deepEqual(warning.ids, ["ghost-feature"]);
+
+  // Orphans must not pollute the item index, filters, or lenses.
+  assert.equal(workspace.items["ghost-feature"], undefined);
+});
+
 
 test("loadWorkspace accepts repo-specific section headings", async () => {
   const repoRoot = await makeTempRepo();
