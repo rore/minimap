@@ -8,6 +8,34 @@ node <path-to-this-skill>/scripts/minimap.mjs <command>
 
 The examples below abbreviate this as `mm`. Substitute the full path when invoking.
 
+## Anchor matching is tolerant
+
+Section and quote anchors are forgiving:
+
+- **Heading anchors** match the canonical full path first; if not, they try a Unicode-normalized comparison (case- and dash-insensitive), then a unique suffix match, then a unique leaf-only match. So `--heading "MCP Impact (Committed)"` works even if the actual outline path is `Operational Fact Memory > MCP Impact (Committed)`, as long as that leaf is unique.
+- **Quote anchors** try a literal substring match first; if not, they retry with markdown syntax stripped from both sides (backticks, `*`, `_`, leading `### `). So a quote captured from a rendered view (no backticks) finds its line in the raw markdown, and vice versa.
+
+If a section anchor matches multiple headings, the CLI returns `anchor_ambiguous` with the candidate paths — pass the full path to disambiguate.
+
+## Shell quoting (Windows / PowerShell)
+
+PowerShell treats backticks (`` ` ``) as the escape character. A `--quote` argument that contains markdown inline code will have its backticks consumed by the shell before minimap sees it. Two safe options:
+
+- Use **single quotes** around the argument; PowerShell does not interpret backticks inside single quotes:
+  ```powershell
+  mm comment add path/to/spec.md --by codex --kind concern `
+     --quote 'Fact identity = `(category, command_family, scope_kind)`.' `
+     --text "..." --json
+  ```
+- Or **escape each backtick** with another backtick (`` `` ``):
+  ```powershell
+  --quote "Fact identity = ``(category, command_family)``."
+  ```
+
+bash, zsh, and cmd.exe don't have this problem — double quotes are fine.
+
+If the quote you want to anchor on is a heading (`### Schema`), prefer a section anchor with `--heading "Schema"` over a quote anchor — section anchors don't pay the inline-syntax tax.
+
 ## Attach
 
 Attach the exact file the user wants to review:
