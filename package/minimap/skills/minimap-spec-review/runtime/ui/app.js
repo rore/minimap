@@ -29,6 +29,7 @@ const EDITOR_MODES = new Set(["preview", "structured", "raw"]);
 
 const state = {
   appMode: "roadmap",
+  repoPath: "",
   workspace: null,
   setupState: null,
   selectedItemId: null,
@@ -1251,11 +1252,16 @@ function readRouteState() {
     layout: normalizeBoardLayout(params.get("layout") || DEFAULT_BOARD_LAYOUT),
     query: normalizeSearchQuery(params.get("q") || ""),
     filters: parseRouteFilters(params),
+    repo: params.get("repo") || "",
   };
 }
 
 function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) {
   const params = new URLSearchParams();
+
+  if (state.repoPath) {
+    params.set("repo", state.repoPath);
+  }
 
   if (state.appMode === "spec") {
     params.set("view", "spec");
@@ -3045,7 +3051,21 @@ function renderItem(item) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const isRoadmapEndpoint =
+    url.startsWith("/api/workspace")
+    || url.startsWith("/api/board")
+    || url.startsWith("/api/scope")
+    || url.startsWith("/api/items/")
+    || url.startsWith("/api/setup/");
+
+  let finalOptions = options;
+  if (isRoadmapEndpoint && state.repoPath) {
+    const headers = new Headers(options.headers || {});
+    headers.set("X-Minimap-Repo", state.repoPath);
+    finalOptions = { ...options, headers };
+  }
+
+  const response = await fetch(url, finalOptions);
   const payload = await response.json();
 
   if (!response.ok) {
@@ -4971,6 +4991,9 @@ async function syncVisibleSelection(options = {}) {
 
 async function applyRouteStateFromLocation() {
   const route = readRouteState();
+  if (route.repo) {
+    state.repoPath = route.repo;
+  }
   if (route.view === "spec") {
     state.appMode = "spec";
     state.spec.selectedPath = route.specFile || state.spec.selectedPath;
@@ -6115,6 +6138,17 @@ window.setInterval(() => {
 
 resetEditor();
 const initialRoute = readRouteState();
+state.repoPath = initialRoute.repo || "";
+if (state.repoPath && repoNameElement) {
+  // Best-effort: extract the trailing path segment as a placeholder.
+  // /api/workspace will overwrite with the canonical name when it loads.
+  const segments = state.repoPath.replaceAll("\\", "/").split("/").filter(Boolean);
+  const placeholderName = segments[segments.length - 1] || "";
+  if (placeholderName) {
+    repoNameElement.textContent = placeholderName;
+    document.title = `Minimap — ${placeholderName}`;
+  }
+}
 state.appMode = initialRoute.view === "spec" ? "spec" : "roadmap";
 state.spec.selectedPath = initialRoute.specFile;
 applyAppMode();

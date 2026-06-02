@@ -34,10 +34,9 @@ import { writeServerRegistry, deleteServerRegistry } from "./src/server-registry
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const staticRoot = path.join(__dirname, "ui");
-const repoRoot = process.cwd();
+const cwdFallback = process.cwd();
 const requestedPort = Number(process.env.PORT || 4312);
 const maxPortAttempts = 20;
-const repoName = path.basename(path.resolve(repoRoot));
 
 const packageJsonPath = path.join(__dirname, "package.json");
 const serverVersion = JSON.parse(await fs.readFile(packageJsonPath, "utf8")).version || "0.0.0";
@@ -49,15 +48,6 @@ const contentTypes = new Map([
   [".json", "application/json; charset=utf-8"],
   [".svg", "image/svg+xml; charset=utf-8"],
 ]);
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -108,6 +98,25 @@ function requireQueryParam(requestUrl, name) {
   return value;
 }
 
+async function resolveRoadmapRepo(request) {
+  const headerRepo = request.headers["x-minimap-repo"];
+  const candidate = (typeof headerRepo === "string" && headerRepo.trim()) || cwdFallback;
+  const resolved = path.resolve(candidate);
+  try {
+    const stat = await fs.stat(resolved);
+    if (!stat.isDirectory()) {
+      throw new AppError(`Repo path is not a directory: ${resolved}`, 400, "bad_request");
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    if (error && error.code === "ENOENT") {
+      throw new AppError(`Repo path does not exist: ${resolved}`, 400, "bad_request");
+    }
+    throw error;
+  }
+  return resolved;
+}
+
 async function handleApi(request, response, requestUrl) {
   const pathname = requestUrl.pathname;
 
@@ -124,7 +133,7 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Spec-session attach requires a file path.", 400, "bad_request");
     }
 
-    const result = await attachFileSession(body.file, { cwd: repoRoot });
+    const result = await attachFileSession(body.file, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -137,28 +146,28 @@ async function handleApi(request, response, requestUrl) {
 
   if (request.method === "GET" && pathname === "/api/spec-sessions/by-file") {
     const file = requireQueryParam(requestUrl, "path");
-    const session = await getFileSession(file, { cwd: repoRoot });
+    const session = await getFileSession(file, { cwd: cwdFallback });
     sendJson(response, 200, { session });
     return true;
   }
 
   if (request.method === "GET" && pathname === "/api/spec-sessions/by-file/context") {
     const file = requireQueryParam(requestUrl, "path");
-    const context = await getFileSessionContext(file, { cwd: repoRoot });
+    const context = await getFileSessionContext(file, { cwd: cwdFallback });
     sendJson(response, 200, context);
     return true;
   }
 
   if (request.method === "GET" && pathname === "/api/spec-sessions/by-file/content") {
     const file = requireQueryParam(requestUrl, "path");
-    const content = await getFileSessionFileContent(file, { cwd: repoRoot });
+    const content = await getFileSessionFileContent(file, { cwd: cwdFallback });
     sendJson(response, 200, content);
     return true;
   }
 
   if (request.method === "DELETE" && (pathname === "/api/spec-sessions/by-file" || pathname === "/api/spec-sessions/by-file/context")) {
     const file = requireQueryParam(requestUrl, "path");
-    const result = await removeFileSession(file, { cwd: repoRoot });
+    const result = await removeFileSession(file, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -171,7 +180,7 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Spec-session move requires from and to file paths.", 400, "bad_request");
     }
 
-    const result = await moveFileSession(body.from, body.to, { cwd: repoRoot });
+    const result = await moveFileSession(body.from, body.to, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -184,7 +193,7 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Comment creation requires a file path.", 400, "bad_request");
     }
 
-    const result = await addFileSessionComment(body.file, body, { cwd: repoRoot });
+    const result = await addFileSessionComment(body.file, body, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -198,7 +207,7 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Comment reply requires a file path.", 400, "bad_request");
     }
 
-    const result = await addFileSessionCommentReply(body.file, decodeURIComponent(commentReplyMatch[1]), body, { cwd: repoRoot });
+    const result = await addFileSessionCommentReply(body.file, decodeURIComponent(commentReplyMatch[1]), body, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -212,7 +221,7 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Suggestion reply requires a file path.", 400, "bad_request");
     }
 
-    const result = await addFileSessionSuggestionReply(body.file, decodeURIComponent(suggestionReplyMatch[1]), body, { cwd: repoRoot });
+    const result = await addFileSessionSuggestionReply(body.file, decodeURIComponent(suggestionReplyMatch[1]), body, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -227,7 +236,7 @@ async function handleApi(request, response, requestUrl) {
     }
 
     const status = commentStatusMatch[2] === "resolve" ? "resolved" : "open";
-    const result = await updateFileSessionCommentStatus(body.file, decodeURIComponent(commentStatusMatch[1]), status, body, { cwd: repoRoot });
+    const result = await updateFileSessionCommentStatus(body.file, decodeURIComponent(commentStatusMatch[1]), status, body, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -240,7 +249,7 @@ async function handleApi(request, response, requestUrl) {
       throw new AppError("Suggestion creation requires a file path.", 400, "bad_request");
     }
 
-    const result = await addFileSessionSuggestion(body.file, body, { cwd: repoRoot });
+    const result = await addFileSessionSuggestion(body.file, body, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -260,7 +269,7 @@ async function handleApi(request, response, requestUrl) {
       reopen: "pending",
     };
     const status = statusByAction[suggestionStatusMatch[2]];
-    const result = await updateFileSessionSuggestionStatus(body.file, decodeURIComponent(suggestionStatusMatch[1]), status, body, { cwd: repoRoot });
+    const result = await updateFileSessionSuggestionStatus(body.file, decodeURIComponent(suggestionStatusMatch[1]), status, body, { cwd: cwdFallback });
     sendJson(response, 200, result);
     return true;
   }
@@ -278,29 +287,32 @@ async function handleApi(request, response, requestUrl) {
     const action = suggestionPreviewApplyMatch[2];
     let result;
     if (action === "apply") {
-      result = await applyFileSessionSuggestion(body.file, suggestionId, body, { cwd: repoRoot });
+      result = await applyFileSessionSuggestion(body.file, suggestionId, body, { cwd: cwdFallback });
     } else if (action === "rollback") {
-      result = await rollbackFileSessionSuggestion(body.file, suggestionId, body, { cwd: repoRoot });
+      result = await rollbackFileSessionSuggestion(body.file, suggestionId, body, { cwd: cwdFallback });
     } else {
-      result = await previewFileSessionSuggestion(body.file, suggestionId, { cwd: repoRoot });
+      result = await previewFileSessionSuggestion(body.file, suggestionId, { cwd: cwdFallback });
     }
     sendJson(response, 200, result);
     return true;
   }
 
   if (request.method === "GET" && pathname === "/api/workspace") {
+    const repoRoot = await resolveRoadmapRepo(request);
     const workspace = await loadWorkspace(repoRoot);
     sendJson(response, 200, workspace);
     return true;
   }
 
   if (request.method === "POST" && pathname === "/api/setup/initialize") {
+    const repoRoot = await resolveRoadmapRepo(request);
     const workspace = await initializeWorkspace(repoRoot);
     sendJson(response, 200, workspace);
     return true;
   }
 
   if (request.method === "POST" && pathname === "/api/board") {
+    const repoRoot = await resolveRoadmapRepo(request);
     const rawBody = await readRequestBody(request);
     const body = parseJsonBody(rawBody);
     const workspace = await saveBoardByGroups(repoRoot, body.groups);
@@ -309,6 +321,7 @@ async function handleApi(request, response, requestUrl) {
   }
 
   if (request.method === "POST" && pathname === "/api/scope") {
+    const repoRoot = await resolveRoadmapRepo(request);
     const rawBody = await readRequestBody(request);
     const body = parseJsonBody(rawBody);
 
@@ -324,12 +337,14 @@ async function handleApi(request, response, requestUrl) {
   const itemMatch = pathname.match(/^\/api\/items\/([^/]+)$/);
 
   if (itemMatch && request.method === "GET") {
+    const repoRoot = await resolveRoadmapRepo(request);
     const item = await readItemById(repoRoot, decodeURIComponent(itemMatch[1]));
     sendJson(response, 200, item);
     return true;
   }
 
   if (itemMatch && request.method === "POST") {
+    const repoRoot = await resolveRoadmapRepo(request);
     const id = decodeURIComponent(itemMatch[1]);
     const rawBody = await readRequestBody(request);
     const body = parseJsonBody(rawBody);
@@ -384,12 +399,7 @@ async function requestListener(request, response) {
     const extension = path.extname(filePath);
     const contentType = contentTypes.get(extension) || "application/octet-stream";
 
-    if (extension === ".html") {
-      const html = file.replaceAll("__REPO_NAME__", escapeHtml(repoName));
-      sendText(response, 200, html, contentType);
-      return;
-    }
-
+    // Static HTML is served as-is. Repo name is fetched client-side from /api/workspace.
     sendText(response, 200, file, contentType);
   } catch (error) {
     if (error instanceof AppError) {
