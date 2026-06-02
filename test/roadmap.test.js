@@ -38,6 +38,12 @@ import {
   updateFileSessionSuggestionStatus,
   removeFileSession,
 } from "../package/minimap/src/sessions.js";
+import {
+  readServerRegistry,
+  writeServerRegistry,
+  deleteServerRegistry,
+  registryPath,
+} from "../package/minimap/src/server-registry.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1751,4 +1757,34 @@ test("saveItemById updates generic metadata and can move an item between feature
   assert.equal(saved.kind, "idea");
   assert.equal(await fs.readFile(ideaFilePath, "utf8").then((content) => content.includes("team: platform")), true);
   await assert.rejects(() => fs.access(featureFilePath));
+});
+
+test("server-registry: writeServerRegistry then readServerRegistry round-trips", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry({ pid: 1234, port: 4312, startedAt: "2026-06-02T10:00:00Z", version: "0.1.0" }, { minimapHome: home });
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.deepEqual(value, { pid: 1234, port: 4312, startedAt: "2026-06-02T10:00:00Z", version: "0.1.0" });
+});
+
+test("server-registry: readServerRegistry returns null when missing", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value, null);
+});
+
+test("server-registry: deleteServerRegistry removes the file and is idempotent", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry({ pid: 1, port: 4312, startedAt: "x", version: "y" }, { minimapHome: home });
+  await deleteServerRegistry({ minimapHome: home });
+  await deleteServerRegistry({ minimapHome: home }); // second call must not throw
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value, null);
+});
+
+test("server-registry: readServerRegistry returns null on malformed JSON", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await fs.mkdir(home, { recursive: true });
+  await fs.writeFile(registryPath(home), "{ not json", "utf8");
+  const value = await readServerRegistry({ minimapHome: home });
+  assert.equal(value, null);
 });
