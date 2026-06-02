@@ -359,7 +359,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 5px;
+  padding: 0;
   width: 28px;
   height: 28px;
   color: var(--muted);
