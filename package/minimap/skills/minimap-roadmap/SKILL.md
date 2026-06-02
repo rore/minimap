@@ -16,6 +16,7 @@ The UI is only a lens over those files. Agents and humans must operate on the sa
 1. Find the roadmap root from `roadmap.config.json`, or use `roadmap/` when no config exists.
 2. Start or verify the bundled server:
    `node <path-to-this-skill>/scripts/start-server.mjs`
+   To check status, stop, or restart, use the matching scripts in the same directory (`status.mjs`, `stop-server.mjs`, `restart-server.mjs`). Do not curl the server, send signals, or edit `$MINIMAP_HOME/server.json` by hand.
 3. Open the UI for *this repo*:
    `http://localhost:4312/#repo=<absolute-path-to-repo>&view=board`
 4. Read the files that own the requested truth before editing.

@@ -16,6 +16,7 @@ The target file stays canonical and keeps its own structure. Minimap owns only t
 1. Identify the exact target file.
 2. Start or verify the bundled server:
    `node <path-to-this-skill>/scripts/start-server.mjs`
+   To check status, stop, or restart, use the matching scripts in the same directory (`status.mjs`, `stop-server.mjs`, `restart-server.mjs`). Do not curl the server, send signals, or edit `$MINIMAP_HOME/server.json` by hand.
 3. Attach the file:
    `node <path-to-this-skill>/scripts/minimap.mjs attach <file> --json`
 4. Read context:
