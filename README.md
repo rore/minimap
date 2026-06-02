@@ -45,23 +45,26 @@ A single running server is shared across both modes and across any number of rep
 
 ## Install
 
-Each mode is a self-contained skill under `package/minimap/skills/`. The skill carries its own runtime and lifecycle scripts. Install by linking the skill directory into your global Claude Code skills folder — the source of truth stays in this repo, edits propagate automatically.
-
-**Windows (junction):**
-
-```text
-mklink /J "%USERPROFILE%\.claude\skills\minimap-spec-review" "C:\path\to\minimap\package\minimap\skills\minimap-spec-review"
-mklink /J "%USERPROFILE%\.claude\skills\minimap-roadmap"     "C:\path\to\minimap\package\minimap\skills\minimap-roadmap"
-```
-
-**macOS/Linux (symlink):**
+Each mode is a self-contained skill under `package/minimap/skills/`. A skill is just a folder under your global Claude Code skills directory, so installing minimap means copying those two folders into place.
 
 ```bash
-ln -s /path/to/minimap/package/minimap/skills/minimap-spec-review ~/.claude/skills/minimap-spec-review
-ln -s /path/to/minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/minimap-roadmap
+git clone https://github.com/rore/minimap.git
+cp -R minimap/package/minimap/skills/minimap-spec-review ~/.claude/skills/
+cp -R minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/
 ```
 
-That's it. From there your agents pick up the skills and handle the server, repo resolution, and URLs themselves. See [`package/minimap/README.md`](package/minimap/README.md) for package internals, [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
+On Windows, replace the last two lines with:
+
+```text
+xcopy /E /I minimap\package\minimap\skills\minimap-spec-review %USERPROFILE%\.claude\skills\minimap-spec-review
+xcopy /E /I minimap\package\minimap\skills\minimap-roadmap     %USERPROFILE%\.claude\skills\minimap-roadmap
+```
+
+That's it. The skills carry their own server runtime and lifecycle scripts, so there's nothing else to install — no `npm install`, no system service. Restart Claude Code (or refresh skills) and your agents pick them up.
+
+> Contributor note: if you're working on minimap itself, link the skill folders instead of copying so edits propagate — `ln -s` on macOS/Linux, `mklink /J` on Windows.
+
+See [`package/minimap/README.md`](package/minimap/README.md) for package internals and [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
 
 ## Agent integration
 

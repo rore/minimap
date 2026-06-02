@@ -13,23 +13,24 @@ For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/m
 
 ## Install
 
-The skills install by linking from your global Claude Code skills directory to this checkout. No copy step, no per-repo files inside the host repo.
-
-**Windows (junction):**
-
-```text
-mklink /J "%USERPROFILE%\.claude\skills\minimap-spec-review" "<path>\package\minimap\skills\minimap-spec-review"
-mklink /J "%USERPROFILE%\.claude\skills\minimap-roadmap"     "<path>\package\minimap\skills\minimap-roadmap"
-```
-
-**macOS/Linux (symlink):**
+A skill is just a folder under your global Claude Code skills directory. Install minimap by copying the two skill folders into place — no separate runtime, no `npm install`, the skills carry everything they need.
 
 ```bash
-ln -s <path>/package/minimap/skills/minimap-spec-review ~/.claude/skills/minimap-spec-review
-ln -s <path>/package/minimap/skills/minimap-roadmap     ~/.claude/skills/minimap-roadmap
+git clone https://github.com/rore/minimap.git
+cp -R minimap/package/minimap/skills/minimap-spec-review ~/.claude/skills/
+cp -R minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/
 ```
 
-That's it. From there your agents pick up the skills and handle the server, repo resolution, and URLs themselves — you ask for a roadmap or a spec session and the agent gives you a URL to open.
+On Windows, replace the last two lines with:
+
+```text
+xcopy /E /I minimap\package\minimap\skills\minimap-spec-review %USERPROFILE%\.claude\skills\minimap-spec-review
+xcopy /E /I minimap\package\minimap\skills\minimap-roadmap     %USERPROFILE%\.claude\skills\minimap-roadmap
+```
+
+Restart Claude Code (or refresh skills) and your agents pick them up. From there you ask for a roadmap or a spec session and the agent gives you a URL to open.
+
+> Contributor note: if you're working on minimap itself, link the skill folders to this checkout instead of copying so edits propagate — `ln -s <path>/package/minimap/skills/minimap-<name> ~/.claude/skills/minimap-<name>` on macOS/Linux, `mklink /J %USERPROFILE%\.claude\skills\minimap-<name> <path>\package\minimap\skills\minimap-<name>` on Windows.
 
 ### Multi-repo
 
