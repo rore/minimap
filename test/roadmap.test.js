@@ -1811,13 +1811,20 @@ test("server writes registry on start and removes it on SIGTERM",
 
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
-    child.stdout.on("data", (chunk) => {
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
       if (String(chunk).includes("http://localhost:4413")) {
         clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.off("exit", onExit);
         resolve();
       }
-    });
-    child.on("exit", (code) => reject(new Error(`Server exited early with code ${code}.`)));
+    };
+    child.stdout.on("data", onData);
+    child.on("exit", onExit);
   });
 
   try {
@@ -1833,7 +1840,7 @@ test("server writes registry on start and removes it on SIGTERM",
   }
 
   // After clean shutdown, registry should be gone.
-  await assert.rejects(fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
 
 test("server removes registry on SIGINT as well as SIGTERM",
@@ -1849,16 +1856,24 @@ test("server removes registry on SIGINT as well as SIGTERM",
 
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Server did not start.")), 5000);
-    child.stdout.on("data", (chunk) => {
+    const onExit = (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Server exited early with code ${code}.`));
+    };
+    const onData = (chunk) => {
       if (String(chunk).includes("http://localhost:4424")) {
         clearTimeout(timeout);
+        child.stdout.off("data", onData);
+        child.off("exit", onExit);
         resolve();
       }
-    });
+    };
+    child.stdout.on("data", onData);
+    child.on("exit", onExit);
   });
 
   child.kill("SIGINT");
   await new Promise((resolve) => child.on("exit", resolve));
 
-  await assert.rejects(fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
