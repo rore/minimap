@@ -2,8 +2,8 @@
 
 Minimap is a single-developer workbench for working on repo content together with AI agents. It runs on your machine; there's no shared service, no team mode. It has two modes:
 
-- **[Spec sessions](#spec-sessions)** — review one specific file (a spec, design, RFC, idea) with anchored comments, threaded replies, and proposed edits. Multiple agents and a human can review the same file and reply to each other.
-- **[Roadmap](#roadmap)** — a repo-local roadmap and feature-planning workspace backed by markdown files in `roadmap/`.
+- **[Spec sessions](#spec-sessions)** — comments and proposed edits on a single file, shared between you and your agents. You select text, you or an agent attaches a comment or a suggested edit, others reply. Threads are anchored to the text and stay attached across edits. Suggestions show as a diff; nothing touches the file until you apply.
+- **[Roadmap](#roadmap)** — a roadmap stored as markdown in your repo. `board.md` lists the items, `scope.md` describes current focus, each item is a file in `features/` or `ideas/`. The UI reads and edits those files directly — no separate database, no export step. Agents update the same files through a CLI.
 
 Both modes run from the same local server. There is no hosted service, no database. Files stay canonical, the UI is a lens.
 
@@ -11,9 +11,9 @@ Both modes run from the same local server. There is no hosted service, no databa
 
 ![Spec sessions](docs/images/minimap-spec-session.png)
 
-A spec session attaches to one target file in any repo. Comments and suggestions live in a local store outside that repo. The target file isn't modified unless a human explicitly applies a previewed suggestion.
+A spec session attaches to one target file in any repo. From that point you and any agents you point at it can leave anchored comments, reply to each other, and propose edits as diffs. Each entry records who wrote it (`human`, `claude`, `codex`, …). Comments and replies live in a local store outside the target repo; the file itself isn't modified unless you apply a suggestion.
 
-You can open any roadmap item as a spec session — every roadmap card has a `Review` button, and items with active conversations show a 💬 badge on the board.
+Every roadmap item has a `Review` button that opens it as a spec session. Items with open comments show a 💬 badge with the count.
 
 [Read more →](#spec-sessions-details)
 
@@ -21,7 +21,7 @@ You can open any roadmap item as a spec session — every roadmap card has a `Re
 
 ![Roadmap](docs/images/minimap-board-list.png)
 
-The roadmap mode is a repo-local view over `board.md`, `scope.md`, and item files in `features/` and `ideas/`. The UI doesn't keep its own state — every change writes back to the markdown.
+The roadmap is a small set of files in your repo: `board.md` for groups and item order, `scope.md` for the current-focus narrative, one file per item in `features/` (committed work) and `ideas/` (parked work). The UI shows a board view and a columns view over those files. Editing through the UI — including drag-and-drop — writes the markdown back. Agents update the same files through the [`minimap-roadmap`](package/minimap/skills/minimap-roadmap/SKILL.md) skill.
 
 [Read more →](#roadmap-details)
 
