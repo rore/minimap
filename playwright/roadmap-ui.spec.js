@@ -1329,3 +1329,40 @@ test("Review button on a roadmap item opens it as a spec session", async ({ page
   expect(hash).toContain("view=spec");
   expect(hash).toContain("file=");
 });
+
+test("board badge appears on items with an active spec session", async ({ page }) => {
+  // Open the UI, click an item, click Review to open it as a spec session.
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  const firstItem = page.locator(".board-item").first();
+  const firstItemId = await firstItem.getAttribute("data-item-id");
+  await firstItem.click();
+  await expect(page.locator("#open-in-spec-button")).toBeVisible();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+
+  // Add a global comment so openComments > 0.
+  // Easier path: hit the API directly with the active repo header.
+  const repoPath = process.cwd();
+  // Find the spec session targetFile from the spec list.
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  await page.evaluate(async (file) => {
+    await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "tester", kind: "question", text: "?", scope: "global" }),
+    });
+  }, targetFile);
+
+  // Go back to roadmap and verify the badge shows up on the item.
+  // applyRouteStateFromLocation refreshes the workspace when leaving spec mode,
+  // so the spec-session counts reach the board renderer.
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  const badge = page.locator(`[data-item-id="${firstItemId}"] .board-item-spec-badge`);
+  await expect(badge).toBeVisible({ timeout: 5000 });
+  await expect(badge).toContainText("1");
+});

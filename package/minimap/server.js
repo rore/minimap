@@ -122,6 +122,46 @@ async function resolveRoadmapRepo(request) {
   return resolved;
 }
 
+// Cross-link spec sessions to roadmap items in the active repo. The roadmap
+// workspace gets a side-channel map keyed on item.id so the UI can render
+// "this item has 3 open comments" badges without a second request. Sessions
+// whose targetFile lies outside the active repo are intentionally ignored —
+// we only surface links the user can act on from this workspace view.
+async function buildSpecSessionsByItemId(repoRoot, workspace) {
+  let sessions;
+  try {
+    sessions = await listFileSessions();
+  } catch {
+    return {};
+  }
+
+  const sessionsByPath = new Map();
+  for (const session of sessions) {
+    if (session && typeof session.targetFile === "string") {
+      sessionsByPath.set(session.targetFile, session);
+    }
+  }
+
+  const linked = {};
+  // workspace.items is the full id-keyed map; boardGroups items are summaries
+  // without filePath. The full map covers both board items AND off-board ones.
+  for (const item of Object.values(workspace.items ?? {})) {
+    if (!item.filePath) continue;
+    // item.filePath is already absolute (raw from itemRecord). Forward-slash
+    // it to match how listFileSessions normalizes targetFile.
+    const absolute = path.resolve(item.filePath).replace(/\\/g, "/");
+    const session = sessionsByPath.get(absolute);
+    if (!session) continue;
+    linked[item.id] = {
+      sessionId: session.id,
+      targetFile: session.targetFile,
+      openComments: session.counts?.openComments ?? 0,
+      pendingSuggestions: session.counts?.pendingSuggestions ?? 0,
+    };
+  }
+  return linked;
+}
+
 async function handleApi(request, response, requestUrl) {
   const pathname = requestUrl.pathname;
 
@@ -323,6 +363,7 @@ async function handleApi(request, response, requestUrl) {
   if (request.method === "GET" && pathname === "/api/workspace") {
     const repoRoot = await resolveRoadmapRepo(request);
     const workspace = await loadWorkspace(repoRoot);
+    workspace.specSessionsByItemId = await buildSpecSessionsByItemId(repoRoot, workspace);
     sendJson(response, 200, workspace);
     return true;
   }

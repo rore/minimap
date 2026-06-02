@@ -2579,3 +2579,56 @@ test("restart-server.mjs cycles a running server: new pid, same port, healthy", 
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 });
+
+test("/api/workspace includes specSessionsByItemId when items have spec sessions", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4439, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    // Sanity: no sessions yet, map is empty.
+    const empty = await fetch("http://localhost:4439/api/workspace").then((r) => r.json());
+    assert.deepEqual(empty.specSessionsByItemId, {});
+
+    // Attach a spec session on feature-a (a known item from makeTempRepo).
+    const featurePath = path.join(repoRoot, "roadmap", "features", "feature-a.md");
+    const attach = await fetch("http://localhost:4439/api/spec-sessions/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: featurePath }),
+    });
+    assert.equal(attach.status, 200);
+
+    // Add an open comment so the count is non-zero.
+    const comment = await fetch("http://localhost:4439/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: featurePath, by: "tester", kind: "question", text: "thoughts?", scope: "global" }),
+    });
+    assert.equal(comment.status, 200);
+
+    // Workspace now includes the cross-link.
+    const populated = await fetch("http://localhost:4439/api/workspace").then((r) => r.json());
+    assert.ok(populated.specSessionsByItemId["feature-a"], "feature-a should be linked");
+    assert.equal(populated.specSessionsByItemId["feature-a"].openComments, 1);
+    assert.equal(populated.specSessionsByItemId["feature-a"].pendingSuggestions, 0);
+    assert.equal(typeof populated.specSessionsByItemId["feature-a"].sessionId, "string");
+    // idea-a never had a session attached.
+    assert.equal(populated.specSessionsByItemId["idea-a"], undefined);
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("/api/workspace specSessionsByItemId is empty when no sessions in MINIMAP_HOME", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4440, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const ws = await fetch("http://localhost:4440/api/workspace").then((r) => r.json());
+    assert.deepEqual(ws.specSessionsByItemId, {});
+  } finally {
+    await stopServer(child);
+  }
+});

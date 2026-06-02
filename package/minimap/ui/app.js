@@ -2149,6 +2149,10 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
 
   const metaHtml = metaParts.length > 0 ? `<span class="board-item-meta">${metaParts.join("")}</span>` : "";
   const overview = item.overviewExcerpt ? `<span class="board-item-overview">${escapeHtml(item.overviewExcerpt)}</span>` : "";
+  const specLink = state.workspace?.specSessionsByItemId?.[item.id];
+  const specBadge = specLink
+    ? `<span class="board-item-spec-badge" title="${escapeHtml(buildSpecBadgeTitle(specLink))}" aria-label="${escapeHtml(buildSpecBadgeTitle(specLink))}">💬 ${specLink.openComments}${specLink.pendingSuggestions > 0 ? ` · ✎ ${specLink.pendingSuggestions}` : ""}</span>`
+    : "";
 
   return `
     <span class="board-item-top">
@@ -2157,8 +2161,22 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
     </span>
     <span class="board-item-id">${escapeHtml(item.id)}</span>
     ${overview}
-    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}</span>
+    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}${specBadge}</span>
   `;
+}
+
+function buildSpecBadgeTitle(specLink) {
+  const parts = [];
+  if (specLink.openComments > 0) {
+    parts.push(`${specLink.openComments} open comment${specLink.openComments === 1 ? "" : "s"}`);
+  }
+  if (specLink.pendingSuggestions > 0) {
+    parts.push(`${specLink.pendingSuggestions} pending suggestion${specLink.pendingSuggestions === 1 ? "" : "s"}`);
+  }
+  if (parts.length === 0) {
+    return "Spec session attached";
+  }
+  return `Spec session: ${parts.join(", ")}`;
 }
 
 function buildBoardGroupsPayload(boardGroups = state.workspace?.boardGroups ?? []) {
@@ -5041,6 +5059,7 @@ async function syncVisibleSelection(options = {}) {
 async function applyRouteStateFromLocation() {
   const route = readRouteState();
   const repoChanged = route.repo && route.repo !== state.repoPath;
+  const exitedSpecMode = state.appMode === "spec" && route.view !== "spec";
   if (route.repo) {
     state.repoPath = route.repo;
   }
@@ -5070,7 +5089,10 @@ async function applyRouteStateFromLocation() {
   // If the URL points at a different repo than what state currently holds,
   // reload the workspace before reconciling selection. Without this, navigating
   // to a new #repo=... silently keeps showing the previous repo's data.
-  if (repoChanged) {
+  // Same applies when leaving spec mode: spec sessions may have changed while
+  // the user was in spec mode, so the badge counts in workspace.specSessionsByItemId
+  // need a refresh.
+  if (repoChanged || exitedSpecMode) {
     await loadWorkspace(route.itemId || "", { syncRoute: false });
     return;
   }
