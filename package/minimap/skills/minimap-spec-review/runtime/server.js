@@ -455,16 +455,21 @@ const noFallback = process.env.MINIMAP_NO_PORT_FALLBACK === "1";
 
 async function startServer() {
   try {
-    const boundPort = noFallback ? await listenOnce(server, requestedPort) || requestedPort : await listenOnAvailablePort(server, requestedPort);
-    const actualPort = typeof boundPort === "number" ? boundPort : requestedPort;
-    const fallbackNote = actualPort === requestedPort ? "" : ` (requested ${requestedPort})`;
+    let boundPort;
+    if (noFallback) {
+      await listenOnce(server, requestedPort);
+      boundPort = requestedPort;
+    } else {
+      boundPort = await listenOnAvailablePort(server, requestedPort);
+    }
+    const fallbackNote = boundPort === requestedPort ? "" : ` (requested ${requestedPort})`;
     await writeServerRegistry({
       pid: process.pid,
-      port: actualPort,
+      port: boundPort,
       startedAt: new Date().toISOString(),
       version: serverVersion,
     });
-    process.stdout.write(`Minimap running at http://localhost:${actualPort}${fallbackNote}\n`);
+    process.stdout.write(`Minimap running at http://localhost:${boundPort}${fallbackNote}\n`);
   } catch (error) {
     if (error && error.code === "EADDRINUSE" && noFallback) {
       // The launcher will re-probe.
