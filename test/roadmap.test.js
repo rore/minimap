@@ -1122,6 +1122,118 @@ test("text anchors resolve after nearby line drift and flag ambiguous quotes", (
   assert.equal(ambiguous.status, "ambiguous");
 });
 
+test("createTextAnchor disambiguates duplicate quotes via lineStart hint", () => {
+  // The same phrase appears once in prose (line 5) and once inside a fenced
+  // code block (line 11). Without a hint, createTextAnchor should still
+  // refuse to guess (preserves the existing strict-uniqueness contract for
+  // old callers). With a hint, it picks the matching occurrence.
+  const text = [
+    "# Token refresh",                                             // 1
+    "",                                                            // 2
+    "## Approach",                                                 // 3
+    "",                                                            // 4
+    "Refresh when Date.now() > tokenExpiry - 60_000.",             // 5
+    "",                                                            // 6
+    "## Code",                                                     // 7
+    "",                                                            // 8
+    "```js",                                                       // 9
+    "function shouldRefresh(tokenExpiry) {",                       // 10
+    "  return Date.now() > tokenExpiry - 60_000;",                 // 11
+    "}",                                                           // 12
+    "```",                                                         // 13
+  ].join("\n");
+  const quote = "Date.now() > tokenExpiry - 60_000";
+
+  const proseAnchor = createTextAnchor(text, { quote, lineStart: 5 });
+  assert.equal(proseAnchor.lineStart, 5);
+  assert.equal(proseAnchor.lineEnd, 5);
+  assert.deepEqual(proseAnchor.headingPath, ["Token refresh", "Approach"]);
+
+  const codeAnchor = createTextAnchor(text, { quote, lineStart: 11 });
+  assert.equal(codeAnchor.lineStart, 11);
+  assert.equal(codeAnchor.lineEnd, 11);
+
+  // No hint → ambiguous (back-compat).
+  assert.throws(
+    () => createTextAnchor(text, { quote }),
+    (error) => error.code === "anchor_ambiguous",
+  );
+
+  // Hint that doesn't match any occurrence → ambiguous (don't fall back to
+  // first match, that would silently misanchor).
+  assert.throws(
+    () => createTextAnchor(text, { quote, lineStart: 9999 }),
+    (error) => error.code === "anchor_ambiguous",
+  );
+
+  // If the quote is already unique, the hint is irrelevant — use the
+  // single occurrence regardless of what the caller passed.
+  const uniqueText = "Only here once.\nNothing else.\n";
+  const uniqueAnchor = createTextAnchor(uniqueText, { quote: "Only here once.", lineStart: 999 });
+  assert.equal(uniqueAnchor.lineStart, 1);
+});
+
+test("addFileSessionSuggestion accepts lineStart on quote anchor", async () => {
+  // Round-trip the line hint through the session helper. Same phrase appears
+  // twice in the file: prose line and code-block line. Posting with the
+  // hint must anchor to the correct occurrence; posting without it must
+  // still fail with anchor_ambiguous.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-suggest-line-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  const text = [
+    "# Token refresh",
+    "",
+    "## Approach",
+    "",
+    "Refresh when Date.now() > tokenExpiry - 60_000.",
+    "",
+    "## Code",
+    "",
+    "```js",
+    "function shouldRefresh(tokenExpiry) {",
+    "  return Date.now() > tokenExpiry - 60_000;",
+    "}",
+    "```",
+    "",
+  ].join("\n");
+  await fs.writeFile(specPath, text, "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  const quote = "Date.now() > tokenExpiry - 60_000";
+
+  const proseSuggestion = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "replace",
+    quote,
+    lineStart: 5,
+    rationale: "Pull lead time as a constant.",
+    content: "Date.now() > tokenExpiry - REFRESH_LEAD_MS",
+  }, { minimapHome });
+  assert.equal(proseSuggestion.suggestion.anchor.lineStart, 5);
+
+  const codeSuggestion = await addFileSessionSuggestion(specPath, {
+    by: "ai:codex",
+    kind: "replace",
+    quote,
+    lineStart: 11,
+    rationale: "Same change in the snippet.",
+    content: "Date.now() > tokenExpiry - REFRESH_LEAD_MS",
+  }, { minimapHome });
+  assert.equal(codeSuggestion.suggestion.anchor.lineStart, 11);
+
+  await assert.rejects(
+    () => addFileSessionSuggestion(specPath, {
+      by: "ai:codex",
+      kind: "replace",
+      quote,
+      rationale: "No hint.",
+      content: "Date.now() > tokenExpiry - REFRESH_LEAD_MS",
+    }, { minimapHome }),
+    (error) => error.code === "anchor_ambiguous",
+  );
+});
+
 test("addFileSessionComment stores global, section, and anchored comments in context", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-comments-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
@@ -2892,4 +3004,130 @@ The phrase "exact text here" appears literally in this file.
   assert.equal(anchor.scope, "anchor");
   assert.equal(anchor.quote, "exact text here");
   assert.ok(anchor.lineStart > 0);
+});
+
+test("CLI comment add reads --text-file and --quote-file from disk (PowerShell-hostile content)", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  // The spec file has the quote and a place to anchor the comment.
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# Top\n\nSome line containing `tricky-token` mid-text.\n\nUnrelated paragraph.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  // Multi-line text with apostrophes, em-dashes, backticks — every shell-hostile
+  // glyph stuffed into one comment body. The file path bypass means none of
+  // this needs escaping at the command line.
+  const textPath = path.join(repoRoot, "comment-text.md");
+  await fs.writeFile(textPath, "Don't lock the design here — `tricky-token` is one of\nseveral options.\n", "utf8");
+
+  // The quote also has backticks; pass via --quote-file.
+  const quotePath = path.join(repoRoot, "comment-quote.md");
+  await fs.writeFile(quotePath, "`tricky-token`", "utf8");
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+     "--text-file", textPath, "--quote-file", quotePath, "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 0, `expected exit 0, stderr=${result.stderr}`);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.comment.kind, "concern");
+  assert.equal(payload.comment.by, "tester");
+  // Trailing newline trimmed by the helper; the body of the file is preserved.
+  assert.equal(payload.comment.text, "Don't lock the design here — `tricky-token` is one of\nseveral options.");
+  assert.equal(payload.comment.anchor.scope, "anchor");
+  assert.equal(payload.comment.anchor.quote, "`tricky-token`");
+});
+
+test("CLI comment reply reads --text-file from disk", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(path.join(repoRoot, "spec.md"), "# Top\n\nbody\n", "utf8");
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  // Seed a comment to reply to.
+  const seed = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "question",
+     "--global", "--text", "first?", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  const commentId = JSON.parse(seed.stdout).comment.id;
+
+  const replyPath = path.join(repoRoot, "reply.md");
+  await fs.writeFile(replyPath, "Multi-line reply with don't / can't / it's apostrophes\nand a second line.\n", "utf8");
+
+  const result = await runCli(
+    ["comment", "reply", "spec.md", commentId, "--by", "tester2",
+     "--text-file", replyPath, "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 0, `stderr=${result.stderr}`);
+  const payload = JSON.parse(result.stdout);
+  // Reply returns the updated parent comment with replies appended.
+  const reply = payload.comment.replies[payload.comment.replies.length - 1];
+  assert.equal(reply.text, "Multi-line reply with don't / can't / it's apostrophes\nand a second line.");
+});
+
+test("CLI rejects --text and --text-file passed together", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(path.join(repoRoot, "spec.md"), "# Top\n", "utf8");
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  const textPath = path.join(repoRoot, "t.md");
+  await fs.writeFile(textPath, "from file", "utf8");
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "question",
+     "--global", "--text", "from inline", "--text-file", textPath],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 2, "exit 2 = AppError with statusCode<500");
+  assert.match(result.stderr, /not both/i);
+});
+
+test("CLI surfaces a clear error when --text-file points at a missing path", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(path.join(repoRoot, "spec.md"), "# Top\n", "utf8");
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "question",
+     "--global", "--text-file", path.join(repoRoot, "does-not-exist.md")],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 2);
+  assert.match(result.stderr, /Could not read --text-file/);
+});
+
+test("CLI suggest add reads --content-file, --quote-file, --rationale-file from disk", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# Top\n\nThe phrase 'replace this' appears once in this file.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const quotePath = path.join(repoRoot, "q.md");
+  const contentPath = path.join(repoRoot, "c.md");
+  const rationalePath = path.join(repoRoot, "r.md");
+  await fs.writeFile(quotePath, "'replace this'", "utf8");
+  await fs.writeFile(contentPath, "with this multi-line\nreplacement", "utf8");
+  await fs.writeFile(rationalePath, "Because — em-dashes — work in files", "utf8");
+
+  const result = await runCli(
+    ["suggest", "add", "spec.md", "--by", "tester", "--kind", "replace",
+     "--quote-file", quotePath, "--content-file", contentPath, "--rationale-file", rationalePath, "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 0, `stderr=${result.stderr}`);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.suggestion.kind, "replace");
+  assert.equal(payload.suggestion.content, "with this multi-line\nreplacement");
+  assert.equal(payload.suggestion.rationale, "Because — em-dashes — work in files");
 });

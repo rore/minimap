@@ -63,6 +63,13 @@ const state = {
     commentComposerOpen: false,
     replyComposerCommentId: "",
     selectedQuote: "",
+    // Line range in state.spec.content for the most recently captured quote.
+    // Used as a disambiguation hint when posting comments/suggestions: if the
+    // same quote appears more than once (e.g. in prose and again inside a
+    // fenced code block), the hint lets the server pick the occurrence the
+    // user actually selected. Cleared whenever selectedQuote is cleared so
+    // it can never point at the wrong content.
+    selectedQuoteLineRange: null,
     activeAnchorCommentId: "",
     anchorHighlightTimer: null,
     reviewTab: "comments",
@@ -3476,9 +3483,19 @@ function buildRenderedNormalizedMap(value) {
 }
 
 function sourceQuoteForRenderedSelection(selectionText) {
+  return resolveSourceQuoteFromRendered(selectionText).quote;
+}
+
+// Like sourceQuoteForRenderedSelection but also returns a 1-based line range
+// in state.spec.content for the matched source slice. The line range is
+// what we forward to the server as a disambiguation hint when the same
+// quote appears more than once in the file (e.g. once in prose and once
+// inside a fenced code block). Returns lineRange = null when the rendered
+// selection couldn't be mapped back to the source.
+function resolveSourceQuoteFromRendered(selectionText) {
   const normalizedSelection = normalizeAnchorWhitespace(selectionText);
   if (!normalizedSelection) {
-    return "";
+    return { quote: "", lineRange: null };
   }
 
   // Try the markdown-aware map first — selections from the rendered DOM lack
@@ -3500,12 +3517,34 @@ function sourceQuoteForRenderedSelection(selectionText) {
   }
 
   if (matchIndex === -1) {
-    return selectionText.trim();
+    return { quote: selectionText.trim(), lineRange: null };
   }
 
   const start = mapped.originalIndexes[matchIndex];
   const end = mapped.originalIndexes[matchIndex + normalizedSelection.length - 1] + 1;
-  return state.spec.content.slice(start, end).trim();
+  const sliced = state.spec.content.slice(start, end);
+  // Trim adjusts the start/end. Recompute the trimmed span so the line
+  // range still describes the visible text the user selected.
+  const leading = sliced.length - sliced.replace(/^\s+/, "").length;
+  const trailing = sliced.length - sliced.replace(/\s+$/, "").length;
+  const trimmedStart = start + leading;
+  const trimmedEnd = end - trailing;
+  const lineRange = computeLineRange(state.spec.content, trimmedStart, trimmedEnd - trimmedStart);
+  return { quote: sliced.trim(), lineRange };
+}
+
+// 1-based line range for a [start, start+length) span in `text`. Mirrors the
+// server's lineRangeForOffset in src/sessions.js so the hint we send lines
+// up with what createTextAnchor computes server-side.
+function computeLineRange(text, start, length) {
+  if (typeof start !== "number" || start < 0) {
+    return null;
+  }
+  const before = text.slice(0, start);
+  const selected = text.slice(start, start + Math.max(0, length));
+  const lineStart = before.split(/\r?\n/).length;
+  const lineEnd = lineStart + selected.split(/\r?\n/).length - 1;
+  return { lineStart, lineEnd };
 }
 
 function getSpecSelectionText() {
@@ -3527,7 +3566,31 @@ function getSpecSelectionText() {
 
 function captureSpecSelectedQuote() {
   const selectedText = getSpecSelectionText();
-  state.spec.selectedQuote = selectedText ? sourceQuoteForRenderedSelection(selectedText) : "";
+  if (!selectedText) {
+    clearSpecSelectedQuote();
+    return;
+  }
+  const resolved = resolveSourceQuoteFromRendered(selectedText);
+  state.spec.selectedQuote = resolved.quote;
+  state.spec.selectedQuoteLineRange = resolved.lineRange;
+}
+
+// Reset both selectedQuote and its line range together. Anything that clears
+// the quote MUST go through this — a stale lineRange next to a freshly typed
+// quote would silently misanchor on the wrong occurrence.
+function clearSpecSelectedQuote() {
+  state.spec.selectedQuote = "";
+  state.spec.selectedQuoteLineRange = null;
+}
+
+// Set the quote but drop the line range hint. Used when the quote came from
+// a path other than a live DOM selection (gutter "+" button, openSpecComposer
+// from a stored anchor) — we don't have a trustworthy mapping back to a
+// specific occurrence, so we let the server's strict-uniqueness behavior
+// handle disambiguation (or surface anchor_ambiguous if needed).
+function setSpecSelectedQuoteWithoutHint(quote) {
+  state.spec.selectedQuote = quote;
+  state.spec.selectedQuoteLineRange = null;
 }
 
 function specAnchorSummary(mode, value) {
