@@ -168,6 +168,7 @@ const editorOverlayElement = document.querySelector("#editor-overlay");
 const editorOverlaySlotElement = document.querySelector("#editor-overlay-slot");
 const editorOverlayBackdrop = document.querySelector("#editor-overlay-backdrop");
 const editorCancelButton = document.querySelector("#editor-cancel-button");
+const openInSpecButton = document.querySelector("#open-in-spec-button");
 const editorOverlayCloseButton = document.querySelector("#editor-overlay-close");
 const saveButton = document.querySelector("#save-button");
 const refreshButton = document.querySelector("#refresh-button");
@@ -1612,6 +1613,14 @@ function renderEditorChrome() {
   if (editorOverlayCloseButton) {
     editorOverlayCloseButton.hidden = true;
     editorOverlayCloseButton.disabled = true;
+  }
+
+  if (openInSpecButton) {
+    // The Review button stays visible in every editor mode while an item is
+    // loaded — it opens a spec session on the item file regardless of whether
+    // the user is in read, edit, or raw mode.
+    openInSpecButton.hidden = setupMode || !hasItem;
+    openInSpecButton.disabled = !hasItem;
   }
 
   if (setupMode) {
@@ -4704,6 +4713,42 @@ async function refreshSpecReviewState(options = {}) {
   }
 }
 
+// Build an absolute filesystem path by combining the active repo with a
+// repo-relative path. Tolerant of mixed separators because state.repoPath
+// can be a Windows path while the relative side comes from server JSON
+// (which uses path.relative — also platform-dependent). Server-side
+// path.resolve handles either as long as we don't mash a leading "/" into
+// a Windows root.
+function joinRepoPath(repoPath, relPath) {
+  if (!repoPath) return relPath;
+  if (!relPath) return repoPath;
+  const trimmedRepo = repoPath.replace(/[\\/]+$/, "");
+  const trimmedRel = relPath.replace(/^[\\/]+/, "");
+  // Use the separator the repo path is already using; default to / for portability.
+  const sep = trimmedRepo.includes("\\") ? "\\" : "/";
+  return `${trimmedRepo}${sep}${trimmedRel}`;
+}
+
+async function openCurrentItemAsSpecSession() {
+  const item = state.currentItem;
+  if (!item || !item.filePath) {
+    setBanner("No item is loaded.", "error");
+    return;
+  }
+  // item.filePath is repo-relative (path.relative(repoRoot, item.filePath) on
+  // the server). Build the absolute path so the spec-session attach succeeds
+  // regardless of the server's cwd.
+  const absolutePath = state.repoPath
+    ? joinRepoPath(state.repoPath, item.filePath)
+    : item.filePath;
+  try {
+    await switchAppMode("spec");
+    await attachSpecSession(absolutePath);
+  } catch (error) {
+    setBanner(error.message || "Could not open spec session for this item.", "error");
+  }
+}
+
 async function attachSpecSession(filePath) {
   const result = await fetchJson("/api/spec-sessions/attach", {
     method: "POST",
@@ -6093,6 +6138,10 @@ editorOverlayCloseButton?.addEventListener("click", () => {
 
 editorCancelButton?.addEventListener("click", () => {
   cancelCurrentItemEdits();
+});
+
+openInSpecButton?.addEventListener("click", () => {
+  void openCurrentItemAsSpecSession();
 });
 
 form.addEventListener("input", (event) => {

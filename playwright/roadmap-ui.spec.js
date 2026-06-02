@@ -1304,3 +1304,28 @@ test("changing #repo= reloads the workspace for the new repo", async ({ page }) 
     await fs.rm(sandboxRepo, { recursive: true, force: true });
   }
 });
+
+test("Review button on a roadmap item opens it as a spec session", async ({ page }) => {
+  await page.goto(repoUrl());
+  await expect(page.locator("#mode-title")).toContainText("Roadmap");
+
+  // Open any item — the first board item works.
+  const firstItem = page.locator(".board-item").first();
+  await firstItem.click();
+
+  // Editor header gains a Review button only when an item is loaded.
+  const reviewButton = page.locator("#open-in-spec-button");
+  await expect(reviewButton).toBeVisible();
+  await reviewButton.click();
+
+  // Switches to spec mode and the spec session for this item is selected.
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  // Banner reflects the attach (created or reopened).
+  await expect(page.locator("#status-banner")).toContainText(/Spec session (attached|reopened)/i);
+
+  // The hash should still contain repo= and now also view=spec & file=...
+  const hash = await page.evaluate(() => window.location.hash);
+  expect(hash).toContain("repo=");
+  expect(hash).toContain("view=spec");
+  expect(hash).toContain("file=");
+});
