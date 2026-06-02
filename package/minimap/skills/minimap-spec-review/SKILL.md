@@ -41,16 +41,21 @@ Use forward slashes in the path even on Windows (`C:/foo/bar.md`). If the path c
 
 ### 3b. Driving the review
 
+Use the bundled CLI for every read-and-write operation. **Do not** call the HTTP API directly (`POST /api/spec-sessions/...`) — the CLI handles edge cases (anchor cascades, markdown tolerance, idempotency) the raw HTTP doesn't.
+
 1. `minimap.mjs attach <file> --json`
 2. `minimap.mjs context <file> --json`
 3. Read the target file directly before substantive review.
 4. Add comments, replies, or suggestions through minimap.
 5. Preview suggestions before applying; apply only when the user explicitly asks.
 
-For the full CLI grammar, read [references/cli.md](references/cli.md). For comment kinds and anchoring rules, read [references/review-workflow.md](references/review-workflow.md).
+When the comment text or quote contains characters that fight shell quoting (apostrophes, backticks, em-dashes, newlines, ampersands), write the value to a temp file first and pass `--text-file <path>` / `--quote-file <path>` instead of `--text` / `--quote`. This avoids every shell's escape rules. Same applies to `--content-file` and `--rationale-file` for `suggest add`.
+
+For the full CLI grammar including the file-input flags, read [references/cli.md](references/cli.md). For comment kinds and anchoring rules, read [references/review-workflow.md](references/review-workflow.md).
 
 ## Guardrails
 
+- Drive operations through the CLI (`minimap.mjs`). Do not call HTTP routes (`/api/spec-sessions/...`) directly — agents that try miss anchor cascades and markdown tolerance, and routinely guess wrong endpoint names.
 - Do not assume the current repo contains minimap.
 - Do not create minimap folders inside the work repo.
 - Do not edit the target file unless the user explicitly asks.
