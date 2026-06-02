@@ -2378,3 +2378,85 @@ test("POST /api/shutdown returns 200, deletes registry, frees the port", async (
   // Port should be free — fetching /health rejects with a connection error.
   await assert.rejects(() => fetch("http://localhost:4433/health"));
 });
+
+test("stop-server.mjs gracefully stops a running server", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4434, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  const stopScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "stop-server.mjs",
+  );
+  const result = await new Promise((resolve, reject) => {
+    const stop = spawn(process.execPath, [stopScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    stop.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    stop.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    stop.on("exit", (code) => resolve({ code, stdout, stderr }));
+    stop.on("error", reject);
+  });
+
+  // The server child should have exited as a side-effect of /api/shutdown.
+  // Guard against the listener-attached-after-event race: child may already be
+  // gone by the time we await here.
+  if (child.exitCode === null && child.signalCode === null) {
+    await new Promise((resolve) => child.on("exit", resolve));
+  }
+
+  assert.equal(result.code, 0, `stop-server expected exit 0, got ${result.code} (stderr: ${result.stderr})`);
+  assert.match(result.stdout, /Minimap stopped/i);
+  assert.match(result.stdout, /4434/);
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+  await assert.rejects(() => fetch("http://localhost:4434/health"));
+});
+
+test("stop-server.mjs reports 'not running' when no registry exists", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const stopScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "stop-server.mjs",
+  );
+  const result = await new Promise((resolve) => {
+    const stop = spawn(process.execPath, [stopScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    stop.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    stop.on("exit", (code) => resolve({ code, stdout }));
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /not running/i);
+});
+
+test("stop-server.mjs cleans up stale registry pointing at a dead server", async () => {
+  // Registry points at a port nothing listens on. stop-server should detect
+  // the staleness, delete the file, and exit 0 without touching anything.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writeServerRegistry(
+    { pid: 99997, port: 4435, startedAt: "2026-01-01T00:00:00Z", version: "0.0.0" },
+    { minimapHome: home },
+  );
+
+  const stopScript = path.join(
+    projectRoot,
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "stop-server.mjs",
+  );
+  const result = await new Promise((resolve) => {
+    const stop = spawn(process.execPath, [stopScript], {
+      env: { ...process.env, MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    stop.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    stop.on("exit", (code) => resolve({ code, stdout }));
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /stale registry/i);
+  await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+});
