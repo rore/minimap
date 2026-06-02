@@ -27,23 +27,25 @@ The roadmap mode is a repo-local view over `board.md`, `scope.md`, and item file
 
 ---
 
-## Run locally
+## Use it
 
-```bash
-npm start
-```
+You don't run minimap yourself. You ask an agent for what you want to look at, and it handles the rest — start the server if it's not running, attach the right repo or file, give you a URL.
 
-Open the URL the server prints (defaults to `http://localhost:4312`, falls forward if busy). The same window hosts both modes; switch with the segmented control in the top right.
+Examples:
 
-A single running server can serve any number of repos — switch repos by changing the `repo=` parameter in the URL hash:
+> "Show me the roadmap for this repo."
+>
+> "Open a spec session on `docs/architecture.md`."
+>
+> "Open this roadmap item as a spec session — I want to leave comments."
 
-```text
-http://localhost:4312/#repo=/abs/path/to/repo&view=board
-```
+The agent uses the skills below to start the bundled server (or reuse a running one), resolve the right repo, and produce a URL like `http://localhost:4312/#repo=/abs/path/to/repo&view=board` or `http://localhost:4312/#view=spec&file=…`. You open the URL and read or edit; the UI writes back to the same files the agent operates on.
+
+A single running server is shared across both modes and across any number of repos. Switching repos is just a URL change — no restart.
 
 ## Install
 
-Each mode is a self-contained skill under `package/minimap/skills/`. The skill carries its own runtime and lifecycle scripts. Install by linking the skill directory into your global Claude Code skills folder — the source of truth stays in this repo.
+Each mode is a self-contained skill under `package/minimap/skills/`. The skill carries its own runtime and lifecycle scripts. Install by linking the skill directory into your global Claude Code skills folder — the source of truth stays in this repo, edits propagate automatically.
 
 **Windows (junction):**
 
@@ -59,30 +61,7 @@ ln -s /path/to/minimap/package/minimap/skills/minimap-spec-review ~/.claude/skil
 ln -s /path/to/minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/minimap-roadmap
 ```
 
-The roadmap skill is repo-specific in use (it works on `roadmap/` files inside the active repo via the `#repo=...` URL convention), but the install path is the same for both: a link from the global skills directory to this checkout. Edits to the source propagate automatically — no re-install step.
-
-After linking, agents start the server with:
-
-```bash
-node ~/.claude/skills/minimap-spec-review/scripts/start-server.mjs
-```
-
-A single running server is shared across both skills and across all repos.
-
-## Server lifecycle
-
-All four operations are scripts inside each skill's `scripts/` directory:
-
-| Script | What it does |
-|---|---|
-| `start-server.mjs` | Start, or detect + reuse a running instance. |
-| `status.mjs` | Print port/pid/version. Exit 0 running, 1 stale, 3 not running. |
-| `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
-| `restart-server.mjs` | Compose stop + start. |
-
-Agents are expected to use the scripts only — no direct curl, signals, or registry edits.
-
-See [`package/minimap/README.md`](package/minimap/README.md) for package internals, [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
+That's it. From there your agents pick up the skills and handle the server, repo resolution, and URLs themselves. See [`package/minimap/README.md`](package/minimap/README.md) for package internals, [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
 
 ## Agent integration
 
@@ -94,6 +73,19 @@ Both modes ship as named skills under `package/minimap/skills/`:
 | Roadmap | [`minimap-roadmap/SKILL.md`](package/minimap/skills/minimap-roadmap/SKILL.md) | Reading or updating roadmap state in a repo that uses the minimap roadmap convention. |
 
 Each skill has a short trigger description and quick workflow at the top, with detailed contracts under its `references/`. The two skills layer cleanly: a roadmap item is just a markdown file, and you can attach it as a spec session for anchored review without leaving the planning workflow.
+
+### Server lifecycle (agent contract)
+
+Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.
+
+| Script | What it does |
+|---|---|
+| `start-server.mjs` | Start, or detect + reuse a running instance. |
+| `status.mjs` | Print port/pid/version. Exit 0 running, 1 stale, 3 not running. |
+| `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
+| `restart-server.mjs` | Compose stop + start. |
+
+A single running server is shared across both skills and across any number of repos.
 
 ## Tests
 

@@ -29,17 +29,11 @@ ln -s <path>/package/minimap/skills/minimap-spec-review ~/.claude/skills/minimap
 ln -s <path>/package/minimap/skills/minimap-roadmap     ~/.claude/skills/minimap-roadmap
 ```
 
-After linking, agents start the server through the bundled launcher:
-
-```bash
-node ~/.claude/skills/minimap-spec-review/scripts/start-server.mjs
-```
-
-The launcher detects an already-running instance via `$MINIMAP_HOME/server.json` and reuses it — one server serves both skills and any number of repos.
+That's it. From there your agents pick up the skills and handle the server, repo resolution, and URLs themselves — you ask for a roadmap or a spec session and the agent gives you a URL to open.
 
 ### Multi-repo
 
-A single running minimap server can serve roadmap for any number of repos. Pass the absolute repo path in the URL hash:
+A single running minimap server can serve roadmap for any number of repos. The agent passes the active repo path in the URL hash:
 
 ```text
 http://localhost:4312/#repo=/abs/path/to/repo&view=board
@@ -47,9 +41,9 @@ http://localhost:4312/#repo=/abs/path/to/repo&view=board
 
 Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
 
-## Server lifecycle
+## Server lifecycle (agent contract)
 
-Each skill exposes the same four scripts under `scripts/`:
+Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.
 
 | Script | What it does |
 |---|---|
@@ -58,7 +52,7 @@ Each skill exposes the same four scripts under `scripts/`:
 | `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
 | `restart-server.mjs` | Compose stop + start. |
 
-Agents use only these scripts — no direct curl, signals, or registry edits.
+The launcher detects an already-running instance via `$MINIMAP_HOME/server.json` and reuses it — one server serves both skills and any number of repos.
 
 ## Agent hookup
 
