@@ -3492,7 +3492,14 @@ function sourceQuoteForRenderedSelection(selectionText) {
 // quote appears more than once in the file (e.g. once in prose and once
 // inside a fenced code block). Returns lineRange = null when the rendered
 // selection couldn't be mapped back to the source.
-function resolveSourceQuoteFromRendered(selectionText) {
+//
+// `occurrenceIndex` is optional: a 0-based count of which match of the
+// selected text the user picked. When the same rendered text appears more
+// than once and we know which one (because we counted occurrences in the
+// rendered DOM before the live selection's start), we pick the matching
+// source occurrence — without it, indexOf would always return the first
+// match and the line hint would point at the wrong spot.
+function resolveSourceQuoteFromRendered(selectionText, occurrenceIndex = 0) {
   const normalizedSelection = normalizeAnchorWhitespace(selectionText);
   if (!normalizedSelection) {
     return { quote: "", lineRange: null };
@@ -3503,7 +3510,7 @@ function resolveSourceQuoteFromRendered(selectionText) {
   // would miss. The map walks markers as the renderer does, so the rendered
   // selection lines up with the stripped view.
   const renderedSource = buildRenderedNormalizedMap(state.spec.content);
-  let matchIndex = renderedSource.text.indexOf(normalizedSelection);
+  let matchIndex = nthOccurrence(renderedSource.text, normalizedSelection, occurrenceIndex);
   let mapped = renderedSource;
 
   // Fall back to the plain whitespace-normalized map (preserves markers).
@@ -3512,7 +3519,7 @@ function resolveSourceQuoteFromRendered(selectionText) {
   // we still want to find it.
   if (matchIndex === -1) {
     const literalSource = buildWhitespaceNormalizedMap(state.spec.content);
-    matchIndex = literalSource.text.indexOf(normalizedSelection);
+    matchIndex = nthOccurrence(literalSource.text, normalizedSelection, occurrenceIndex);
     mapped = literalSource;
   }
 
@@ -3531,6 +3538,24 @@ function resolveSourceQuoteFromRendered(selectionText) {
   const trimmedEnd = end - trailing;
   const lineRange = computeLineRange(state.spec.content, trimmedStart, trimmedEnd - trimmedStart);
   return { quote: sliced.trim(), lineRange };
+}
+
+// Index of the nth (0-based) occurrence of `needle` in `haystack`, or
+// the index of the LAST occurrence when n is past the end (clamps so a
+// stale rendered count never silently rolls back to occurrence 0).
+// Returns -1 when there are no matches at all.
+function nthOccurrence(haystack, needle, n) {
+  let cursor = haystack.indexOf(needle);
+  if (cursor === -1) return -1;
+  let last = cursor;
+  let i = 0;
+  while (i < n) {
+    cursor = haystack.indexOf(needle, cursor + 1);
+    if (cursor === -1) return last;
+    last = cursor;
+    i += 1;
+  }
+  return last;
 }
 
 // 1-based line range for a [start, start+length) span in `text`. Mirrors the
@@ -3571,9 +3596,45 @@ function captureSpecSelectedQuote() {
     state.spec.selectedQuoteLineRange = null;
     return;
   }
-  const resolved = resolveSourceQuoteFromRendered(selectedText);
+  // Count how many times the selected text appears in the rendered body
+  // BEFORE the live selection's start. That gives us the occurrence index
+  // (0-based) the user actually selected, which we then use to pick the
+  // matching occurrence in the source map. Without this, indexOf in the
+  // source map always picks the first match — wrong when the same phrase
+  // appears more than once.
+  const occurrenceIndex = renderedSelectionOccurrenceIndex(selectedText);
+  const resolved = resolveSourceQuoteFromRendered(selectedText, occurrenceIndex);
   state.spec.selectedQuote = resolved.quote;
   state.spec.selectedQuoteLineRange = resolved.lineRange;
+}
+
+// 0-based count of how many times `needle` appears in the rendered body
+// before the live selection's start, matching whatever normalization the
+// renderer uses on textContent. Returns 0 (treat as first occurrence) when
+// there's no selection or no match in front of it. Whitespace is collapsed
+// the same way normalizeAnchorWhitespace handles it so the count lines up
+// with what the source-map matcher will see.
+function renderedSelectionOccurrenceIndex(needle) {
+  const trimmedNeedle = normalizeAnchorWhitespace(needle);
+  if (!trimmedNeedle) return 0;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return 0;
+  const range = selection.getRangeAt(0);
+  if (!specFileContentElement.contains(range.startContainer)) return 0;
+
+  // textContent up to the selection start.
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(specFileContentElement);
+  beforeRange.setEnd(range.startContainer, range.startOffset);
+  const before = normalizeAnchorWhitespace(beforeRange.toString());
+
+  let count = 0;
+  let cursor = before.indexOf(trimmedNeedle);
+  while (cursor !== -1) {
+    count += 1;
+    cursor = before.indexOf(trimmedNeedle, cursor + 1);
+  }
+  return count;
 }
 
 function specAnchorSummary(mode, value) {
@@ -3734,6 +3795,14 @@ function showSpecToolbarForSelection() {
 
 function openSpecComposer(kind, quote = "") {
   const cleanQuote = quote.trim();
+  // Preserve the captured line range when the caller is opening on the same
+  // quote we just captured from a live DOM selection. Other entry points
+  // (paragraph "+" gutter, programmatic) pass a quote that didn't come from
+  // a tracked selection — drop the range so we don't smuggle a stale hint
+  // onto an unrelated occurrence.
+  if (cleanQuote !== state.spec.selectedQuote) {
+    state.spec.selectedQuoteLineRange = null;
+  }
   if (kind === "suggestion") {
     if (!cleanQuote) {
       setBanner("Select text or use a paragraph action to suggest an edit.", "error");
@@ -6889,13 +6958,27 @@ window.__minimapSpec = Object.freeze({
       state.spec.content = previous;
     }
   },
+  // Same as the above, but exposes the line range too so tests can verify
+  // the disambiguation hint we'd send for a given rendered selection.
+  resolveSourceQuoteFromRendered: (renderedText, sourceContent) => {
+    const previous = state.spec.content;
+    state.spec.content = String(sourceContent || "");
+    try {
+      return resolveSourceQuoteFromRendered(renderedText);
+    } finally {
+      state.spec.content = previous;
+    }
+  },
   // Open the comment composer with a given rendered selection text —
   // equivalent to selecting in the doc and clicking the floating toolbar's
   // "Comment", but without depending on toolbar geometry which is flaky to
-  // drive in tests.
+  // drive in tests. Mirrors the captureSpecSelectedQuote path so the line
+  // range hint travels with the quote when the form is submitted.
   openCommentComposerWithSelection: (selectionText) => {
-    const sourceQuote = sourceQuoteForRenderedSelection(String(selectionText || ""));
-    state.spec.selectedQuote = sourceQuote;
-    openSpecComposer("comment", sourceQuote);
+    const occurrenceIndex = renderedSelectionOccurrenceIndex(String(selectionText || ""));
+    const resolved = resolveSourceQuoteFromRendered(String(selectionText || ""), occurrenceIndex);
+    state.spec.selectedQuote = resolved.quote;
+    state.spec.selectedQuoteLineRange = resolved.lineRange;
+    openSpecComposer("comment", resolved.quote);
   },
 });

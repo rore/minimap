@@ -1759,6 +1759,112 @@ test("rendered spec view finds anchored quotes that include markdown syntax", as
   }
 });
 
+test("selecting one of two duplicate phrases anchors a comment to the right occurrence", async ({ page }) => {
+  // Regression for the "anchor must match exactly one location" rejection
+  // when a phrase appears twice — once in prose, once inside a fenced code
+  // block — and the user selects the second occurrence. The UI knows which
+  // line the rendered selection landed on; that hint must travel with the
+  // POST so the server can disambiguate.
+  const probe = [
+    "",
+    "",
+    "Probe paragraph mentioning DUPLICATE_PHRASE_ABC once in prose.",
+    "",
+    "```js",
+    "// And here is DUPLICATE_PHRASE_ABC inside a fenced code block.",
+    "```",
+    "",
+  ].join("\n");
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probe, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  const targetFile = await page.locator("[data-spec-session-path]").first().getAttribute("data-spec-session-path");
+
+  // The body must contain BOTH occurrences (rendered).
+  const body = page.locator(".spec-body-markdown");
+  await expect(body).toContainText("Probe paragraph mentioning DUPLICATE_PHRASE_ABC");
+  await expect(body).toContainText("DUPLICATE_PHRASE_ABC inside a fenced code block");
+
+  // Build a Selection that ONLY covers the SECOND occurrence (in the fence).
+  // We walk text nodes, find both, and set the range tightly around just
+  // the in-fence one.
+  const selectionInfo = await page.evaluate(() => {
+    const body = document.querySelector(".spec-body-markdown");
+    if (!body) return { ok: false, reason: "body missing" };
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const text = node.textContent || "";
+      let from = 0;
+      while (true) {
+        const idx = text.indexOf("DUPLICATE_PHRASE_ABC", from);
+        if (idx === -1) break;
+        matches.push({ node, offset: idx });
+        from = idx + 1;
+      }
+    }
+    if (matches.length < 2) return { ok: false, reason: `expected >=2 matches, got ${matches.length}` };
+    const second = matches[1];
+    const range = document.createRange();
+    range.setStart(second.node, second.offset);
+    range.setEnd(second.node, second.offset + "DUPLICATE_PHRASE_ABC".length);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return { ok: true, renderedText: String(sel.toString()) };
+  });
+  expect(selectionInfo.ok, `selection setup failed: ${selectionInfo.reason}`).toBe(true);
+  expect(selectionInfo.renderedText).toBe("DUPLICATE_PHRASE_ABC");
+
+  // Drive the same code path the floating toolbar does — captureSpecSelectedQuote
+  // populated state.spec.selectedQuoteLineRange already, but the test hook
+  // re-resolves it explicitly so it matches what an interactive flow does.
+  await page.evaluate(
+    (rendered) => window.__minimapSpec.openCommentComposerWithSelection(rendered),
+    selectionInfo.renderedText,
+  );
+
+  await page.locator("#spec-comment-text").fill("auto test - duplicate phrase");
+  await page.locator("#spec-comment-form button[type='submit']").click();
+
+  // Form must accept (no error banner).
+  await page.waitForTimeout(500);
+  const banner = page.locator("#status-banner");
+  if (await banner.isVisible()) {
+    const tone = await banner.getAttribute("data-tone");
+    const text = await banner.textContent();
+    expect(tone, `comment submit must not fail: ${text}`).not.toBe("error");
+  }
+
+  // Read the saved comment back via the API and assert lineStart matches the
+  // SECOND occurrence (the fenced one), not the first.
+  const ctx = await page.evaluate(async ({ file }) => {
+    const response = await fetch(`/api/spec-sessions/by-file/context?path=${encodeURIComponent(file)}`);
+    return response.json();
+  }, { file: targetFile });
+  const comments = (ctx.comments || []).filter((c) => c.anchor && c.anchor.quote === "DUPLICATE_PHRASE_ABC");
+  expect(comments.length, "expected exactly one DUPLICATE_PHRASE_ABC comment").toBe(1);
+  const newComment = comments[0];
+
+  // Find the lines that contain the phrase in the source so we can compare.
+  const lines = (originalIdeaCreateText.trimEnd() + probe).split("\n");
+  const occurrenceLines = [];
+  lines.forEach((line, i) => {
+    if (line.includes("DUPLICATE_PHRASE_ABC")) occurrenceLines.push(i + 1);
+  });
+  expect(occurrenceLines.length).toBe(2);
+  expect(
+    newComment.anchor.lineStart,
+    `comment must anchor to the second occurrence (line ${occurrenceLines[1]}), not the first (line ${occurrenceLines[0]})`,
+  ).toBe(occurrenceLines[1]);
+});
+
 test("participants facepile lists comment authors plus the viewer", async ({ page, baseURL, request }) => {
   // Open a roadmap item as a spec session, then post comments by two
   // distinct authors via the API. The facepile should render their initials,
