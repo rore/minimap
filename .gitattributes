@@ -1,0 +1,11 @@
+# Normalize line endings for source files. Without this, Windows checkouts with
+# core.autocrlf=true convert some files to CRLF on disk, which breaks the
+# tri-tree parity test that compares bundled-runtime copies against the
+# top-level source via fs.readFile (utf8 string compare).
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.md   text eol=lf
+*.svg  text eol=lf
