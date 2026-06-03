@@ -7,7 +7,8 @@
     "start": "node package/minimap/server.js",
     "test": "node --test",
     "test:ui": "playwright test",
-    "test:ui:headed": "playwright test --headed"
+    "test:ui:headed": "playwright test --headed",
+    "sync-mirrors": "node scripts/sync-mirrors.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"
