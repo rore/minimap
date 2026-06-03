@@ -809,18 +809,41 @@ h3 {
   display: none;
 }
 
-/* Compact mode: when the right toolbar slot drops below this width, the
-   text labels on Comments / Suggestions / Resolved are swapped for icons.
-   The threshold is set at 460px because at the workbench's default doc
-   fraction the right slot is only ~375px wide and the four children
-   (nav, layer-seg, Resolved, facepile) sum to ~490px with full labels —
-   so compact has to engage at default to keep the row from overflowing
-   and clipping the facepile. Wider columns (manually dragged out) get
-   the full labels back. */
+/* Compact mode: as the right toolbar slot narrows, swap the longest text
+   labels for icons one at a time so we only sacrifice information when
+   we actually have to. Order is longest-first (Suggestions → Comments →
+   Resolved). Thresholds derived from measured component widths in the
+   default workbench (full labels sum to ~461px in the slot):
+     <460px: drop "Suggestions"  → ~411px
+     <410px: also drop "Comments" → ~367px
+     <365px: also drop "Resolved" → ~320px
+
+   The icon stays inline with the label until the label is hidden, at
+   which point the pill tightens up to icon+count only. */
+.spec-seg-button {
+  /* Make room for both the icon and the label so the icon doesn't
+     suddenly appear at the next breakpoint and shove things around. */
+  gap: 6px;
+}
+.spec-pane-toolbar-margin .spec-seg-icon,
+.spec-pane-toolbar-margin .spec-toolbar-button-icon {
+  display: none;
+}
+
+/* Visually hidden but accessible. Used by the staged collapses below. */
+.spec-pane-toolbar-margin .is-label-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @container spec-margin-toolbar (max-width: 460px) {
-  .spec-pane-toolbar-margin .spec-seg-label,
-  .spec-pane-toolbar-margin .spec-toolbar-button-label {
-    /* Visually hide but keep accessible to screen readers. */
+  /* Stage 1: drop "Suggestions" (longest label). */
+  .spec-pane-toolbar-margin [data-spec-layer="suggestions"] .spec-seg-label {
     position: absolute;
     width: 1px; height: 1px;
     padding: 0; margin: -1px;
@@ -829,21 +852,52 @@ h3 {
     white-space: nowrap;
     border: 0;
   }
-  .spec-pane-toolbar-margin .spec-seg-icon,
-  .spec-pane-toolbar-margin .spec-toolbar-button-icon {
+  .spec-pane-toolbar-margin [data-spec-layer="suggestions"] .spec-seg-icon {
     display: inline-flex;
   }
-  /* Tighten Comments/Suggestions pills now that they hold an icon + count
-     instead of a word + count. */
-  .spec-pane-toolbar-margin .spec-seg-button {
+  .spec-pane-toolbar-margin [data-spec-layer="suggestions"] {
     padding: 4px 6px;
     gap: 4px;
   }
+}
+
+@container spec-margin-toolbar (max-width: 410px) {
+  /* Stage 2: also drop "Comments". */
+  .spec-pane-toolbar-margin [data-spec-layer="comments"] .spec-seg-label {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .spec-pane-toolbar-margin [data-spec-layer="comments"] .spec-seg-icon {
+    display: inline-flex;
+  }
+  .spec-pane-toolbar-margin [data-spec-layer="comments"] {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+}
+
+@container spec-margin-toolbar (max-width: 365px) {
+  /* Stage 3: also drop "Resolved". The check icon takes over and the
+     button collapses to a 26x22 icon-only square, height-matched to the
+     .spec-seg pills next to it. */
+  .spec-pane-toolbar-margin .spec-toolbar-button-label {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .spec-pane-toolbar-margin .spec-toolbar-button-icon {
+    display: inline-flex;
+  }
   .spec-pane-toolbar-margin #spec-resolved-toggle {
-    /* In compact mode the Resolved label is hidden and we render the check
-       as an icon-only square button. Match the .spec-seg's height (22 px:
-       1px border + 2×4px padding + ~12px icon = 22) so it sits flush with
-       the pill group next to it. */
     padding: 0;
     width: 26px;
     height: 22px;
