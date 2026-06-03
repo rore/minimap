@@ -1300,17 +1300,3 @@ export async function saveBoardByGroups(repoRoot, groupsPayload) {
   await fs.writeFile(boardPath, serialized, "utf8");
   return loadWorkspace(repoRoot);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
