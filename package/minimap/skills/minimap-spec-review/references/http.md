@@ -4,10 +4,12 @@ The minimap server exposes a JSON HTTP API on `localhost`. Every operation the C
 
 ## When to use HTTP vs the CLI
 
-- **CLI** — short, single-line `--text` / `--quote` values, scripted pipelines, one-shot reads.
-- **HTTP** — multi-line markdown, content with backticks/em-dashes/apostrophes, batch-style work in a single shell turn. The CLI's `--json-stdin` mode is a thin convenience over the same HTTP routes.
+The CLI ([cli.md](cli.md)) and HTTP routes reach the same server code. Pick whichever fits the surface you're already in:
 
-Both routes hit the same server code. There is no behavioral difference; the CLI just builds the JSON body for you.
+- **CLI** is usually fine. `mm comment add --json-stdin` and `mm suggest add --json-stdin` accept the same JSON bodies documented here on stdin, with loud failure on malformed JSON.
+- **Direct HTTP** is the right call when the CLI can't run in your environment (sandbox restrictions on `node` exec, see [cli.md](cli.md) § "If `node ...` fails to spawn"), when batch-style work is easier as a sequence of `curl` calls, or when an integration is already speaking HTTP.
+
+There is no behavioral difference between the two paths.
 
 ## Finding the server
 
@@ -190,7 +192,7 @@ Re-resolve the anchor and produce a diff without writing.
 
 ### `POST /api/spec-sessions/by-file/suggestions/<id>/apply`
 
-Apply the suggestion: write the file. Only do this when the user explicitly asks. For `replace` suggestions the server re-anchors all sibling suggestions and comments that pointed at the same quote so they continue to resolve afterward; the original anchor is stored as `originalAnchor` for rollback.
+Apply the suggestion: write the file. Only do this when the user explicitly asks. For `replace` suggestions the server re-anchors any sibling suggestions and comments whose anchor range overlapped the replaced span — char-offset overlap when both sides have `offset`, line-range overlap when one side lacks it, and exact-quote equality as a final fallback for legacy records. Each rewritten anchor gets an `anchorRewrittenAt` timestamp; the suggestion's pre-apply anchor is stored as `originalAnchor` for rollback.
 
 **Body**: `{ "file", "by" }`.
 
@@ -239,6 +241,7 @@ Graceful shutdown. Returns `{ "shuttingDown": true }`. Used by `restart-server.m
   "createdAt": "ISO8601",
   "updatedAt": "ISO8601",
   "statusBy": "human",                 // present after a status change
+  "anchorRewrittenAt": "ISO8601",      // present when the apply cascade re-anchored this comment
   "replies": [
     { "id": "rpl_000001", "by": "human", "text": "...", "createdAt": "ISO8601" }
   ]
@@ -247,7 +250,7 @@ Graceful shutdown. Returns `{ "shuttingDown": true }`. Used by `restart-server.m
 
 ## Suggestion shape
 
-Same as a comment, plus `content`, `rationale`, and apply-time fields (`appliedBy`, `appliedAt`, `beforeHash`, `afterHash`, `originalAnchor`).
+Same as a comment, plus `content`, `rationale`, and apply-time fields (`appliedBy`, `appliedAt`, `beforeHash`, `afterHash`, `originalAnchor`, `anchorRewrittenAt`).
 
 ```jsonc
 {
@@ -263,6 +266,9 @@ Same as a comment, plus `content`, `rationale`, and apply-time fields (`appliedB
   "createdAt": "ISO8601",
   "updatedAt": "ISO8601",
   "replies": []
+  // After apply: status="applied", appliedBy, appliedAt, beforeHash, afterHash,
+  //              originalAnchor (the pre-apply anchor; used by rollback)
+  // After cascade re-anchor: anchorRewrittenAt
 }
 ```
 
