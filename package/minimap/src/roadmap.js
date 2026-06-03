@@ -680,6 +680,9 @@ export function serializeItem(parsedItem, updates) {
   const updatedSectionNames = new Set(Object.keys(updates.sections || {}));
   const seenKeys = new Set();
   const frontmatterLines = [];
+  if (process.env.MINIMAP_DEBUG_DRIFT) {
+    console.error("[drift] serializeItem", JSON.stringify({ entries: parsedItem.frontmatterEntries.map((e) => e.key), metadata, prefix: parsedItem.prefix }, null, 2));
+  }
 
   for (const entry of parsedItem.frontmatterEntries) {
     if (REQUIRED_FRONTMATTER_KEYS.includes(entry.key)) {
