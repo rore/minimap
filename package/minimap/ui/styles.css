@@ -1131,10 +1131,10 @@ h3 {
   --spec-toc-w: 200px;
 }
 .spec-doc:has(.spec-toc[data-collapsed="true"]) {
-  --spec-toc-w: 32px;
+  --spec-toc-w: 24px;
 }
 .spec-doc:has(.spec-toc[data-empty="true"]) {
-  --spec-toc-w: 32px;
+  --spec-toc-w: 24px;
 }
 
 .spec-toc {
@@ -1235,7 +1235,7 @@ h3 {
 
 /* Narrow widths: default to collapsed. Users can still toggle open. */
 @media (max-width: 900px) {
-  .spec-doc { --spec-toc-w: 32px; }
+  .spec-doc { --spec-toc-w: 24px; }
   .spec-toc { padding: 22px 0; align-items: center; }
   .spec-toc .spec-toc-nav,
   .spec-toc .spec-toc-title { display: none; }
