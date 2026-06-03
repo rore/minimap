@@ -407,6 +407,11 @@ export function createTextAnchor(text, options = {}) {
     headingPath,
     lineStart: occurrence.lineStart,
     lineEnd: occurrence.lineEnd,
+    // Char offset of the resolved match in `text`. Captured so resolveTextAnchor
+    // can prefer the same occurrence on re-resolve, even if the file content
+    // shifts in ways that keep the line range the same but introduce another
+    // copy of the quote on the same row.
+    offset: occurrence.offset,
     selectedHash: hashText(quote),
     fileHash: options.fileHash || hashText(text),
   };
