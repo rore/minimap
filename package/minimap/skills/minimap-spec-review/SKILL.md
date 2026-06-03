@@ -41,20 +41,17 @@ Use forward slashes in the path even on Windows (`C:/foo/bar.md`). If the path c
 
 ### 3b. Driving the review
 
-Two equivalent ways to drive the review — both reach the same server code:
+The CLI ([references/cli.md](references/cli.md)) and the HTTP API ([references/http.md](references/http.md)) reach the same server code (anchor cascades, markdown tolerance, idempotency). Pick whichever fits — most agents use the CLI.
 
-- **CLI** ([references/cli.md](references/cli.md)) — easiest for short, single-line `--text` / `--quote` values. For multi-line content (backticks, em-dashes, embedded newlines), use the CLI's `--json-stdin` mode and pipe the JSON body on stdin.
-- **HTTP** ([references/http.md](references/http.md)) — POST JSON directly with `curl --data @-` and a single-quoted heredoc. Same anchor rules, same error codes.
+Standard flow:
 
-The standard flow:
-
-1. `minimap.mjs attach <file> --json` (or `POST /api/spec-sessions/attach`)
-2. `minimap.mjs context <file> --json` (or `GET /api/spec-sessions/by-file/context?path=...`)
+1. `minimap.mjs attach <file> --json`
+2. `minimap.mjs context <file> --json --summary` — compact scan of unresolved items + a counts block; the right first call for "where am I in this review?". Use `--filter all` (with or without `--summary`) for the full picture, or no flags for the raw shape.
 3. Read the target file directly before substantive review.
-4. Add comments, replies, or suggestions.
+4. Add comments, replies, or suggestions. For multi-line content (backticks, em-dashes, embedded newlines), use `--json-stdin` and pipe the JSON body — inline `--text` survives only trivial single-line strings.
 5. Preview suggestions before applying; apply only when the user explicitly asks.
 
-For comment kinds and anchoring rules, read [references/review-workflow.md](references/review-workflow.md).
+If `node ...` fails to spawn (sandbox restriction), [references/cli.md](references/cli.md) has shell-fallback patterns; if those also fail, drop to the HTTP API. For comment kinds and anchoring rules, see [references/review-workflow.md](references/review-workflow.md).
 
 ## Guardrails
 

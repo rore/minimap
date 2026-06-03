@@ -8,18 +8,23 @@ node <path-to-this-skill>/scripts/minimap.mjs <command>
 
 The examples below abbreviate this as `mm`. Substitute the full path when invoking.
 
-The CLI is a thin wrapper over the HTTP API documented in [references/http.md](http.md). Either path reaches the same server code (anchor cascades, markdown tolerance, idempotency); pick whichever is easier for the shape of input you have. Exit codes are stable: `0` on success, `2` on a 4xx-class error, `1` on a 5xx-class error.
+The CLI is a thin wrapper over the HTTP API documented in [http.md](http.md). Both paths reach the same server code (anchor cascades, markdown tolerance, idempotency); pick whichever is easier for the shape of input you have. Exit codes are stable: `0` on success, `2` on a 4xx-class error, `1` on a 5xx-class error.
 
-## Multi-line content: `--json-stdin`
+## If `node ...` fails to spawn
 
-Anywhere the CLI takes a `--text`, `--quote`, `--content`, or `--rationale` value that's multi-line markdown — backticks, em-dashes, apostrophes, embedded newlines — pass `--json-stdin` and pipe the whole request body as JSON on stdin instead of using inline flags. This avoids every shell's quoting rules and gives loud failure on malformed JSON.
+Some sandboxes restrict direct subprocess spawning of binaries from the agent's shell tool. If `node <path>/minimap.mjs ...` returns a process-creation error (`CreateProcessWithLogonW failed`, `EACCES`, `permission denied`, or similar), wrap the call in the host shell:
 
-```sh
-echo '{"by":"claude","kind":"concern","quote":"`tricky-token`","text":"Don'"'"'t lock the design — `tricky-token` is one of\nseveral options.","scope":""}' \
-  | mm comment add path/to/spec.md --json-stdin --json
-```
+- PowerShell: `powershell -Command "node <path>/minimap.mjs <command>"`
+- bash: `bash -c "node <path>/minimap.mjs <command>"`
+- cmd: `cmd /c "node <path>/minimap.mjs <command>"`
 
-The shell-friendly way to write that body without inline-quoting hell is a single-quoted heredoc:
+The host shell typically has the privileges the sandboxed agent shell doesn't. If even that fails, fall back to the HTTP API ([http.md](http.md)) — it requires only `curl`, which most sandboxes allow.
+
+## Writing comments and suggestions: prefer `--json-stdin`
+
+For any value that contains backticks, em-dashes, apostrophes, embedded newlines, or anything else that fights `"…"` / `'…'` quoting, **use `--json-stdin` and pipe the whole request body as JSON on stdin**. This sidesteps every shell's quoting rules and gives loud failure on malformed JSON. Available on `comment add`, `comment reply`, and `suggest add`.
+
+The shell-friendly way to write the body is a single-quoted heredoc — bash interprets nothing inside `<<'PAYLOAD'`, so backticks and `$VAR` survive verbatim:
 
 ```sh
 mm comment add path/to/spec.md --json-stdin --json <<'PAYLOAD'
@@ -33,11 +38,46 @@ mm comment add path/to/spec.md --json-stdin --json <<'PAYLOAD'
 PAYLOAD
 ```
 
-**Rules for the JSON body:**
+Body shape per command — see [http.md](http.md) for the full field list:
 
-- Newlines inside string values must be `\n` (not raw newlines). Express's body parser silently strips raw newlines and concatenates fragments — the CLI's `--json-stdin` parses the JSON before posting and rejects malformed input loudly, so you'll see the error rather than corrupted data.
-- The body shape matches the HTTP route's body shape exactly. See [references/http.md](http.md) for fields per command (`comment add`, `comment reply`, `suggest add` are the three commands that accept `--json-stdin`).
-- For quote-anchored comments, set `scope: ""` (empty string) and pass `quote`. For section comments, set `scope: "section"` and pass `headingPath`. For global, set `scope: "global"`.
+- `comment add`: `{by, kind, text, scope?, headingPath?, quote?, quoteOffset?, lineStart?, lineEnd?}`
+- `comment reply`: `{by, text}`
+- `suggest add`: `{by, kind, content, rationale?, scope?, headingPath?, quote?, quoteOffset?, lineStart?, lineEnd?}`
+
+**Newlines inside string values must be `\n`, not raw newlines.** The CLI parses the JSON before posting and rejects malformed input loudly.
+
+Inline flags (`--text "..."`, `--quote "..."`, etc.) still work for trivial single-line values with no shell-hostile characters. Use them when you'd write a one-line note in chat.
+
+## Reading state: `mm context`
+
+```sh
+mm context path/to/spec.md --json
+```
+
+Returns the full session metadata, outline, and every comment + suggestion with its current `anchorStatus`. Read the target file directly when you need substantive content.
+
+For typical review work the raw context is too large to scan. Two flags trim it:
+
+- `--summary` — projects each comment and suggestion to a compact row (`id`, `by`, `kind`, `status`, `anchorScope`, `anchorStatus`, `lineStart`, `headingPath`, `replyCount`, ~120-char snippet of `text` or `rationale`). Drops the full `outline`. Adds a `counts` block at the top so the high-level numbers are visible at a glance.
+- `--filter <open|resolved|all>` — narrows the items returned:
+  - `open` — comments with `status=open` plus suggestions with `status=pending` (what's still on your plate). **Default when `--summary` is on without an explicit filter.**
+  - `resolved` — comments that have been resolved (or otherwise closed) plus suggestions that have been accepted, rejected, or applied (what's been dealt with).
+  - `all` — every comment and suggestion regardless of status.
+
+Pair them: `mm context spec.md --json --summary` gives you "what's still open, in compact form" — the typical "where am I in this review?" call.
+
+```sh
+# Typical review-state scan:
+mm context path/to/spec.md --json --summary
+
+# Show every item in compact form (for an overview):
+mm context path/to/spec.md --json --summary --filter all
+
+# Show what's been dealt with (full bodies):
+mm context path/to/spec.md --json --filter resolved
+```
+
+Without `--summary` or `--filter`, the response shape is unchanged from previous versions — full session, outline, full bodies on every comment and suggestion. New flags are opt-in only.
 
 ## Anchor matching is tolerant
 
@@ -48,32 +88,18 @@ These rules apply server-side — both the CLI and direct HTTP calls get them.
 
 If a section anchor matches multiple headings, the server returns `anchor_ambiguous` with the candidate paths — pass the full path to disambiguate. If a quote matches multiple locations, pass `quoteOffset` (char offset, strongest hint) or a tighter `lineStart`/`lineEnd` window.
 
-## Shell quoting (when you do pass values inline)
-
-For trivial single-line values (no backticks, no apostrophes, no newlines), inline `--text "..."` is fine on every shell. For anything trickier, prefer `--json-stdin` — it's universal across bash, zsh, PowerShell, and cmd.
-
-If a quote is a heading (`### Schema`), prefer a section anchor with `--heading "Schema"` over a quote anchor — section anchors don't pay the inline-syntax tax.
-
 ## Attach
 
 ```sh
 mm attach path/to/spec.md --json
 ```
 
-## Context
-
-```sh
-mm context path/to/spec.md --json
-```
-
-Returns session metadata, outline, comments, and suggestions. Read the target file directly when you need substantive content.
-
 ## Comments
 
 Use a stable actor identity in `--by`, such as `codex`, `claude`, or `human`.
 
 ```sh
-# Quote-anchored, simple inline text
+# Trivial single-line text
 mm comment add path/to/spec.md --by codex --kind concern \
    --quote "exact text from the file" --text "The issue or recommendation." --json
 
@@ -85,7 +111,7 @@ mm comment add path/to/spec.md --by codex --kind recommendation \
 mm comment add path/to/spec.md --by codex --kind question \
    --global --text "File-level question." --json
 
-# Multi-line / shell-hostile content via stdin
+# Multi-line / shell-hostile content via stdin (recommended for any non-trivial body)
 mm comment add path/to/spec.md --json-stdin --json <<'PAYLOAD'
 { "by": "codex", "kind": "concern", "quote": "...", "text": "...", "scope": "" }
 PAYLOAD
@@ -108,7 +134,7 @@ Use suggestions for exact proposed file edits. Suggestions are separate from com
 Supported `--kind` values: `replace`, `insert_after`, `delete`.
 
 ```sh
-# Inline: trivial single-line content
+# Trivial single-line content
 mm suggest add path/to/spec.md --by codex --kind replace \
    --quote "exact text from the file" --content "replacement text" \
    --rationale "Why this edit helps." --json
