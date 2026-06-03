@@ -213,3 +213,85 @@ export function buildSpecToc({ bodyEl, tocEl, listEl }) {
     }
   }
 }
+
+// localStorage key for collapsed state. String "true" / "false".
+const TOC_COLLAPSED_KEY = "minimap.spec.toc.collapsed";
+
+function readPersistedCollapsed() {
+  try {
+    return localStorage.getItem(TOC_COLLAPSED_KEY) === "true";
+  } catch (_err) {
+    // Some embeds (sandboxed iframes) throw on localStorage access. Default
+    // to expanded — same fallback the sessions sidebar uses.
+    return false;
+  }
+}
+
+function writePersistedCollapsed(value) {
+  try {
+    localStorage.setItem(TOC_COLLAPSED_KEY, value ? "true" : "false");
+  } catch (_err) {
+    // Silently ignore — the dataset attribute on the element is the
+    // session-level source of truth for the rest of the page.
+  }
+}
+
+function applyCollapsedState(tocEl, toggleEl, collapsed) {
+  if (!tocEl) return;
+  tocEl.dataset.collapsed = collapsed ? "true" : "false";
+  if (toggleEl) {
+    toggleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    toggleEl.setAttribute(
+      "aria-label",
+      collapsed ? "Expand table of contents" : "Collapse table of contents",
+    );
+    // Flip the chevron glyph to match.
+    const glyph = toggleEl.querySelector("[aria-hidden]");
+    if (glyph) glyph.textContent = collapsed ? "›" : "‹";
+  }
+}
+
+// One-shot wiring — called from initSpec at startup. Captures references,
+// installs click handlers for the toggle and for in-list anchor jumps,
+// and applies the persisted collapse state.
+export function wireSpecToc({ dom }) {
+  const tocEl = dom.specTocElement || null;
+  const listEl = dom.specTocListElement || null;
+  const toggleEl = dom.specTocToggleElement || null;
+  if (!tocEl || !listEl) return;
+
+  // Apply persisted collapse state before first render so the layout
+  // doesn't briefly flash expanded then snap closed.
+  applyCollapsedState(tocEl, toggleEl, readPersistedCollapsed());
+
+  if (toggleEl) {
+    toggleEl.addEventListener("click", () => {
+      const next = tocEl.dataset.collapsed !== "true";
+      applyCollapsedState(tocEl, toggleEl, next);
+      writePersistedCollapsed(next);
+    });
+  }
+
+  // Click delegation: capture clicks on TOC anchors, scroll the matching
+  // heading into view smoothly, and let the browser update the URL hash
+  // (we don't preventDefault — the native anchor behavior is what we
+  // want, just with smooth scroll instead of instant jump).
+  listEl.addEventListener("click", (event) => {
+    const link = event.target.closest("a.spec-toc-link");
+    if (!link) return;
+    const id = link.dataset.specTocTarget;
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Update the hash without retriggering scroll — history.replaceState
+    // avoids the jump-to-anchor that setting location.hash would cause.
+    try {
+      history.replaceState(null, "", `#${id}`);
+    } catch (_err) {
+      // Some embeds disable history mutation; ignore — the smooth scroll
+      // already happened, which is the user-visible part.
+    }
+  });
+}
