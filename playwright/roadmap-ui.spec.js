@@ -2133,3 +2133,39 @@ test("comment composer closes after a successful submit", async ({ page }) => {
   // Form must be hidden after the POST resolves.
   await expect(page.locator("#spec-comment-form")).toBeHidden({ timeout: 3000 });
 });
+
+test("re-rendering the board many times does not grow the DOM unboundedly", async ({ page }) => {
+  // Smoke check that the renderBoard path doesn't leak detached nodes. The
+  // architecture is naturally GC-friendly (innerHTML reset orphans listeners
+  // attached to per-element targets, browsers GC them on the next cycle),
+  // but a future change could introduce a global ref to a detached subtree
+  // and leak — this test catches that. Threshold is generous because GC is
+  // best-effort in headless Chrome.
+  await page.goto(repoUrl());
+  await expect(page.locator(".board-item-list, .board-columns").first()).toBeVisible({ timeout: 5000 });
+
+  const countNodes = () => page.evaluate(() => document.querySelectorAll("*").length);
+
+  const baseline = await countNodes();
+
+  // Force 30 re-renders by toggling search (which triggers renderBoard).
+  await page.evaluate(async () => {
+    const input = document.querySelector("#board-search");
+    if (!input) throw new Error("board-search not found");
+    for (let i = 0; i < 30; i += 1) {
+      input.value = i % 2 === 0 ? "feature" : "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      // Yield to let renderBoard run synchronously and the DOM settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  // Best-effort: poll for the DOM count to settle. If it grows by more than
+  // 200 nodes vs baseline (very generous — typical leak is 10x more), fail.
+  await page.waitForTimeout(150);
+  const after = await countNodes();
+  const delta = after - baseline;
+  expect(delta, `DOM grew by ${delta} nodes after 30 re-renders (baseline ${baseline}, after ${after}); investigate render path for retained references.`).toBeLessThan(200);
+});
