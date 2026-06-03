@@ -1,5 +1,11 @@
 import { createApi } from "/api.js";
 import { renderMarkdownToHtml } from "/markdown.js";
+import {
+  normalizeFilterMap,
+  itemMatchesFilters,
+  filterBoardItemIds,
+  buildDerivedVisibleGroups,
+} from "/filters.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -512,30 +518,6 @@ function normalizeSearchQuery(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function normalizeFilterValues(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => String(entry).trim()).filter(Boolean);
-  }
-
-  const normalized = String(value ?? "").trim();
-  return normalized ? [normalized] : [];
-}
-
-function normalizeFilterMap(filters) {
-  const normalized = {};
-
-  for (const [key, values] of Object.entries(filters || {})) {
-    const cleanKey = String(key || "").trim();
-    const cleanValues = Array.from(new Set(normalizeFilterValues(values))).sort((left, right) => left.localeCompare(right));
-    if (!cleanKey || cleanValues.length === 0) {
-      continue;
-    }
-    normalized[cleanKey] = cleanValues;
-  }
-
-  return normalized;
-}
-
 function parseRouteFilters(params) {
   const filters = {};
 
@@ -577,114 +559,11 @@ function isSearchActive() {
 
 function itemMatchesCurrentFilters(itemId, workspace = state.workspace) {
   const item = getBoardItemById(itemId, workspace);
-  if (!item) {
-    return false;
-  }
-
-  if (state.searchQuery && !String(item.searchText || "").includes(state.searchQuery)) {
-    return false;
-  }
-
-  for (const [key, selectedValues] of Object.entries(state.activeFilters)) {
-    const itemValues = normalizeFilterValues(item.metadata?.[key]);
-    if (!selectedValues.some((value) => itemValues.includes(value))) {
-      return false;
-    }
-  }
-
-  return true;
+  return itemMatchesFilters(item, { searchQuery: state.searchQuery, activeFilters: state.activeFilters });
 }
 
 function getFilteredBoardItemIds(workspace = state.workspace) {
-  if (!workspace) {
-    return [];
-  }
-
-  const orderedIds = workspace.boardGroups.flatMap((group) => group.items.filter((item) => !item.missing).map((item) => item.id));
-  return isSearchActive() ? orderedIds.filter((itemId) => itemMatchesCurrentFilters(itemId, workspace)) : orderedIds;
-}
-
-function getItemLensGroupValue(item, lensKey) {
-  if (!item || lensKey === DEFAULT_LENS_KEY) {
-    return "";
-  }
-
-  if (lensKey === "kind") {
-    return item.kind || UNASSIGNED_GROUP_KEY;
-  }
-
-  return normalizeFilterValues(item.metadata?.[lensKey])[0] || UNASSIGNED_GROUP_KEY;
-}
-
-function buildDerivedVisibleGroups(workspace, lens) {
-  const groups = new Map();
-  const preferredValues = Array.isArray(lens?.values) ? lens.values : [];
-  const showEmptyGroups = isColumnsLayoutActive() && preferredValues.length > 0;
-
-  preferredValues.forEach((value, index) => {
-    groups.set(value, {
-      name: value,
-      groupKey: value,
-      originalIndex: index,
-      dropValue: value,
-      items: [],
-    });
-  });
-
-  const unassignedItems = [];
-  for (const itemId of getFilteredBoardItemIds(workspace)) {
-    const item = getBoardItemById(itemId, workspace);
-    if (!item) {
-      continue;
-    }
-
-    const groupValue = getItemLensGroupValue(item, lens.key);
-    if (groupValue === UNASSIGNED_GROUP_KEY) {
-      unassignedItems.push(item);
-      continue;
-    }
-
-    if (!groups.has(groupValue)) {
-      groups.set(groupValue, {
-        name: groupValue,
-        groupKey: groupValue,
-        originalIndex: preferredValues.length + groups.size,
-        dropValue: groupValue,
-        items: [],
-      });
-    }
-
-    groups.get(groupValue).items.push(item);
-  }
-
-  const visibleGroups = Array.from(groups.values())
-    .filter((group) => group.items.length > 0 || showEmptyGroups)
-    .sort((left, right) => {
-      if (left.originalIndex !== right.originalIndex) {
-        return left.originalIndex - right.originalIndex;
-      }
-      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
-    })
-    .map((group, index) => ({
-      ...group,
-      originalIndex: index,
-      isDerived: true,
-      draggable: Boolean(lens.draggable && group.dropValue),
-    }));
-
-  if (unassignedItems.length > 0) {
-    visibleGroups.push({
-      name: UNASSIGNED_GROUP_LABEL,
-      groupKey: UNASSIGNED_GROUP_KEY,
-      originalIndex: visibleGroups.length,
-      dropValue: "",
-      items: unassignedItems,
-      isDerived: true,
-      draggable: false,
-    });
-  }
-
-  return visibleGroups;
+  return filterBoardItemIds(workspace, { searchQuery: state.searchQuery, activeFilters: state.activeFilters });
 }
 
 function getVisibleBoardGroups(workspace = state.workspace) {
@@ -705,7 +584,14 @@ function getVisibleBoardGroups(workspace = state.workspace) {
       .filter((group) => group.items.length > 0 || !isSearchActive());
   }
 
-  return buildDerivedVisibleGroups(workspace, activeLens);
+  return buildDerivedVisibleGroups(workspace, activeLens, {
+    searchQuery: state.searchQuery,
+    activeFilters: state.activeFilters,
+    defaultLensKey: DEFAULT_LENS_KEY,
+    unassignedKey: UNASSIGNED_GROUP_KEY,
+    unassignedLabel: UNASSIGNED_GROUP_LABEL,
+    showEmptyGroups: isColumnsLayoutActive() && Array.isArray(activeLens.values) && activeLens.values.length > 0,
+  });
 }
 
 function getVisibleBoardItemIds(workspace = state.workspace) {
