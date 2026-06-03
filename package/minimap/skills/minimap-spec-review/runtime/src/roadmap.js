@@ -680,9 +680,6 @@ export function serializeItem(parsedItem, updates) {
   const updatedSectionNames = new Set(Object.keys(updates.sections || {}));
   const seenKeys = new Set();
   const frontmatterLines = [];
-  if (process.env.MINIMAP_DEBUG_DRIFT) {
-    console.error("[drift] serializeItem", JSON.stringify({ entries: parsedItem.frontmatterEntries.map((e) => e.key), metadata, prefix: parsedItem.prefix, prefixLen: parsedItem.prefix.length }, null, 2));
-  }
 
   for (const entry of parsedItem.frontmatterEntries) {
     if (REQUIRED_FRONTMATTER_KEYS.includes(entry.key)) {
@@ -713,6 +710,14 @@ export function serializeItem(parsedItem, updates) {
 
   for (const key of updatedMetadataNames) {
     if (seenKeys.has(key) || !isFrontmatterKeyName(key) || !isScalarLikeValue(metadata[key])) {
+      continue;
+    }
+    // OPTIONAL keys are only written when they carry a non-empty value —
+    // mirrors the explicit OPTIONAL_FRONTMATTER_KEYS pass above. Without
+    // this guard, an empty milestone submitted by the structured editor
+    // would be appended here as `milestone: ""` even though the file
+    // didn't carry that line, causing a write-back drift on every save.
+    if (OPTIONAL_FRONTMATTER_KEYS.includes(key) && !shouldKeepOptionalValue(metadata[key])) {
       continue;
     }
     frontmatterLines.push(`${key}: ${formatScalar(metadata[key])}`);
@@ -747,7 +752,19 @@ export function serializeItem(parsedItem, updates) {
   }
 
   const normalizedBody = bodyParts.join("").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, eol).trimEnd();
-  return ["---", ...frontmatterLines, "---", "", normalizedBody, ""].join(eol);
+  // Re-emit: closing `---`, then the body. The body's own leading newlines
+  // (captured in `prefix` at parse time) are how the file's original spacing
+  // round-trips. We only inject an explicit blank gap when the body has no
+  // leading whitespace of its own (e.g. tightly-formatted starter files); a
+  // body that already starts with `\n` provides its own gap, and adding one
+  // here would silently add a blank line on every save.
+  const bodyLeads = /^[\r\n]/.test(normalizedBody);
+  const lines = ["---", ...frontmatterLines, "---"];
+  if (!bodyLeads) {
+    lines.push("");
+  }
+  lines.push(normalizedBody, "");
+  return lines.join(eol);
 }
 
 export function serializeBoard(groups, eol = "\n") {

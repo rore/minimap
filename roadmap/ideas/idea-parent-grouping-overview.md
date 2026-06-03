@@ -8,7 +8,6 @@ labels:
   - ui
   - navigation
   - grouping
-milestone: ""
 ---
 
 
