@@ -41,3 +41,39 @@ export function slugifyHeadingId(text, taken) {
     }
   }
 }
+
+// Collapse runs of any whitespace (including newlines from rendered HTML)
+// to single spaces, then trim. Used for both id-slug input and display text.
+function normalizeHeadingText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+// Turn a list of heading elements into the model the renderer consumes.
+// Each entry: { level, id, text }. Existing ids are kept; missing ids are
+// generated via slugifyHeadingId() and assigned via opts.assignId so the
+// pure function stays unit-testable with non-DOM stand-ins.
+export function buildSpecTocModel(headings, opts) {
+  const assignId = opts && opts.assignId;
+  const taken = new Set();
+  // Pre-seed `taken` with existing ids so generated slugs don't collide.
+  for (const h of headings) {
+    if (h && h.id) taken.add(h.id);
+  }
+  const out = [];
+  for (const h of headings) {
+    if (!h || !h.tagName) continue;
+    const tag = String(h.tagName).toUpperCase();
+    if (tag !== "H2" && tag !== "H3") continue;
+    const level = Number(tag.slice(1));
+    const text = normalizeHeadingText(h.textContent);
+    let id = h.id;
+    if (!id) {
+      id = slugifyHeadingId(text, taken);
+      if (typeof assignId === "function") {
+        assignId(h, id);
+      }
+    }
+    out.push({ level, id, text });
+  }
+  return out;
+}
