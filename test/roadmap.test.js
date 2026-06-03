@@ -885,12 +885,15 @@ test("portable minimap package includes app, skills, and starter templates", asy
     const runtimePackageJson = JSON.parse(
       await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", skill, "runtime", "package.json"), "utf8"),
     );
-    const deps = runtimePackageJson.dependencies || {};
-    assert.equal(
-      Object.keys(deps).length,
-      0,
-      `Runtime ${skill} must not declare dependencies (skills install via copy, not npm install).`,
-    );
+    for (const depField of ["dependencies", "peerDependencies", "optionalDependencies", "bundledDependencies"]) {
+      const deps = runtimePackageJson[depField] || {};
+      const count = Array.isArray(deps) ? deps.length : Object.keys(deps).length;
+      assert.equal(
+        count,
+        0,
+        `Runtime ${skill} must not declare ${depField} (skills install via copy, not npm install).`,
+      );
+    }
   }
 
   // Both skills' scripts/ directories carry the same set of lifecycle scripts
