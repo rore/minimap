@@ -630,9 +630,34 @@ async function appendJsonLine(filePath, value) {
   await fs.appendFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
 }
 
-async function writeJsonLines(filePath, values) {
+function serializeJsonLines(values) {
   const content = values.map((value) => JSON.stringify(value)).join("\n");
-  await fs.writeFile(filePath, content ? `${content}\n` : "", "utf8");
+  return content ? `${content}\n` : "";
+}
+
+async function writeJsonLines(filePath, values) {
+  await fs.writeFile(filePath, serializeJsonLines(values), "utf8");
+}
+
+function serializeJson(value) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+// Multi-file transactional write. Each entry is { path, content }. Strategy:
+// write all to .tmp-<pid> paths first, then rename in sequence. Failure in
+// the temp-write phase commits nothing; failure during rename commits a
+// prefix and leaves the .tmp- files alongside, which a human can inspect.
+// This is "atomic-ish" — strong enough to keep the session store consistent
+// across the metadata triple-write, while staying portable on Windows where
+// fs.rename of a file in the same directory is reliable.
+async function writeAllOrNothing(entries) {
+  const tmps = entries.map((e) => ({ ...e, tmp: `${e.path}.tmp-${process.pid}` }));
+  for (const e of tmps) {
+    await fs.writeFile(e.tmp, e.content, "utf8");
+  }
+  for (const e of tmps) {
+    await fs.rename(e.tmp, e.path);
+  }
 }
 
 function nextCommentId(comments) {
@@ -1420,11 +1445,16 @@ export async function applyFileSessionSuggestion(filePath, suggestionId, input =
   }
 
   const refreshedSession = await refreshSessionMetadataForTarget(session, targetPath, timestamp);
-  await writeJsonLines(paths.suggestionsJsonl, suggestions);
+  // Single transactional write across the metadata triple so a crash
+  // mid-write can't leave suggestions.jsonl ahead of session.json.
+  const writes = [
+    { path: paths.suggestionsJsonl, content: serializeJsonLines(suggestions) },
+  ];
   if (commentsChanged) {
-    await writeJsonLines(paths.commentsJsonl, comments);
+    writes.push({ path: paths.commentsJsonl, content: serializeJsonLines(comments) });
   }
-  await writeJson(paths.sessionJson, refreshedSession);
+  writes.push({ path: paths.sessionJson, content: serializeJson(refreshedSession) });
+  await writeAllOrNothing(writes);
   await appendSessionEvent(paths, {
     type: "suggestion_applied",
     suggestionId,
@@ -1552,6 +1582,8 @@ export async function rollbackFileSessionSuggestion(filePath, suggestionId, inpu
   // Reverse the sibling re-anchoring that apply did. Anything currently
   // anchored to the new content (suggestion.anchor.quote, post-apply)
   // moves back to the original quote.
+  let pendingComments;
+  let commentsChanged = false;
   if (suggestion.kind === "replace") {
     const newQuote = suggestion.anchor?.quote;
     const oldQuote = originalAnchor.quote;
@@ -1574,9 +1606,9 @@ export async function rollbackFileSessionSuggestion(filePath, suggestionId, inpu
         delete restored.anchorRewrittenAt;
         suggestions[i] = restored;
       }
-      // Reverse the comment re-anchoring too.
+      // Reverse the comment re-anchoring too. Defer the actual write so it
+      // joins the transactional triple-write below.
       const comments = await readJsonLines(paths.commentsJsonl);
-      let commentsChanged = false;
       for (let i = 0; i < comments.length; i += 1) {
         const c = comments[i];
         if (c.anchor?.scope !== "anchor" || c.anchor?.quote !== newQuote) continue;
@@ -1586,14 +1618,22 @@ export async function rollbackFileSessionSuggestion(filePath, suggestionId, inpu
         commentsChanged = true;
       }
       if (commentsChanged) {
-        await writeJsonLines(paths.commentsJsonl, comments);
+        pendingComments = comments;
       }
     }
   }
 
   const refreshedSession = await refreshSessionMetadataForTarget(session, targetPath, timestamp);
-  await writeJsonLines(paths.suggestionsJsonl, suggestions);
-  await writeJson(paths.sessionJson, refreshedSession);
+  // Single transactional write across the metadata triple so a crash
+  // mid-write can't leave suggestions.jsonl ahead of session.json.
+  const writes = [
+    { path: paths.suggestionsJsonl, content: serializeJsonLines(suggestions) },
+  ];
+  if (commentsChanged) {
+    writes.push({ path: paths.commentsJsonl, content: serializeJsonLines(pendingComments) });
+  }
+  writes.push({ path: paths.sessionJson, content: serializeJson(refreshedSession) });
+  await writeAllOrNothing(writes);
   await appendSessionEvent(paths, {
     type: "suggestion_rolled_back",
     suggestionId,
