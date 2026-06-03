@@ -259,21 +259,6 @@ export function buildSpecToc({ bodyEl, tocEl, listEl }) {
   // Initial paint — make sure something is highlighted before the user scrolls.
   const initial = pickActiveHeading(scrollEl);
   if (initial && initial.id) setActiveLink(listEl, initial.id);
-
-  // Deep-link on load: if the URL has a hash that matches one of the
-  // headings we just assigned, scroll it into view. Runs on every
-  // rebuild (not just first load) because the same code path is used
-  // when a different spec opens with a hash already on the URL.
-  const hash = (window.location.hash || "").slice(1);
-  if (hash) {
-    const target = document.getElementById(hash);
-    if (target && bodyEl.contains(target)) {
-      // Use auto (not smooth) on initial deep-link so the user lands
-      // there immediately instead of watching a scroll animation.
-      target.scrollIntoView({ behavior: "auto", block: "start" });
-      setActiveLink(listEl, hash);
-    }
-  }
 }
 
 // localStorage key for collapsed state. String "true" / "false".
@@ -334,10 +319,12 @@ export function wireSpecToc({ dom }) {
     });
   }
 
-  // Click delegation: capture clicks on TOC anchors, scroll the matching
-  // heading into view smoothly, and let the browser update the URL hash
-  // (we don't preventDefault — the native anchor behavior is what we
-  // want, just with smooth scroll instead of instant jump).
+  // Click delegation: capture clicks on TOC anchors and smooth-scroll the
+  // matching heading into view. We DO NOT update the URL hash — this app's
+  // hash is a query-style routing string (`#repo=...&view=spec&file=...`),
+  // not a section fragment, so writing `#section-id` would clobber the
+  // route. If shareable section deep-links are needed later, they should
+  // ride on a dedicated route param (e.g. &section=...), not the bare hash.
   listEl.addEventListener("click", (event) => {
     const link = event.target.closest("a.spec-toc-link");
     if (!link) return;
@@ -347,13 +334,5 @@ export function wireSpecToc({ dom }) {
     if (!target) return;
     event.preventDefault();
     target.scrollIntoView({ behavior: "smooth", block: "start" });
-    // Update the hash without retriggering scroll — history.replaceState
-    // avoids the jump-to-anchor that setting location.hash would cause.
-    try {
-      history.replaceState(null, "", `#${id}`);
-    } catch (_err) {
-      // Some embeds disable history mutation; ignore — the smooth scroll
-      // already happened, which is the user-visible part.
-    }
   });
 }
