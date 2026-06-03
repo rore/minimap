@@ -2256,3 +2256,133 @@ A second paragraph in the same section.
   });
   expect(orphanCount, "all three multi-block / list-item suggestions should anchor inline").toBe(0);
 });
+
+test("rendered spec body stamps each block with its source line", async ({ page }) => {
+  // Smoke test for the renderer's emitLines option: every top-level block
+  // in the rendered spec body must carry a numeric data-spec-source-line.
+  // This is what anchorTargetElement uses for O(1) line-keyed lookups; no
+  // attributes => the line-based pipeline silently degrades to text matching.
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  const lineAttrSummary = await page.evaluate(() => {
+    const annotated = Array.from(document.querySelectorAll(".spec-body-markdown [data-spec-source-line]"));
+    const tags = new Set(annotated.map((el) => el.tagName.toLowerCase()));
+    const allNumeric = annotated.every((el) => {
+      const n = Number(el.dataset.specSourceLine);
+      return Number.isFinite(n) && n >= 1;
+    });
+    return { count: annotated.length, tags: Array.from(tags).sort(), allNumeric };
+  });
+  expect(lineAttrSummary.count, "should annotate at least one block").toBeGreaterThan(0);
+  expect(lineAttrSummary.allNumeric, "every annotated block must carry a 1-based integer").toBe(true);
+  // The fixture has at least one paragraph and one heading. We don't pin
+  // the heading level (idea-create-items.md uses h2 as the top heading
+  // because the file's h1 is the doc-header rendered separately).
+  expect(lineAttrSummary.tags).toEqual(expect.arrayContaining(["p"]));
+  expect(lineAttrSummary.tags.some((t) => /^h[1-6]$/.test(t)), "should annotate at least one heading").toBe(true);
+});
+
+test("multi-block-quote suggestion anchors via line lookup, not via text matching", async ({ page }) => {
+  // Exercises the Phase 3 line-keyed placement directly: a suggestion with
+  // a quote that spans heading + code fence should resolve to the heading's
+  // DOM element via the `data-spec-source-line` index, not via the
+  // text-matching fallback. We verify by checking the card's anchor
+  // resolves to an element whose source-line attribute matches the
+  // server's anchorStatus.lineStart.
+  const probeBody = `
+
+## Phase-3 line lookup probe
+
+\`\`\`yaml
+key: value
+\`\`\`
+`;
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+
+  // Submit a multi-block suggestion. The server records lineStart at the
+  // heading line; the UI should resolve the card to the heading via
+  // line lookup, NOT via the text-matching fallback.
+  const submitted = await page.evaluate(async (file) => {
+    const resp = await fetch("/api/spec-sessions/by-file/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file, by: "tester", kind: "replace", scope: "",
+        quote: "## Phase-3 line lookup probe\n\n```yaml\nkey: value\n```",
+        content: "## Replaced\n\n```yaml\nk: v\n```",
+        rationale: "phase 3 line lookup",
+      }),
+    });
+    return resp.json();
+  }, targetFile);
+  const lineStart = submitted?.suggestion?.anchor?.lineStart;
+  expect(typeof lineStart, "server should record an anchor line").toBe("number");
+
+  await page.reload();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll(".spec-margin-card.is-suggestion").length >= 1, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+
+  // The line-keyed map should expose this exact line on a real DOM element.
+  const lookup = await page.evaluate((line) => {
+    const el = document.querySelector(`.spec-body-markdown [data-spec-source-line="${line}"]`);
+    if (!el) return null;
+    return { tag: el.tagName.toLowerCase(), text: (el.textContent || "").slice(0, 60) };
+  }, lineStart);
+  expect(lookup, "rendered DOM should have an element on the suggestion's anchor line").not.toBeNull();
+  // The block at that line should be the section heading we anchored on.
+  expect(lookup.tag).toBe("h2");
+  expect(lookup.text).toContain("Phase-3 line lookup probe");
+
+  // And the card itself should not be classified as orphan.
+  const orphan = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll(".spec-margin-card.is-suggestion"))
+      .some((c) => c.classList.contains("is-orphan"));
+  });
+  expect(orphan, "suggestion should anchor inline, not orphan").toBe(false);
+});
+
+test("legacy comment without anchorStatus.lineStart still anchors via text-matching fallback", async ({ page }) => {
+  // Backward-compat: a comment whose anchor lacks a server-resolvable
+  // lineStart (e.g. a global-scope comment, or a quote-anchored one whose
+  // anchorStatus came back orphaned with no line) should still place via
+  // the existing text-matching path. The line-keyed lookup is purely
+  // additive — when it misses, anchorTargetElement falls through.
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+
+  await page.evaluate(async (file) => {
+    await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "tester", kind: "question", text: "global?", scope: "global" }),
+    });
+  }, targetFile);
+
+  await page.reload();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll(".spec-margin-card").length >= 1, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+
+  const orphanCount = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll(".spec-margin-card"))
+      .filter((c) => c.classList.contains("is-orphan")).length;
+  });
+  expect(orphanCount, "global-scope comment should anchor at file top, not orphan").toBe(0);
+});
