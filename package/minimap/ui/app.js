@@ -6384,17 +6384,25 @@ document.addEventListener("selectionchange", () => {
   const selection = window.getSelection();
   if (!selection) return;
   const collapsed = selection.rangeCount === 0 || selection.isCollapsed;
+  // Once a composer is open, the captured quote+range are committed — don't
+  // wipe them when the selection collapses (which it does as soon as the
+  // user clicks into the form's textarea). Just hide the floating toolbar.
+  const composerOpen = state.spec.commentComposerOpen || state.spec.suggestionComposerOpen;
   if (collapsed) {
-    state.spec.selectedQuote = "";
-    state.spec.selectedQuoteLineRange = null;
+    if (!composerOpen) {
+      state.spec.selectedQuote = "";
+      state.spec.selectedQuoteLineRange = null;
+    }
     hideSpecContextToolbar();
     return;
   }
   // Selection still alive but moved outside the spec body — hide too.
   const range = selection.getRangeAt(0);
   if (!specFileContentElement.contains(range.commonAncestorContainer)) {
-    state.spec.selectedQuote = "";
-    state.spec.selectedQuoteLineRange = null;
+    if (!composerOpen) {
+      state.spec.selectedQuote = "";
+      state.spec.selectedQuoteLineRange = null;
+    }
     hideSpecContextToolbar();
   }
 });
@@ -7071,6 +7079,17 @@ void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state
 // Test hook — exposes pure helpers for Playwright to verify in-browser
 // without driving full UI flows. Kept minimal; only stable helpers go here.
 window.__minimapSpec = Object.freeze({
+  // Read-only snapshot of spec state used by Playwright tests to verify what
+  // the live-selection capture path stored in state. Returning a frozen copy
+  // keeps consumers from mutating internals.
+  getSpecStateSnapshot: () => Object.freeze({
+    selectedQuote: state.spec.selectedQuote,
+    selectedQuoteLineRange: state.spec.selectedQuoteLineRange
+      ? { ...state.spec.selectedQuoteLineRange }
+      : null,
+    commentComposerOpen: state.spec.commentComposerOpen,
+    suggestionComposerOpen: state.spec.suggestionComposerOpen,
+  }),
   buildRenderedNormalizedMap,
   buildWhitespaceNormalizedMap,
   sourceQuoteForRenderedSelection: (renderedText, sourceContent) => {

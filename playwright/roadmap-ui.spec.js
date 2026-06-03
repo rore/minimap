@@ -2000,3 +2000,56 @@ test("trimming a paragraph quote down to a duplicate substring still anchors to 
   expect(banner, "submit should succeed without an anchor-ambiguous error").not.toMatch(/must match exactly one location/i);
   expect(banner).toMatch(/Comment added/i);
 });
+
+test("live-selecting a duplicate phrase anchors to the chosen occurrence", async ({ page }) => {
+  // Sister-case to the gutter-+/trim test above: the user opens the composer
+  // by SELECTING the duplicate phrase directly (not via the paragraph "+" button).
+  // The bug was that selectionchange-triggered cleanup wiped the captured
+  // line range when the composer's textarea took focus and the selection
+  // collapsed — so the disambiguation hint never reached the server.
+  const probeBody = "\n\n## A\n\nClaude Code is OK in the first paragraph.\n\n## B\n\nClaude Code shows up again in the second paragraph.\n";
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  // Build a DOM selection on the SECOND occurrence of "Claude Code" and fire
+  // mouseup so the selection-capture path runs as it would in real use.
+  await page.evaluate(async () => {
+    const body = document.querySelector(".spec-body-markdown") || document.querySelector(".spec-body");
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    let textNode = null, textOffset = 0, found = 0;
+    while (walker.nextNode()) {
+      const t = walker.currentNode.textContent || "";
+      let cursor = t.indexOf("Claude Code");
+      while (cursor !== -1) {
+        found += 1;
+        if (found === 2) { textNode = walker.currentNode; textOffset = cursor; break; }
+        cursor = t.indexOf("Claude Code", cursor + 1);
+      }
+      if (textNode) break;
+    }
+    const range = document.createRange();
+    range.setStart(textNode, textOffset);
+    range.setEnd(textNode, textOffset + "Claude Code".length);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    sel.removeAllRanges();
+    sel.addRange(range);
+    window.__minimapSpec.openCommentComposerWithSelection("Claude Code");
+  });
+  await page.waitForSelector("#spec-comment-form:not([hidden])", { timeout: 5000 });
+
+  await page.locator("#spec-comment-text").fill("live-selection on second occurrence");
+  await page.locator("#spec-comment-form button[type=submit]").click();
+  await page.waitForTimeout(500);
+  const banner = await page.locator("#status-banner").textContent().catch(() => "");
+  expect(banner, "submit should succeed without an anchor-ambiguous error").not.toMatch(/must match exactly one location/i);
+  expect(banner).toMatch(/Comment added/i);
+});
