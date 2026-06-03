@@ -99,8 +99,32 @@ function blockElementForQuote(quote) {
   // `### ` heading prefix that the rendered HTML's textContent doesn't,
   // or vice versa. Stripping both sides catches that drift.
   const strippedQuote = stripMarkdownSyntaxForUi(quote);
-  if (!strippedQuote) return null;
-  return candidates.find((element) => stripMarkdownSyntaxForUi(element.textContent).includes(strippedQuote)) || null;
+  if (strippedQuote) {
+    const stripped = candidates.find((element) => stripMarkdownSyntaxForUi(element.textContent).includes(strippedQuote)) || null;
+    if (stripped) return stripped;
+  }
+
+  // 3. multi-block fallback. The quote spans more than one rendered block
+  // (e.g. a heading PLUS the code fence beneath it, or a section header
+  // PLUS several paragraphs). Walk the quote's lines top-down and return
+  // the first rendered block that contains any of them — this is the
+  // "first line of the spanned region", which is where we want the card
+  // pinned. Without this the card has no anchor and gets stacked at the
+  // bottom of the margin like an orphan, even though the server's
+  // anchorStatus is `resolved`.
+  const lines = String(quote || "").split(/\r?\n/);
+  for (const line of lines) {
+    const normalizedLine = normalizeVisibleText(line);
+    if (!normalizedLine) continue;
+    const literalLine = candidates.find((element) => normalizeVisibleText(element.textContent).includes(normalizedLine));
+    if (literalLine) return literalLine;
+    const strippedLine = stripMarkdownSyntaxForUi(line);
+    if (!strippedLine) continue;
+    const strippedHit = candidates.find((element) => stripMarkdownSyntaxForUi(element.textContent).includes(strippedLine));
+    if (strippedHit) return strippedHit;
+  }
+
+  return null;
 }
 
 export function anchorTargetElement(item) {

@@ -2169,3 +2169,90 @@ test("re-rendering the board many times does not grow the DOM unboundedly", asyn
   const delta = after - baseline;
   expect(delta, `DOM grew by ${delta} nodes after 30 re-renders (baseline ${baseline}, after ${after}); investigate render path for retained references.`).toBeLessThan(200);
 });
+
+test("multi-block-quote suggestions and list-item suggestions anchor inline (not stacked at the bottom)", async ({ page }) => {
+  // Regression: the renderer used to require a single rendered block whose
+  // textContent included the WHOLE quote. Multi-block quotes (heading + code,
+  // or section heading + paragraphs) returned null and got stacked at the
+  // bottom of the margin as orphans, even when the server's anchorStatus was
+  // `resolved`. Same shape happened for list-item quotes that started with
+  // `- ` because <li>.textContent has no leading bullet.
+  const probeBody = `
+
+## Multi block test
+
+### A nested heading with a code fence under it
+
+\`\`\`python
+{
+    "key": "value",
+    "another": 42,
+}
+\`\`\`
+
+## Plain section heading
+
+This paragraph follows the section heading.
+
+A second paragraph in the same section.
+
+## A list section
+
+- First list item with \`code\` inside it
+- Second list item, plain
+`;
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+
+  // Three suggestions covering the cases the cheap fallback should handle:
+  //   - heading + code fence (multi-block)
+  //   - section heading + paragraphs (multi-block)
+  //   - a list-item quote starting with `- ` (single block, but the bullet
+  //     marker tripped the markdown-strip fallback).
+  await page.evaluate(async (file) => {
+    const post = (body) => fetch("/api/spec-sessions/by-file/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    await post({
+      file, by: "tester", kind: "replace", scope: "",
+      quote: "### A nested heading with a code fence under it\n\n```python\n{\n    \"key\": \"value\",\n    \"another\": 42,\n}\n```",
+      content: "### Replaced heading\n\n```python\n{}\n```",
+      rationale: "multi-block: heading + code",
+    });
+    await post({
+      file, by: "tester", kind: "replace", scope: "",
+      quote: "## Plain section heading\n\nThis paragraph follows the section heading.\n\nA second paragraph in the same section.",
+      content: "## Replaced section\n\nNew content.",
+      rationale: "multi-block: heading + paragraphs",
+    });
+    await post({
+      file, by: "tester", kind: "replace", scope: "",
+      quote: "- First list item with `code` inside it",
+      content: "- Replaced first item",
+      rationale: "list-item with bullet marker",
+    });
+  }, targetFile);
+
+  // Reload to pick up the seeded suggestions.
+  await page.reload();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll(".spec-margin-card.is-suggestion").length >= 3, null, { timeout: 5000 });
+  // Settle layout — layoutSpecMargin runs on rAF and a small post-render tick.
+  await page.waitForTimeout(300);
+
+  const orphanCount = await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll(".spec-margin-card.is-suggestion"));
+    return cards.filter((c) => c.classList.contains("is-orphan")).length;
+  });
+  expect(orphanCount, "all three multi-block / list-item suggestions should anchor inline").toBe(0);
+});
