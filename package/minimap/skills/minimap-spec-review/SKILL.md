@@ -11,7 +11,7 @@ Valid targets: any markdown file. When the target is a roadmap item, this skill 
 
 ## Quick Workflow
 
-When the user asks to **view** a spec session, give them a URL. When they ask you to **drive** the review (read, comment, suggest), use the bundled CLI. Both paths share steps 1 and 2.
+When the user asks to **view** a spec session, give them a URL. When they ask you to **drive** the review (read, comment, suggest), use the bundled CLI or the HTTP API directly — they hit the same code, including anchor cascades and markdown tolerance. Both paths share steps 1 and 2.
 
 ### 1. Resolve the target file to an absolute path
 
@@ -41,24 +41,27 @@ Use forward slashes in the path even on Windows (`C:/foo/bar.md`). If the path c
 
 ### 3b. Driving the review
 
-Use the bundled CLI for every read-and-write operation. **Do not** call the HTTP API directly (`POST /api/spec-sessions/...`) — the CLI handles edge cases (anchor cascades, markdown tolerance, idempotency) the raw HTTP doesn't.
+Two equivalent ways to drive the review — both reach the same server code:
 
-1. `minimap.mjs attach <file> --json`
-2. `minimap.mjs context <file> --json`
+- **CLI** ([references/cli.md](references/cli.md)) — easiest for short, single-line `--text` / `--quote` values. For multi-line content (backticks, em-dashes, embedded newlines), use the CLI's `--json-stdin` mode and pipe the JSON body on stdin.
+- **HTTP** ([references/http.md](references/http.md)) — POST JSON directly with `curl --data @-` and a single-quoted heredoc. Same anchor rules, same error codes.
+
+The standard flow:
+
+1. `minimap.mjs attach <file> --json` (or `POST /api/spec-sessions/attach`)
+2. `minimap.mjs context <file> --json` (or `GET /api/spec-sessions/by-file/context?path=...`)
 3. Read the target file directly before substantive review.
-4. Add comments, replies, or suggestions through minimap.
+4. Add comments, replies, or suggestions.
 5. Preview suggestions before applying; apply only when the user explicitly asks.
 
-When the comment text or quote contains characters that fight shell quoting (apostrophes, backticks, em-dashes, newlines, ampersands), write the value to a temp file first and pass `--text-file <path>` / `--quote-file <path>` instead of `--text` / `--quote`. This avoids every shell's escape rules. Same applies to `--content-file` and `--rationale-file` for `suggest add`.
-
-For the full CLI grammar including the file-input flags, read [references/cli.md](references/cli.md). For comment kinds and anchoring rules, read [references/review-workflow.md](references/review-workflow.md).
+For comment kinds and anchoring rules, read [references/review-workflow.md](references/review-workflow.md).
 
 ## Guardrails
 
-- Drive operations through the CLI (`minimap.mjs`). Do not call HTTP routes (`/api/spec-sessions/...`) directly — agents that try miss anchor cascades and markdown tolerance, and routinely guess wrong endpoint names.
+- Use the documented routes — either the CLI commands or the HTTP routes in [references/http.md](references/http.md). Don't invent endpoint names; the reply route is singular `/reply`, not `/replies`.
 - Do not assume the current repo contains minimap.
 - Do not create minimap folders inside the work repo.
 - Do not edit the target file unless the user explicitly asks.
 - Prefer anchored comments over chat-only feedback.
 - Treat the user as the merge authority.
-- Do not curl the server, send signals, or edit `$MINIMAP_HOME/server.json` by hand. Use the bundled scripts only.
+- Do not edit `$MINIMAP_HOME/server.json` by hand or send process signals to the server. Use the bundled scripts (`start-server.mjs`, `restart-server.mjs`, `stop-server.mjs`).
