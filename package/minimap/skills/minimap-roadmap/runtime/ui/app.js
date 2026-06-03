@@ -18,7 +18,6 @@ import {
   decodeLiteralEscapes,
 } from "/spec/anchors.js";
 import {
-  wireSpecRender,
   anchorTargetElement,
   clearSpecAnchorHighlight,
   clearSpecSuggestionPreview,
@@ -40,7 +39,6 @@ import {
   layoutSpecMargin,
 } from "/spec/render.js";
 import {
-  wireSpecComposer,
   getSpecSelectionText,
   captureSpecSelectedQuote,
   renderedSelectionOccurrenceIndex,
@@ -62,6 +60,7 @@ import {
   applySpecSuggestion,
   rollbackSpecSuggestion,
 } from "/spec/composer.js";
+import { initSpec } from "/spec/index.js";
 import { createState } from "/state.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
@@ -262,48 +261,23 @@ const fields = {
   extraMetadataContainer: document.querySelector("#extra-metadata-fields"),
 };
 
-// Hand the spec/render.js module references to the DOM elements, the live
-// state object, the api client, and the in-app helpers that survived the
-// extraction (composer/data-load callbacks, banner, etc.). Function decls
-// referenced here are hoisted, so they're safe to capture before they're
-// physically defined later in this file.
-wireSpecRender({
+// Wire the spec subsystem in one call. initSpec aggregates wireSpecRender
+// and wireSpecComposer so app.js doesn't have to know they're two modules.
+// The DOM bag is the union of what each side needs; helpers likewise.
+// Function decls referenced here are hoisted within this module, so they're
+// safe to capture before they appear physically further down.
+initSpec({
   dom: {
+    // Render side
     specSessionListElement,
     specFileTitleElement,
     specFileSubtitleElement,
     specFileContentElement,
     specMarginElement,
     specGutterElement,
-    specCommentByInput,
     specParticipantsFacepile,
     specParticipantsPopover,
-    specCommentForm,
-    specSuggestionForm,
-  },
-  state,
-  api,
-  helpers: {
-    setBanner,
-    sameSpecUiPath,
-    parseLeadingFrontmatter,
-    buildSpecDocHeaderHtml,
-    stripLeadingFrontmatter,
-    hideSpecContextToolbar,
-    specBlockCandidates,
-    syncSpecToolbarChrome,
-    updateSpecNavButtons,
-  },
-});
-
-// Composer / form-handling and selection-toolbar logic — same shape as
-// wireSpecRender. Reuses the live state + api references, extends the DOM
-// bag with the form inputs, and forwards a few app.js utilities that the
-// composer reaches back into (banner, source-quote resolver, render
-// callbacks for the suggestion preview path).
-wireSpecComposer({
-  dom: {
-    specFileContentElement,
+    // Composer side (forms + toolbar)
     specContextToolbarElement,
     specCommentForm,
     specCommentByInput,
@@ -328,6 +302,14 @@ wireSpecComposer({
   api,
   helpers: {
     setBanner,
+    sameSpecUiPath,
+    parseLeadingFrontmatter,
+    buildSpecDocHeaderHtml,
+    stripLeadingFrontmatter,
+    hideSpecContextToolbar,
+    specBlockCandidates,
+    syncSpecToolbarChrome,
+    updateSpecNavButtons,
     SPEC_COMMENT_ANCHOR_MODES,
     SPEC_SUGGESTION_ANCHOR_MODES,
     normalizeAnchorWhitespace,
