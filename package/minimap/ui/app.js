@@ -1,3 +1,5 @@
+import { createApi } from "/api.js";
+
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
 const SCOPE_WIDTH_STORAGE_KEY = "roadmap-ui.scope-width";
@@ -99,6 +101,8 @@ const state = {
     composerTarget: null,        // { kind: "comment" | "suggestion", anchorId: string|"__file" }
   },
 };
+
+const api = createApi({ getRepo: () => state.repoPath });
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
 const specModeButton = document.querySelector("#spec-mode-button");
@@ -2046,11 +2050,7 @@ function cancelBoardEditMode(force = false) {
 }
 
 async function persistImmediateBoardOrder(groups) {
-  const workspace = await fetchJson("/api/board", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ groups }),
-  });
+  const workspace = await api.saveBoard(groups);
 
   state.workspace = workspace;
   syncWorkspaceChrome();
@@ -2096,11 +2096,7 @@ async function saveBoardDraft() {
   setBanner("Saving board...");
 
   try {
-    const workspace = await fetchJson("/api/board", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groups: state.boardDraft }),
-    });
+    const workspace = await api.saveBoard(state.boardDraft);
 
     state.workspace = workspace;
     state.boardEditMode = false;
@@ -2398,11 +2394,7 @@ async function persistBoardColumnMove(itemId, targetGroupIndex) {
   setBanner("Updating board group...");
 
   try {
-    const workspace = await fetchJson("/api/board", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groups }),
-    });
+    const workspace = await api.saveBoard(groups);
 
     const keepItemOpen = !shouldUseEditorOverlay() || (state.editorOverlayOpen && state.selectedItemId === itemId);
     state.workspace = workspace;
@@ -2434,11 +2426,7 @@ async function persistBoardItemPlacement(itemId, targetGroupIndex, beforeItemId 
   setBanner("Updating board order...");
 
   try {
-    const workspace = await fetchJson("/api/board", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groups }),
-    });
+    const workspace = await api.saveBoard(groups);
 
     const keepItemOpen = !shouldUseEditorOverlay() || (state.editorOverlayOpen && state.selectedItemId === itemId);
     state.workspace = workspace;
@@ -2467,14 +2455,10 @@ async function persistDerivedLensMove(itemId, targetValue) {
   setBanner(`Updating ${activeLens.label.toLowerCase()}...`);
 
   try {
-    await fetchJson(`/api/items/${encodeURIComponent(itemId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        metadata: {
-          [activeLens.key]: targetValue,
-        },
-      }),
+    await api.saveItem(itemId, {
+      metadata: {
+        [activeLens.key]: targetValue,
+      },
     });
 
     const keepItemOpen = !shouldUseEditorOverlay() || (state.editorOverlayOpen && state.selectedItemId === itemId);
@@ -3284,39 +3268,6 @@ function renderItem(item) {
   autosizeStructuredTextareas();
   renderPreview();
   syncMobileNavigation();
-}
-
-async function fetchJson(url, options = {}) {
-  const isRoadmapEndpoint =
-    url.startsWith("/api/workspace")
-    || url.startsWith("/api/board")
-    || url.startsWith("/api/scope")
-    || url.startsWith("/api/items/")
-    || url.startsWith("/api/setup/");
-
-  let finalOptions = options;
-  // Empty state.repoPath is deliberate single-repo cwd-fallback mode — the server
-  // resolves to its own cwd. Don't "fix" this by sending an empty header; do that
-  // and any user without #repo= will get a 400 if the server is launched from a
-  // directory unrelated to the repo they expect to see.
-  if (isRoadmapEndpoint && state.repoPath) {
-    const headers = new Headers(options.headers || {});
-    headers.set("X-Minimap-Repo", state.repoPath);
-    finalOptions = { ...options, headers };
-  }
-
-  const response = await fetch(url, finalOptions);
-  const payload = await response.json();
-
-  if (!response.ok) {
-    const error = new Error(payload?.error?.message || "Request failed.");
-    error.code = payload?.error?.code || "request_failed";
-    error.details = payload?.error?.details || null;
-    error.statusCode = response.status;
-    throw error;
-  }
-
-  return payload;
 }
 
 function specPathParam(filePath) {
@@ -5361,7 +5312,7 @@ function layoutSpecMargin() {
 
 
 async function loadSpecSessions(options = {}) {
-  const payload = await fetchJson("/api/spec-sessions");
+  const payload = await api.listSessions();
   state.spec.sessions = payload.sessions || [];
   if (state.spec.selectedPath && !state.spec.sessions.some((session) => sameSpecUiPath(session.targetFile, state.spec.selectedPath))) {
     state.spec.selectedPath = "";
@@ -5392,8 +5343,8 @@ async function loadSpecSession(filePath, options = {}) {
   let context;
   let content;
   try {
-    context = await fetchJson(`/api/spec-sessions/by-file/context?path=${specPathParam(filePath)}`);
-    content = await fetchJson(`/api/spec-sessions/by-file/content?path=${specPathParam(filePath)}`);
+    context = await api.getSessionContext(filePath);
+    content = await api.getSessionContent(filePath);
   } catch (error) {
     state.spec.context = null;
     state.spec.content = "";
@@ -5441,9 +5392,7 @@ async function removeSpecSession(filePath) {
     return;
   }
 
-  await fetchJson(`/api/spec-sessions/by-file?path=${specPathParam(filePath)}`, {
-    method: "DELETE",
-  });
+  await api.removeSession(filePath);
 
   state.spec.sessions = state.spec.sessions.filter((candidate) => !sameSpecUiPath(candidate.targetFile, filePath));
   if (sameSpecUiPath(state.spec.selectedPath, filePath)) {
@@ -5471,7 +5420,7 @@ async function refreshSpecReviewState() {
   const shouldRestoreReplyFocus = Boolean(activeReplyId && specMarginElement.contains(document.activeElement));
   captureSpecReplyDraft();
 
-  const context = await fetchJson(`/api/spec-sessions/by-file/context?path=${specPathParam(state.spec.selectedPath)}`);
+  const context = await api.getSessionContext(state.spec.selectedPath);
   state.spec.context = context;
   renderSpecComments();
   syncSpecToolbarChrome();
@@ -5518,11 +5467,7 @@ async function openCurrentItemAsSpecSession() {
 }
 
 async function attachSpecSession(filePath) {
-  const result = await fetchJson("/api/spec-sessions/attach", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file: filePath }),
-  });
+  const result = await api.attachSession(filePath);
   state.spec.selectedPath = result.session.targetFile;
   await loadSpecSessions();
   syncRouteState({ replace: true });
@@ -5568,11 +5513,7 @@ async function addSpecComment() {
     }
   }
 
-  await fetchJson("/api/spec-sessions/by-file/comments", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  await api.addComment(body.file, body);
   // Form visibility is driven by `form.hidden`, not the state flag — flipping
   // commentComposerOpen alone leaves the form on screen. Use hideSpecComposerForm
   // to actually take it down, mirroring the cancel/escape paths.
@@ -5620,11 +5561,7 @@ async function addSpecSuggestion() {
     }
   }
 
-  await fetchJson("/api/spec-sessions/by-file/suggestions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  await api.addSuggestion(body.file, body);
   hideSpecComposerForm();
   state.spec.composerTarget = null;
   state.spec.selectedQuote = "";
@@ -5639,14 +5576,9 @@ async function addSpecSuggestion() {
 }
 
 async function replyToSpecComment(commentId, text) {
-  await fetchJson(`/api/spec-sessions/by-file/comments/${encodeURIComponent(commentId)}/reply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-      by: specCommentByInput.value || "human",
-      text,
-    }),
+  await api.addCommentReply(state.spec.selectedPath, commentId, {
+    by: specCommentByInput.value || "human",
+    text,
   });
   state.spec.replyComposerCommentId = "";
   state.spec.replyDrafts.delete(commentId);
@@ -5656,14 +5588,9 @@ async function replyToSpecComment(commentId, text) {
 }
 
 async function replyToSpecSuggestion(suggestionId, text) {
-  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/reply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human",
-      text,
-    }),
+  await api.addSuggestionReply(state.spec.selectedPath, suggestionId, {
+    by: specSuggestionByInput.value || specCommentByInput.value || "human",
+    text,
   });
   // We share the reply-composer state with comments — keyed by the
   // suggestion id, prefixed to avoid colliding with a same-id comment.
@@ -5675,13 +5602,8 @@ async function replyToSpecSuggestion(suggestionId, text) {
 }
 
 async function setSpecCommentStatus(commentId, action) {
-  await fetchJson(`/api/spec-sessions/by-file/comments/${encodeURIComponent(commentId)}/${action}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-      by: specCommentByInput.value || "human",
-    }),
+  await api.setCommentStatus(state.spec.selectedPath, commentId, action, {
+    by: specCommentByInput.value || "human",
   });
   await refreshSpecReviewState();
   setBanner(action === "resolve" ? "Comment resolved." : "Comment reopened.", "success");
@@ -5693,13 +5615,8 @@ async function setSpecSuggestionStatus(suggestionId, action) {
     state.spec.suggestionPreview = null;
     clearSpecSuggestionPreview();
   }
-  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/${action}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human",
-    }),
+  await api.setSuggestionStatus(state.spec.selectedPath, suggestionId, action, {
+    by: specSuggestionByInput.value || specCommentByInput.value || "human",
   });
   await refreshSpecReviewState();
   setBanner(action === "accept" ? "Suggestion accepted." : action === "reopen" ? "Suggestion reopened." : "Suggestion dismissed.", "success");
@@ -5715,13 +5632,7 @@ async function previewSpecSuggestion(suggestionId) {
     return;
   }
 
-  const result = await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/preview`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-    }),
-  });
+  const result = await api.previewSuggestion(state.spec.selectedPath, suggestionId);
   state.spec.previewSuggestionId = suggestionId;
   state.spec.suggestionPreview = result.preview;
   renderSpecInlineSuggestionPreview(result.suggestion, result.preview);
@@ -5730,13 +5641,8 @@ async function previewSpecSuggestion(suggestionId) {
 }
 
 async function applySpecSuggestion(suggestionId) {
-  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human",
-    }),
+  await api.applySuggestion(state.spec.selectedPath, suggestionId, {
+    by: specSuggestionByInput.value || specCommentByInput.value || "human",
   });
   state.spec.previewSuggestionId = "";
   state.spec.suggestionPreview = null;
@@ -5746,13 +5652,8 @@ async function applySpecSuggestion(suggestionId) {
 }
 
 async function rollbackSpecSuggestion(suggestionId) {
-  await fetchJson(`/api/spec-sessions/by-file/suggestions/${encodeURIComponent(suggestionId)}/rollback`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      file: state.spec.selectedPath,
-      by: specSuggestionByInput.value || specCommentByInput.value || "human",
-    }),
+  await api.rollbackSuggestion(state.spec.selectedPath, suggestionId, {
+    by: specSuggestionByInput.value || specCommentByInput.value || "human",
   });
   state.spec.previewSuggestionId = "";
   state.spec.suggestionPreview = null;
@@ -5892,7 +5793,7 @@ async function applyRouteStateFromLocation() {
 }
 async function loadWorkspace(preferredItemId = state.selectedItemId, options = {}) {
   try {
-    const workspace = await fetchJson("/api/workspace");
+    const workspace = await api.loadWorkspace();
     resetAncillaryEditModes();
     state.setupState = null;
     state.workspace = workspace;
@@ -5940,7 +5841,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     if (typeof options.openOverlay === "boolean") {
       state.editorOverlayOpen = options.openOverlay;
     }
-    const item = await fetchJson(`/api/items/${encodeURIComponent(itemId)}`);
+    const item = await api.readItem(itemId);
     state.selectedItemId = itemId;
     renderItem(item);
     applyEditorMode();
@@ -5992,11 +5893,7 @@ async function initializeWorkspaceFromSetup() {
   setBanner("Creating starter roadmap workspace...");
 
   try {
-    await fetchJson("/api/setup/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    await api.initializeWorkspace();
     await loadWorkspace("", { replaceRoute: true });
     setBanner("Roadmap workspace created.", "success");
   } catch (error) {
@@ -6130,20 +6027,12 @@ async function saveCurrentItem() {
       : -1;
     const currentBoardGroupIndex = getBoardGroupIndexForItem(state.selectedItemId);
 
-    await fetchJson(`/api/items/${encodeURIComponent(state.selectedItemId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    await api.saveItem(state.selectedItemId, payload);
 
     if (state.editorMode === "structured" && Number.isInteger(nextBoardGroupIndex) && nextBoardGroupIndex >= 0 && nextBoardGroupIndex !== currentBoardGroupIndex) {
       const groups = buildBoardGroupsWithMovedItem(state.selectedItemId, nextBoardGroupIndex);
       if (groups) {
-        await fetchJson("/api/board", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ groups }),
-        });
+        await api.saveBoard(groups);
       }
     }
 
@@ -6191,11 +6080,7 @@ async function saveScopeDraft() {
   setBanner("Saving scope...");
 
   try {
-    const workspace = await fetchJson("/api/scope", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scopeText: state.scopeDraft }),
-    });
+    const workspace = await api.saveScope(state.scopeDraft);
 
     state.workspace = workspace;
     state.scopeEditMode = false;
