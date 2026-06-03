@@ -699,6 +699,7 @@ function makeCommentAnchor(text, input) {
       // when the caller passed a positive integer line number; everything
       // else is dropped so we don't smuggle through a stale hint.
       lineStart: Number.isInteger(input.lineStart) && input.lineStart > 0 ? input.lineStart : undefined,
+      lineEnd: Number.isInteger(input.lineEnd) && input.lineEnd > 0 ? input.lineEnd : undefined,
     });
   }
 
