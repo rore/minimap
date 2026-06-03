@@ -1083,7 +1083,7 @@ h3 {
 
 /* Spec body — the warm "page" surface */
 .spec-body {
-  grid-column: 1;
+  grid-column: 2;
   font-size: 0.96rem; line-height: 1.65;
   color: var(--spec-text);
   position: relative;
@@ -1420,7 +1420,7 @@ h3 {
 
 /* ── Gutter rail ────────────────────────────────────────────── */
 .spec-gutter {
-  grid-column: 2;
+  grid-column: 3;
   position: relative;
   padding: 0 4px;
   cursor: col-resize;
@@ -1475,7 +1475,7 @@ body.is-resizing-spec-margin { cursor: col-resize; user-select: none; }
 
 /* ── Margin column (cards) ──────────────────────────────────── */
 .spec-margin {
-  grid-column: 3;
+  grid-column: 4;
   position: relative;
   padding-left: 14px;
   min-height: 100%;
