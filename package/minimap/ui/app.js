@@ -114,6 +114,8 @@ const specMarginElement = document.querySelector("#spec-margin");
 const specViewSegButtons = Array.from(document.querySelectorAll("[data-spec-view]"));
 const specLayerSegButtons = Array.from(document.querySelectorAll("[data-spec-layer]"));
 const specResolvedToggleButton = document.querySelector("#spec-resolved-toggle");
+const specNavPrevButton = document.querySelector("#spec-nav-prev");
+const specNavNextButton = document.querySelector("#spec-nav-next");
 const specCommentForm = document.querySelector("#spec-comment-form");
 const specCommentCancelButton = document.querySelector("#spec-comment-cancel-button");
 const specCommentByInput = document.querySelector("#spec-comment-by");
@@ -3851,21 +3853,31 @@ function openSpecComposer(kind, quote = "") {
 function openSpecComposerForBlock(block) {
   if (!block) return;
   const tag = (block.tagName || "").toLowerCase();
-  // selectedQuote is for live text selection only; the gutter "+" path
-  // doesn't need it. Leaving it stale would suppress the hover button
-  // on the next mousemove.
-  state.spec.selectedQuote = "";
-  state.spec.selectedQuoteLineRange = null;
   state.spec.suggestionComposerOpen = false;
   state.spec.commentComposerOpen = true;
   if (tag.startsWith("h") && tag.length === 2) {
+    // Headings: use a section anchor. No quote, no line-range hint.
+    state.spec.selectedQuote = "";
+    state.spec.selectedQuoteLineRange = null;
     const headingText = normalizeVisibleText(block.textContent);
     specCommentAnchorInput.value = headingText;
     setSpecCommentAnchorMode("section");
   } else {
-    const quote = quoteForSpecBlock(block);
-    if (quote) {
-      specCommentAnchorInput.value = quote;
+    // Paragraphs / list items: capture both the quote AND its source line
+    // range so a disambiguation hint travels with the submission. Without
+    // this, a paragraph quote that happens to share text with another
+    // location in the file (or that the user trims down to a shorter,
+    // non-unique substring) would fail with anchor_ambiguous and the user
+    // would have no way to recover.
+    const visibleText = normalizeVisibleText(block.textContent || "");
+    const occurrenceIndex = visibleText ? renderedBlockOccurrenceIndex(block, visibleText) : 0;
+    const resolved = visibleText
+      ? resolveSourceQuoteFromRendered(visibleText, occurrenceIndex)
+      : { quote: "", lineRange: null };
+    state.spec.selectedQuote = resolved.quote;
+    state.spec.selectedQuoteLineRange = resolved.lineRange;
+    if (resolved.quote) {
+      specCommentAnchorInput.value = resolved.quote;
       setSpecCommentAnchorMode("quote");
     } else {
       specCommentAnchorInput.value = "";
@@ -3874,6 +3886,27 @@ function openSpecComposerForBlock(block) {
   }
   showSpecComposerForm("comment");
   specCommentTextInput.focus();
+}
+
+// 0-based count of how many times `needle` appears in the rendered body
+// before this block's start. Used to pick the right occurrence in the
+// source map when the user opens the composer from the gutter `+` rather
+// than via a live text selection (which uses renderedSelectionOccurrenceIndex).
+function renderedBlockOccurrenceIndex(block, needle) {
+  const trimmedNeedle = normalizeAnchorWhitespace(needle);
+  if (!trimmedNeedle) return 0;
+  if (!specFileContentElement.contains(block)) return 0;
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(specFileContentElement);
+  beforeRange.setEndBefore(block);
+  const before = normalizeAnchorWhitespace(beforeRange.toString());
+  let count = 0;
+  let cursor = before.indexOf(trimmedNeedle);
+  while (cursor !== -1) {
+    count += 1;
+    cursor = before.indexOf(trimmedNeedle, cursor + 1);
+  }
+  return count;
 }
 
 // Show the (hidden) composer form as a floating panel anchored to the file pane.
@@ -4391,6 +4424,83 @@ function syncSpecToolbarChrome() {
     specResolvedToggleButton.setAttribute("aria-pressed", state.spec.showResolved ? "true" : "false");
     specResolvedToggleButton.disabled = !isReview;
   }
+  updateSpecNavButtons();
+}
+
+// Visible cards in the order the reader sees them down the margin column.
+// Re-sorted by visual top because layoutSpecMargin shuffles cards to align
+// with their anchor positions in the body — DOM order is the insertion
+// order (comments then suggestions), not the reading order. Orphan cards
+// at the bottom land last, which matches their visual position too.
+function visibleSpecMarginCards() {
+  if (!specMarginElement) return [];
+  const cards = Array.from(specMarginElement.querySelectorAll(".spec-margin-card"));
+  return cards
+    .map((card) => ({ card, top: card.getBoundingClientRect().top }))
+    .sort((a, b) => a.top - b.top)
+    .map(({ card }) => card);
+}
+
+function activeSpecCardKey() {
+  return state.spec.activeAnchorCommentId || "";
+}
+
+function specCardKey(card) {
+  if (card.dataset.suggestionId) return `suggestion:${card.dataset.suggestionId}`;
+  return card.dataset.commentId || "";
+}
+
+// Step to the previous or next visible card and trigger the same code path
+// a click on the card would. `direction` is -1 (prev) or +1 (next).
+// When nothing is active yet, prev jumps to the LAST card and next to the
+// FIRST so the buttons always do something on first press.
+function navigateSpecMarginCard(direction) {
+  const cards = visibleSpecMarginCards();
+  if (cards.length === 0) return;
+
+  const activeKey = activeSpecCardKey();
+  let index = cards.findIndex((card) => specCardKey(card) === activeKey);
+  if (index === -1) {
+    index = direction > 0 ? -1 : cards.length;
+  }
+  const next = index + direction;
+  if (next < 0 || next >= cards.length) return;
+
+  const target = cards[next];
+  if (target.dataset.suggestionId) {
+    focusSpecSuggestionAnchor(target.dataset.suggestionId);
+  } else if (target.dataset.commentId) {
+    focusSpecCommentAnchor(target.dataset.commentId);
+  }
+}
+
+// Reflect the prev/next button enabled state. Called from the toolbar
+// state-render path AND from layoutSpecMargin (so re-flowing cards updates
+// the boundary state without a full re-render).
+function updateSpecNavButtons() {
+  if (!specNavPrevButton || !specNavNextButton) return;
+  const isReview = state.spec.viewMode === "review";
+  if (!isReview) {
+    specNavPrevButton.disabled = true;
+    specNavNextButton.disabled = true;
+    return;
+  }
+  const cards = visibleSpecMarginCards();
+  if (cards.length === 0) {
+    specNavPrevButton.disabled = true;
+    specNavNextButton.disabled = true;
+    return;
+  }
+  const activeKey = activeSpecCardKey();
+  const index = cards.findIndex((card) => specCardKey(card) === activeKey);
+  // Nothing active → both directions are usable (we'll jump to first/last).
+  if (index === -1) {
+    specNavPrevButton.disabled = false;
+    specNavNextButton.disabled = false;
+    return;
+  }
+  specNavPrevButton.disabled = index <= 0;
+  specNavNextButton.disabled = index >= cards.length - 1;
 }
 
 function renderSpecSessions() {
@@ -5225,6 +5335,9 @@ function layoutSpecMargin() {
   for (const p of placements) {
     p.card.classList.remove("is-orphan");
   }
+  // Cards moved → boundary state may have flipped (active card is now first
+  // or last in visual order). Refresh the prev/next disabled state.
+  updateSpecNavButtons();
 }
 
 
@@ -5417,12 +5530,16 @@ async function addSpecComment() {
     body.headingPath = sectionHeadingPathFromInput(anchorValue);
   } else {
     body.quote = anchorValue;
-    // Disambiguation hint: only forward the captured line range when the
-    // anchor in the input still matches the live selection that produced
-    // it. The user may have edited the input by hand, in which case the
-    // hint would point at the wrong occurrence — drop it and let the
-    // server fall back to its strict-uniqueness behavior.
-    if (state.spec.selectedQuoteLineRange && anchorValue === state.spec.selectedQuote) {
+    // Disambiguation hint: forward the captured line range when the input
+    // value still looks like the live selection that produced it. Exact
+    // equality is the strongest signal; a substring match also counts —
+    // the user may have trimmed the prefilled paragraph quote down to a
+    // shorter, common phrase, and the original line range still contains
+    // the trimmed quote, so the server's range filter can disambiguate.
+    // A typed value that ISN'T a substring of selectedQuote is something
+    // the user wrote from scratch — we drop the hint there.
+    if (state.spec.selectedQuoteLineRange && state.spec.selectedQuote
+        && (anchorValue === state.spec.selectedQuote || state.spec.selectedQuote.includes(anchorValue))) {
       body.lineStart = state.spec.selectedQuoteLineRange.lineStart;
       body.lineEnd = state.spec.selectedQuoteLineRange.lineEnd;
     }
@@ -6148,6 +6265,13 @@ if (specResolvedToggleButton) {
     decorateSpecAnchors();
     renderSpecComments();
   });
+}
+
+if (specNavPrevButton) {
+  specNavPrevButton.addEventListener("click", () => navigateSpecMarginCard(-1));
+}
+if (specNavNextButton) {
+  specNavNextButton.addEventListener("click", () => navigateSpecMarginCard(1));
 }
 
 if (specSidebarSearchInput) {
@@ -6980,5 +7104,12 @@ window.__minimapSpec = Object.freeze({
     state.spec.selectedQuote = resolved.quote;
     state.spec.selectedQuoteLineRange = resolved.lineRange;
     openSpecComposer("comment", resolved.quote);
+  },
+  // Open the comment composer anchored to a specific block element — what
+  // the gutter "+" button does when the user hovers a paragraph and clicks.
+  // Lets tests exercise the paragraph-anchored path (and its line-range hint
+  // capture) without depending on hover-button geometry.
+  openCommentComposerForBlock: (block) => {
+    openSpecComposerForBlock(block);
   },
 });

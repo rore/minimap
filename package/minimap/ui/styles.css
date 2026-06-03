@@ -887,6 +887,54 @@ h3 {
   pointer-events: none;
 }
 
+/* Compact icon buttons used in the spec margin toolbar (prev / next). The
+   group sits at the left edge of the right toolbar slot so the chevrons
+   read as "navigate the comments column" rather than as a global filter.
+   Pair the two buttons together visually with a shared border and a thin
+   internal divider so they read as one control.
+
+   Height is matched to .spec-seg (Comments/Suggestions): the segmented
+   group is 22px tall (2px outer padding + 18px button content) so we
+   build the nav group to the same outer dimension. */
+.spec-toolbar-nav {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--spec-line);
+  border-radius: 7px;
+  background: var(--spec-bg);
+  overflow: hidden;
+  flex: none;
+  height: 22px;
+}
+.spec-toolbar-icon-button {
+  border: 0;
+  background: transparent;
+  width: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--spec-text);
+  cursor: pointer;
+  font: inherit;
+}
+.spec-toolbar-icon-button + .spec-toolbar-icon-button {
+  /* A hairline separator that spans the full inner height of the group. */
+  box-shadow: inset 1px 0 0 var(--spec-line);
+}
+.spec-toolbar-icon-button:hover:not(:disabled) {
+  background: var(--spec-panel-soft);
+  color: var(--spec-text);
+}
+.spec-toolbar-icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  color: var(--spec-muted);
+}
+.spec-toolbar-icon-button svg {
+  display: block;
+}
+
 .spec-primary-button {
   border: 1px solid var(--spec-text);
   background: var(--spec-text);
