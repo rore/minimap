@@ -344,24 +344,54 @@ export function createTextAnchor(text, options = {}) {
   }
 
   // Disambiguation: when the same phrase appears more than once (common in
-  // specs that mention something in prose AND inside a fenced code block),
-  // prefer the occurrence inside the caller's hinted line range. The hint
-  // is optional — if absent or no occurrence falls in range, we keep the
-  // existing strict-uniqueness behavior so old callers see the same error.
-  // When there is exactly one occurrence the hint is irrelevant.
+  // specs that mention something in prose AND inside a fenced code block,
+  // or twice in a single paragraph), prefer the occurrence the caller
+  // pointed at. We accept two complementary hints, in order of strength:
+  //   1. quoteOffset — exact character offset in `text`. Picks the unique
+  //      occurrence at that offset; if none match exactly, picks the one
+  //      nearest in the file. Strongest hint, used when the UI mapped the
+  //      live selection back to a specific source position.
+  //   2. lineStart/lineEnd — a 1-based line range that brackets the user's
+  //      selection. Filters occurrences to those rows; falls back to the
+  //      ambiguous error when more than one row remains.
+  // When there is exactly one occurrence neither hint matters.
   let occurrence;
   if (occurrences.length === 1) {
     occurrence = occurrences[0];
   } else {
-    const hintStart = Number.isInteger(options.lineStart) ? options.lineStart : null;
-    const hintEnd = Number.isInteger(options.lineEnd) ? options.lineEnd : hintStart;
-    if (hintStart !== null) {
-      const inRange = occurrences.filter((o) => o.lineStart >= hintStart && o.lineStart <= hintEnd);
-      // Exactly one occurrence inside the hinted range — use it. Multiple
-      // matches in range (rare, e.g. the same word twice in a paragraph)
-      // still fall through to the ambiguous error rather than guessing.
-      if (inRange.length === 1) {
-        occurrence = inRange[0];
+    const hintOffset = Number.isInteger(options.quoteOffset) && options.quoteOffset >= 0
+      ? options.quoteOffset
+      : null;
+    if (hintOffset !== null) {
+      // Exact-offset match wins outright. Otherwise pick the closest — this
+      // covers minor whitespace drift between the hint and the indexed match.
+      const exact = occurrences.find((o) => o.offset === hintOffset);
+      if (exact) {
+        occurrence = exact;
+      } else {
+        let best = occurrences[0];
+        let bestDelta = Math.abs(best.offset - hintOffset);
+        for (let i = 1; i < occurrences.length; i += 1) {
+          const delta = Math.abs(occurrences[i].offset - hintOffset);
+          if (delta < bestDelta) {
+            best = occurrences[i];
+            bestDelta = delta;
+          }
+        }
+        occurrence = best;
+      }
+    }
+    if (!occurrence) {
+      const hintStart = Number.isInteger(options.lineStart) ? options.lineStart : null;
+      const hintEnd = Number.isInteger(options.lineEnd) ? options.lineEnd : hintStart;
+      if (hintStart !== null) {
+        const inRange = occurrences.filter((o) => o.lineStart >= hintStart && o.lineStart <= hintEnd);
+        // Exactly one occurrence inside the hinted range — use it. Multiple
+        // matches in range still fall through to the ambiguous error rather
+        // than guessing (the offset hint above is the right tool for that).
+        if (inRange.length === 1) {
+          occurrence = inRange[0];
+        }
       }
     }
     if (!occurrence) {
@@ -695,9 +725,12 @@ function makeCommentAnchor(text, input) {
     return createTextAnchor(text, {
       quote,
       headingPath: Array.isArray(input.headingPath) ? input.headingPath : undefined,
-      // Optional disambiguation hint for duplicate quotes. Only forwarded
-      // when the caller passed a positive integer line number; everything
-      // else is dropped so we don't smuggle through a stale hint.
+      // Optional disambiguation hints for duplicate quotes. Only forwarded
+      // when the caller passed positive integers; everything else is dropped
+      // so we don't smuggle through a stale hint. quoteOffset is the
+      // strongest disambiguator (exact char position); the line range is
+      // the fallback when the UI couldn't compute an offset.
+      quoteOffset: Number.isInteger(input.quoteOffset) && input.quoteOffset >= 0 ? input.quoteOffset : undefined,
       lineStart: Number.isInteger(input.lineStart) && input.lineStart > 0 ? input.lineStart : undefined,
       lineEnd: Number.isInteger(input.lineEnd) && input.lineEnd > 0 ? input.lineEnd : undefined,
     });

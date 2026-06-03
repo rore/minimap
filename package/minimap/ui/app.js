@@ -70,6 +70,11 @@ const state = {
     // user actually selected. Cleared whenever selectedQuote is cleared so
     // it can never point at the wrong content.
     selectedQuoteLineRange: null,
+    // Char offset of selectedQuote's trimmed start in state.spec.content.
+    // Strongest disambiguation hint we send to the server — it pinpoints a
+    // single occurrence even when two are on the same line. Cleared whenever
+    // selectedQuote is cleared.
+    selectedQuoteOffset: null,
     activeAnchorCommentId: "",
     anchorHighlightTimer: null,
     reviewTab: "comments",
@@ -3504,7 +3509,7 @@ function sourceQuoteForRenderedSelection(selectionText) {
 function resolveSourceQuoteFromRendered(selectionText, occurrenceIndex = 0) {
   const normalizedSelection = normalizeAnchorWhitespace(selectionText);
   if (!normalizedSelection) {
-    return { quote: "", lineRange: null };
+    return { quote: "", lineRange: null, quoteOffset: null };
   }
 
   // Try the markdown-aware map first — selections from the rendered DOM lack
@@ -3526,7 +3531,7 @@ function resolveSourceQuoteFromRendered(selectionText, occurrenceIndex = 0) {
   }
 
   if (matchIndex === -1) {
-    return { quote: selectionText.trim(), lineRange: null };
+    return { quote: selectionText.trim(), lineRange: null, quoteOffset: null };
   }
 
   const start = mapped.originalIndexes[matchIndex];
@@ -3539,7 +3544,11 @@ function resolveSourceQuoteFromRendered(selectionText, occurrenceIndex = 0) {
   const trimmedStart = start + leading;
   const trimmedEnd = end - trailing;
   const lineRange = computeLineRange(state.spec.content, trimmedStart, trimmedEnd - trimmedStart);
-  return { quote: sliced.trim(), lineRange };
+  // Char offset of the trimmed selection start in state.spec.content. The
+  // server uses this as the strongest disambiguation hint when the same
+  // phrase appears multiple times — including twice on the same line, where
+  // the line range alone can't pick a winner.
+  return { quote: sliced.trim(), lineRange, quoteOffset: trimmedStart };
 }
 
 // Index of the nth (0-based) occurrence of `needle` in `haystack`, or
@@ -3596,6 +3605,8 @@ function captureSpecSelectedQuote() {
   if (!selectedText) {
     state.spec.selectedQuote = "";
     state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
+    state.spec.selectedQuoteOffset = null;
     return;
   }
   // Count how many times the selected text appears in the rendered body
@@ -3608,6 +3619,7 @@ function captureSpecSelectedQuote() {
   const resolved = resolveSourceQuoteFromRendered(selectedText, occurrenceIndex);
   state.spec.selectedQuote = resolved.quote;
   state.spec.selectedQuoteLineRange = resolved.lineRange;
+  state.spec.selectedQuoteOffset = resolved.quoteOffset;
 }
 
 // 0-based count of how many times `needle` appears in the rendered body
@@ -3804,6 +3816,8 @@ function openSpecComposer(kind, quote = "") {
   // onto an unrelated occurrence.
   if (cleanQuote !== state.spec.selectedQuote) {
     state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
+    state.spec.selectedQuoteOffset = null;
   }
   if (kind === "suggestion") {
     if (!cleanQuote) {
@@ -3859,6 +3873,8 @@ function openSpecComposerForBlock(block) {
     // Headings: use a section anchor. No quote, no line-range hint.
     state.spec.selectedQuote = "";
     state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
+    state.spec.selectedQuoteOffset = null;
     const headingText = normalizeVisibleText(block.textContent);
     specCommentAnchorInput.value = headingText;
     setSpecCommentAnchorMode("section");
@@ -3873,9 +3889,10 @@ function openSpecComposerForBlock(block) {
     const occurrenceIndex = visibleText ? renderedBlockOccurrenceIndex(block, visibleText) : 0;
     const resolved = visibleText
       ? resolveSourceQuoteFromRendered(visibleText, occurrenceIndex)
-      : { quote: "", lineRange: null };
+      : { quote: "", lineRange: null, quoteOffset: null };
     state.spec.selectedQuote = resolved.quote;
     state.spec.selectedQuoteLineRange = resolved.lineRange;
+    state.spec.selectedQuoteOffset = resolved.quoteOffset;
     if (resolved.quote) {
       specCommentAnchorInput.value = resolved.quote;
       setSpecCommentAnchorMode("quote");
@@ -4664,6 +4681,7 @@ function renderSpecFile() {
 
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
   state.spec.activeAnchorCommentId = "";
   clearSpecAnchorHighlight();
   hideSpecContextToolbar();
@@ -5530,18 +5548,23 @@ async function addSpecComment() {
     body.headingPath = sectionHeadingPathFromInput(anchorValue);
   } else {
     body.quote = anchorValue;
-    // Disambiguation hint: forward the captured line range when the input
-    // value still looks like the live selection that produced it. Exact
-    // equality is the strongest signal; a substring match also counts —
-    // the user may have trimmed the prefilled paragraph quote down to a
-    // shorter, common phrase, and the original line range still contains
-    // the trimmed quote, so the server's range filter can disambiguate.
+    // Disambiguation hints: forward the captured line range AND char offset
+    // when the input value still looks like the live selection that produced
+    // them. Exact equality is the strongest signal; a substring match also
+    // counts — the user may have trimmed the prefilled paragraph quote down
+    // to a shorter, common phrase, and the original line range/offset still
+    // bracket the trimmed quote, so the server can disambiguate.
     // A typed value that ISN'T a substring of selectedQuote is something
-    // the user wrote from scratch — we drop the hint there.
-    if (state.spec.selectedQuoteLineRange && state.spec.selectedQuote
+    // the user wrote from scratch — we drop both hints there.
+    if (state.spec.selectedQuote
         && (anchorValue === state.spec.selectedQuote || state.spec.selectedQuote.includes(anchorValue))) {
-      body.lineStart = state.spec.selectedQuoteLineRange.lineStart;
-      body.lineEnd = state.spec.selectedQuoteLineRange.lineEnd;
+      if (state.spec.selectedQuoteLineRange) {
+        body.lineStart = state.spec.selectedQuoteLineRange.lineStart;
+        body.lineEnd = state.spec.selectedQuoteLineRange.lineEnd;
+      }
+      if (Number.isInteger(state.spec.selectedQuoteOffset)) {
+        body.quoteOffset = state.spec.selectedQuoteOffset;
+      }
     }
   }
 
@@ -5553,6 +5576,7 @@ async function addSpecComment() {
   state.spec.commentComposerOpen = false;
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
   setSpecCommentAnchorMode("global");
   specCommentAnchorInput.value = "";
   specCommentTextInput.value = "";
@@ -5581,9 +5605,14 @@ async function addSpecSuggestion() {
     body.quote = anchorValue;
     // Same hint plumbing as comments — see addSpecComment for the rationale
     // on guarding by anchorValue === selectedQuote.
-    if (state.spec.selectedQuoteLineRange && anchorValue === state.spec.selectedQuote) {
-      body.lineStart = state.spec.selectedQuoteLineRange.lineStart;
-      body.lineEnd = state.spec.selectedQuoteLineRange.lineEnd;
+    if (state.spec.selectedQuote && anchorValue === state.spec.selectedQuote) {
+      if (state.spec.selectedQuoteLineRange) {
+        body.lineStart = state.spec.selectedQuoteLineRange.lineStart;
+        body.lineEnd = state.spec.selectedQuoteLineRange.lineEnd;
+      }
+      if (Number.isInteger(state.spec.selectedQuoteOffset)) {
+        body.quoteOffset = state.spec.selectedQuoteOffset;
+      }
     }
   }
 
@@ -5595,6 +5624,7 @@ async function addSpecSuggestion() {
   state.spec.suggestionComposerOpen = false;
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
   setSpecSuggestionAnchorMode("quote");
   specSuggestionAnchorInput.value = "";
   specSuggestionContentInput.value = "";
@@ -6285,6 +6315,7 @@ specCommentCancelButton.addEventListener("click", () => {
   hideSpecComposerForm();
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
   specCommentTextInput.value = "";
   specCommentAnchorInput.value = "";
   setSpecCommentAnchorMode("global");
@@ -6335,6 +6366,7 @@ specSuggestionCancelButton.addEventListener("click", () => {
   hideSpecComposerForm();
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
   specSuggestionAnchorInput.value = "";
   specSuggestionContentInput.value = "";
   specSuggestionRationaleInput.value = "";
@@ -6392,6 +6424,8 @@ document.addEventListener("selectionchange", () => {
     if (!composerOpen) {
       state.spec.selectedQuote = "";
       state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
+    state.spec.selectedQuoteOffset = null;
     }
     hideSpecContextToolbar();
     return;
@@ -6402,6 +6436,8 @@ document.addEventListener("selectionchange", () => {
     if (!composerOpen) {
       state.spec.selectedQuote = "";
       state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
+    state.spec.selectedQuoteOffset = null;
     }
     hideSpecContextToolbar();
   }
@@ -6893,6 +6929,8 @@ document.addEventListener("keydown", (event) => {
     // gutter "+" hover button on the next mousemove.
     state.spec.selectedQuote = "";
     state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
+    state.spec.selectedQuoteOffset = null;
     return;
   }
 
@@ -6923,6 +6961,7 @@ document.addEventListener("click", (event) => {
   state.spec.composerTarget = null;
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
+  state.spec.selectedQuoteOffset = null;
 });
 
 boardFilterToggleButton.addEventListener("click", () => {
@@ -7087,6 +7126,7 @@ window.__minimapSpec = Object.freeze({
     selectedQuoteLineRange: state.spec.selectedQuoteLineRange
       ? { ...state.spec.selectedQuoteLineRange }
       : null,
+    selectedQuoteOffset: state.spec.selectedQuoteOffset,
     commentComposerOpen: state.spec.commentComposerOpen,
     suggestionComposerOpen: state.spec.suggestionComposerOpen,
   }),
@@ -7122,6 +7162,7 @@ window.__minimapSpec = Object.freeze({
     const resolved = resolveSourceQuoteFromRendered(String(selectionText || ""), occurrenceIndex);
     state.spec.selectedQuote = resolved.quote;
     state.spec.selectedQuoteLineRange = resolved.lineRange;
+    state.spec.selectedQuoteOffset = resolved.quoteOffset;
     openSpecComposer("comment", resolved.quote);
   },
   // Open the comment composer anchored to a specific block element — what
