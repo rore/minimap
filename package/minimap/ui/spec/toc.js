@@ -125,13 +125,23 @@ function teardownObserver() {
 
 // Pick the heading whose top is the closest non-positive number — i.e. the
 // last one we've scrolled past. Falls back to the first heading.
-function pickActiveHeading(bodyEl) {
+//
+// Reference frame: we use the SCROLL container's top, not the body's. The
+// body grows much taller than the scroll viewport, so its
+// getBoundingClientRect().top is far above the visible area once you've
+// scrolled. The scroll container (.spec-doc) is the right ruler — its top
+// matches what the user perceives as "the top of the visible doc".
+function pickActiveHeading(scrollEl) {
   if (!activeHeadings.length) return null;
-  const bodyTop = bodyEl.getBoundingClientRect().top;
+  // A small offset so a heading just barely below the top still counts as
+  // "active" — feels more natural than waiting until it crosses the exact
+  // pixel edge.
+  const ACTIVATION_OFFSET = 24;
+  const refTop = (scrollEl ? scrollEl.getBoundingClientRect().top : 0) + ACTIVATION_OFFSET;
   let chosen = activeHeadings[0];
   let chosenDelta = -Infinity;
   for (const h of activeHeadings) {
-    const delta = h.getBoundingClientRect().top - bodyTop;
+    const delta = h.getBoundingClientRect().top - refTop;
     if (delta <= 0 && delta > chosenDelta) {
       chosenDelta = delta;
       chosen = h;
@@ -149,6 +159,33 @@ function setActiveLink(listEl, headingId) {
   });
 }
 
+// Walk up from el until we find an ancestor that scrolls (overflow auto/scroll
+// with content taller than its box). Returns null if nothing scrolls — in that
+// case the document/viewport is the implicit scroller.
+function findScrollAncestor(el) {
+  let node = el && el.parentElement;
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+// Module-level scroll-listener bookkeeping so we can detach it on rebuild.
+let activeScrollEl = null;
+let activeScrollHandler = null;
+
+function detachScrollHandler() {
+  if (activeScrollEl && activeScrollHandler) {
+    activeScrollEl.removeEventListener("scroll", activeScrollHandler);
+  }
+  activeScrollEl = null;
+  activeScrollHandler = null;
+}
+
 // Public entry point — called from render.js after .spec-body re-renders.
 // Walks h2/h3 in order, assigns missing ids, fills the list, sets up the
 // active-section observer.
@@ -156,6 +193,7 @@ export function buildSpecToc({ bodyEl, tocEl, listEl }) {
   if (!bodyEl || !tocEl || !listEl) return;
 
   teardownObserver();
+  detachScrollHandler();
 
   // Only count headings that belong to the rendered spec body — skip
   // headings inside error/empty cards (e.g. <h2> inside .spec-file-error-card),
@@ -180,27 +218,46 @@ export function buildSpecToc({ bodyEl, tocEl, listEl }) {
   }
   tocEl.dataset.empty = "false";
 
-  // IntersectionObserver fires asynchronously; on every fire we recompute
-  // which heading is "current" using getBoundingClientRect. Cheaper than
-  // a scroll listener and works regardless of which scroll container is
-  // doing the work (.spec-doc has its own overflow-y).
+  // The actual scroll container — usually .spec-doc, which has its own
+  // overflow-y. The IntersectionObserver only fires on viewport boundary
+  // crossings, but the user scrolls inside the container, not the viewport,
+  // so we ALSO listen to the container's scroll event. The observer is
+  // still useful for the initial paint and for layout shifts.
+  const scrollEl = findScrollAncestor(bodyEl);
+
   activeObserver = new IntersectionObserver(
     () => {
-      const chosen = pickActiveHeading(bodyEl);
+      const chosen = pickActiveHeading(scrollEl);
       if (chosen && chosen.id) setActiveLink(listEl, chosen.id);
     },
     {
-      // The observer's root is the spec-doc scroll container — pass null
-      // so it observes against the viewport, which works because .spec-doc
-      // is positioned at viewport-top after the workbench layout.
-      root: null,
+      // root: the scroll container if we found one — falls back to the
+      // viewport. threshold [0, 1] = fire on edge crossings only.
+      root: scrollEl || null,
       threshold: [0, 1],
     },
   );
   activeHeadings.forEach((h) => activeObserver.observe(h));
 
+  // Scroll listener on the actual scroll container. requestAnimationFrame-
+  // throttled so we don't recompute on every scroll event (which can fire
+  // dozens of times a second on a fast wheel).
+  if (scrollEl) {
+    let rafId = 0;
+    activeScrollHandler = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        const chosen = pickActiveHeading(scrollEl);
+        if (chosen && chosen.id) setActiveLink(listEl, chosen.id);
+      });
+    };
+    activeScrollEl = scrollEl;
+    scrollEl.addEventListener("scroll", activeScrollHandler, { passive: true });
+  }
+
   // Initial paint — make sure something is highlighted before the user scrolls.
-  const initial = pickActiveHeading(bodyEl);
+  const initial = pickActiveHeading(scrollEl);
   if (initial && initial.id) setActiveLink(listEl, initial.id);
 
   // Deep-link on load: if the URL has a hash that matches one of the
