@@ -1194,13 +1194,13 @@ h3 {
   width: 24px; height: 24px; border-radius: 4px;
   border: 0; background: transparent; cursor: pointer;
   color: var(--spec-muted); display: grid; place-items: center;
-  font-size: 0.95rem; line-height: 1;
+  font-size: 1.15rem; font-weight: 600; line-height: 1;
   flex: none;
 }
 .spec-toc[data-collapsed="true"] .spec-toc-toggle,
 .spec-toc[data-empty="true"] .spec-toc-toggle {
-  width: 18px; height: 28px; border-radius: 3px;
-  font-size: 0.85rem;
+  width: 18px; height: 32px; border-radius: 3px;
+  font-size: 1.1rem;
 }
 .spec-toc-toggle:hover {
   background: var(--spec-panel-soft);
