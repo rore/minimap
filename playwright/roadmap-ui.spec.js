@@ -1958,3 +1958,45 @@ test("participants facepile updates when the viewer edits the actor field", asyn
   const initials = await page.locator("#spec-participants-facepile .spec-facepile-circle").allTextContents();
   expect(initials.map((s) => s.trim())).toContain("RO");
 });
+
+test("trimming a paragraph quote down to a duplicate substring still anchors to the right paragraph", async ({ page }) => {
+  // Reproduces the screenshot bug: the user opens the composer from the
+  // gutter "+" on a paragraph (line range captured), then trims the prefilled
+  // quote down to a phrase that appears in MULTIPLE paragraphs in the file.
+  // Without the substring-aware line-range hint, the server fired
+  // "Text anchor quote must match exactly one location."
+  // With the fix, the line range from the original paragraph is forwarded as
+  // a disambiguation hint, and the trimmed quote resolves to the user's
+  // paragraph — not some other occurrence.
+  const probeBody = "\n\n## A\n\nClaude Code is OK in the first paragraph.\n\n## B\n\nClaude Code shows up again in the second paragraph.\n";
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  // Open the gutter-+ composer for the FIRST paragraph that contains "Claude Code".
+  await page.evaluate(() => {
+    const blocks = Array.from(document.querySelectorAll(".spec-body p, .spec-body li"));
+    for (const b of blocks) {
+      if ((b.textContent || "").includes("Claude Code")) {
+        window.__minimapSpec.openCommentComposerForBlock(b);
+        return;
+      }
+    }
+  });
+  await page.waitForSelector("#spec-comment-form:not([hidden])", { timeout: 5000 });
+
+  // Trim the prefilled quote down to "Claude Code" — the duplicate phrase.
+  await page.locator("#spec-comment-anchor").fill("Claude Code");
+  await page.locator("#spec-comment-text").fill("comment via trimmed-substring quote");
+  await page.locator("#spec-comment-form button[type=submit]").click();
+
+  // Expect a success banner, NOT the "must match exactly one location" error.
+  await page.waitForTimeout(500);
+  const banner = await page.locator("#status-banner").textContent().catch(() => "");
+  expect(banner, "submit should succeed without an anchor-ambiguous error").not.toMatch(/must match exactly one location/i);
+  expect(banner).toMatch(/Comment added/i);
+});
