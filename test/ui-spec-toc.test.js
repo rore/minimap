@@ -32,7 +32,7 @@ import { buildSpecTocModel } from "../package/minimap/ui/spec/toc.js";
 
 // Minimal heading-like stand-ins. The function only reads tagName, id, textContent.
 function fakeHeading(tag, text, id = "") {
-  return { tagName: tag, textContent: text, id, _idAssigned: false, set _setId(v) { this.id = v; this._idAssigned = true; } };
+  return { tagName: tag, textContent: text, id };
 }
 
 test("buildSpecTocModel: returns one entry per heading in document order", () => {

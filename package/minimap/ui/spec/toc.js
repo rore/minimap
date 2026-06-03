@@ -157,7 +157,12 @@ export function buildSpecToc({ bodyEl, tocEl, listEl }) {
 
   teardownObserver();
 
-  const headings = Array.from(bodyEl.querySelectorAll("h2, h3"));
+  // Only count headings that belong to the rendered spec body — skip
+  // headings inside error/empty cards (e.g. <h2> inside .spec-file-error-card),
+  // which would otherwise pollute the TOC with non-document content.
+  const headings = Array.from(bodyEl.querySelectorAll("h2, h3")).filter(
+    (h) => !h.closest(".spec-file-error-card"),
+  );
   const model = buildSpecTocModel(headings, {
     assignId: (el, slug) => { el.id = slug; },
   });
