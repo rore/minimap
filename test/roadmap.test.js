@@ -3131,3 +3131,46 @@ test("CLI suggest add reads --content-file, --quote-file, --rationale-file from 
   assert.equal(payload.suggestion.content, "with this multi-line\nreplacement");
   assert.equal(payload.suggestion.rationale, "Because — em-dashes — work in files");
 });
+
+test("createTextAnchor disambiguates with a line range when the typed quote is a substring", () => {
+  // The user opens the composer from a paragraph (the gutter +), the prefilled
+  // quote is the whole paragraph, then they trim it down to a shorter common
+  // phrase before submitting. The line range from the original paragraph still
+  // points at the right line, and the trimmed quote should resolve there.
+  const text = [
+    "# Top",                                                       // 1
+    "",                                                            // 2
+    "## A",                                                        // 3
+    "",                                                            // 4
+    "First paragraph mentioning Claude Code in some context.",     // 5
+    "",                                                            // 6
+    "## B",                                                        // 7
+    "",                                                            // 8
+    "Different paragraph also mentioning Claude Code.",            // 9
+  ].join("\n");
+
+  // Trimmed quote ("Claude Code") appears on both line 5 and line 9.
+  // Pass a line range hint covering line 5 — the range filter should pick
+  // the line-5 occurrence.
+  const anchor = createTextAnchor(text, {
+    quote: "Claude Code",
+    lineStart: 5,
+    lineEnd: 5,
+  });
+  assert.equal(anchor.lineStart, 5);
+  assert.deepEqual(anchor.headingPath, ["Top", "A"]);
+
+  // Range pointing at line 9 picks the other occurrence.
+  const other = createTextAnchor(text, {
+    quote: "Claude Code",
+    lineStart: 9,
+    lineEnd: 9,
+  });
+  assert.equal(other.lineStart, 9);
+
+  // Range that contains both occurrences → still ambiguous.
+  assert.throws(
+    () => createTextAnchor(text, { quote: "Claude Code", lineStart: 1, lineEnd: 20 }),
+    (error) => error.code === "anchor_ambiguous",
+  );
+});

@@ -345,16 +345,25 @@ export function createTextAnchor(text, options = {}) {
 
   // Disambiguation: when the same phrase appears more than once (common in
   // specs that mention something in prose AND inside a fenced code block),
-  // prefer the occurrence whose lineStart matches the caller's hint. The
-  // hint is optional — if absent or no occurrence matches, we keep the
+  // prefer the occurrence inside the caller's hinted line range. The hint
+  // is optional — if absent or no occurrence falls in range, we keep the
   // existing strict-uniqueness behavior so old callers see the same error.
   // When there is exactly one occurrence the hint is irrelevant.
   let occurrence;
   if (occurrences.length === 1) {
     occurrence = occurrences[0];
   } else {
-    const hint = Number.isInteger(options.lineStart) ? options.lineStart : null;
-    occurrence = hint !== null ? occurrences.find((o) => o.lineStart === hint) : null;
+    const hintStart = Number.isInteger(options.lineStart) ? options.lineStart : null;
+    const hintEnd = Number.isInteger(options.lineEnd) ? options.lineEnd : hintStart;
+    if (hintStart !== null) {
+      const inRange = occurrences.filter((o) => o.lineStart >= hintStart && o.lineStart <= hintEnd);
+      // Exactly one occurrence inside the hinted range — use it. Multiple
+      // matches in range (rare, e.g. the same word twice in a paragraph)
+      // still fall through to the ambiguous error rather than guessing.
+      if (inRange.length === 1) {
+        occurrence = inRange[0];
+      }
+    }
     if (!occurrence) {
       throw new AppError("Text anchor quote must match exactly one location.", 422, "anchor_ambiguous");
     }
