@@ -72,6 +72,7 @@ const SAFE_FUNCTION_CALLS = [
   /^renderMarginSuggestionCard\(/,
   /^renderSpecReplies\(/,
   /^renderBoardItemBadge\(/,
+  /^formatCommentBodyHtml\(/,
   /^renderBoardCard\(/,
   /^buildSpecDocHeaderHtml\(/,
   /^renderSetupSection\(/,
