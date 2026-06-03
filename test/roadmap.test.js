@@ -3015,10 +3015,9 @@ The phrase "exact text here" appears literally in this file.
   assert.ok(anchor.lineStart > 0);
 });
 
-test("CLI comment add reads --text-file and --quote-file from disk (PowerShell-hostile content)", async () => {
+test("CLI comment add reads JSON from stdin (multi-line text with shell-hostile chars)", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
-  // The spec file has the quote and a place to anchor the comment.
   await fs.writeFile(
     path.join(repoRoot, "spec.md"),
     "# Top\n\nSome line containing `tricky-token` mid-text.\n\nUnrelated paragraph.\n",
@@ -3026,32 +3025,30 @@ test("CLI comment add reads --text-file and --quote-file from disk (PowerShell-h
   );
   await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
 
-  // Multi-line text with apostrophes, em-dashes, backticks — every shell-hostile
-  // glyph stuffed into one comment body. The file path bypass means none of
-  // this needs escaping at the command line.
-  const textPath = path.join(repoRoot, "comment-text.md");
-  await fs.writeFile(textPath, "Don't lock the design here — `tricky-token` is one of\nseveral options.\n", "utf8");
-
-  // The quote also has backticks; pass via --quote-file.
-  const quotePath = path.join(repoRoot, "comment-quote.md");
-  await fs.writeFile(quotePath, "`tricky-token`", "utf8");
+  // The whole body — backticks, em-dashes, apostrophes, embedded newline as
+  // \n — goes through stdin as JSON. No shell escaping of any kind.
+  const body = JSON.stringify({
+    by: "tester",
+    kind: "concern",
+    text: "Don't lock the design here — `tricky-token` is one of\nseveral options.",
+    quote: "`tricky-token`",
+    scope: "",
+  });
 
   const result = await runCli(
-    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
-     "--text-file", textPath, "--quote-file", quotePath, "--json"],
-    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+    ["comment", "add", "spec.md", "--json-stdin", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome }, stdin: body },
   );
   assert.equal(result.exitCode, 0, `expected exit 0, stderr=${result.stderr}`);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.comment.kind, "concern");
   assert.equal(payload.comment.by, "tester");
-  // Trailing newline trimmed by the helper; the body of the file is preserved.
   assert.equal(payload.comment.text, "Don't lock the design here — `tricky-token` is one of\nseveral options.");
   assert.equal(payload.comment.anchor.scope, "anchor");
   assert.equal(payload.comment.anchor.quote, "`tricky-token`");
 });
 
-test("CLI comment reply reads --text-file from disk", async () => {
+test("CLI comment reply reads JSON from stdin", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
   await fs.writeFile(path.join(repoRoot, "spec.md"), "# Top\n\nbody\n", "utf8");
@@ -3065,13 +3062,14 @@ test("CLI comment reply reads --text-file from disk", async () => {
   );
   const commentId = JSON.parse(seed.stdout).comment.id;
 
-  const replyPath = path.join(repoRoot, "reply.md");
-  await fs.writeFile(replyPath, "Multi-line reply with don't / can't / it's apostrophes\nand a second line.\n", "utf8");
+  const body = JSON.stringify({
+    by: "tester2",
+    text: "Multi-line reply with don't / can't / it's apostrophes\nand a second line.",
+  });
 
   const result = await runCli(
-    ["comment", "reply", "spec.md", commentId, "--by", "tester2",
-     "--text-file", replyPath, "--json"],
-    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+    ["comment", "reply", "spec.md", commentId, "--json-stdin", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome }, stdin: body },
   );
   assert.equal(result.exitCode, 0, `stderr=${result.stderr}`);
   const payload = JSON.parse(result.stdout);
@@ -3080,39 +3078,35 @@ test("CLI comment reply reads --text-file from disk", async () => {
   assert.equal(reply.text, "Multi-line reply with don't / can't / it's apostrophes\nand a second line.");
 });
 
-test("CLI rejects --text and --text-file passed together", async () => {
+test("CLI rejects --json-stdin with malformed JSON", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
   await fs.writeFile(path.join(repoRoot, "spec.md"), "# Top\n", "utf8");
   await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
-  const textPath = path.join(repoRoot, "t.md");
-  await fs.writeFile(textPath, "from file", "utf8");
 
   const result = await runCli(
-    ["comment", "add", "spec.md", "--by", "tester", "--kind", "question",
-     "--global", "--text", "from inline", "--text-file", textPath],
-    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+    ["comment", "add", "spec.md", "--json-stdin"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome }, stdin: "{not: valid json" },
   );
   assert.equal(result.exitCode, 2, "exit 2 = AppError with statusCode<500");
-  assert.match(result.stderr, /not both/i);
+  assert.match(result.stderr, /invalid JSON/i);
 });
 
-test("CLI surfaces a clear error when --text-file points at a missing path", async () => {
+test("CLI rejects --json-stdin with empty stdin", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
   await fs.writeFile(path.join(repoRoot, "spec.md"), "# Top\n", "utf8");
   await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
 
   const result = await runCli(
-    ["comment", "add", "spec.md", "--by", "tester", "--kind", "question",
-     "--global", "--text-file", path.join(repoRoot, "does-not-exist.md")],
-    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+    ["comment", "add", "spec.md", "--json-stdin"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome }, stdin: "" },
   );
   assert.equal(result.exitCode, 2);
-  assert.match(result.stderr, /Could not read --text-file/);
+  assert.match(result.stderr, /requires JSON on stdin/i);
 });
 
-test("CLI suggest add reads --content-file, --quote-file, --rationale-file from disk", async () => {
+test("CLI suggest add reads JSON from stdin", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
   await fs.writeFile(
@@ -3122,23 +3116,24 @@ test("CLI suggest add reads --content-file, --quote-file, --rationale-file from 
   );
   await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
 
-  const quotePath = path.join(repoRoot, "q.md");
-  const contentPath = path.join(repoRoot, "c.md");
-  const rationalePath = path.join(repoRoot, "r.md");
-  await fs.writeFile(quotePath, "'replace this'", "utf8");
-  await fs.writeFile(contentPath, "with this multi-line\nreplacement", "utf8");
-  await fs.writeFile(rationalePath, "Because — em-dashes — work in files", "utf8");
+  const body = JSON.stringify({
+    by: "tester",
+    kind: "replace",
+    quote: "'replace this'",
+    content: "with this multi-line\nreplacement",
+    rationale: "Because — em-dashes — work in JSON",
+    scope: "",
+  });
 
   const result = await runCli(
-    ["suggest", "add", "spec.md", "--by", "tester", "--kind", "replace",
-     "--quote-file", quotePath, "--content-file", contentPath, "--rationale-file", rationalePath, "--json"],
-    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+    ["suggest", "add", "spec.md", "--json-stdin", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome }, stdin: body },
   );
   assert.equal(result.exitCode, 0, `stderr=${result.stderr}`);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.suggestion.kind, "replace");
   assert.equal(payload.suggestion.content, "with this multi-line\nreplacement");
-  assert.equal(payload.suggestion.rationale, "Because — em-dashes — work in files");
+  assert.equal(payload.suggestion.rationale, "Because — em-dashes — work in JSON");
 });
 
 test("createTextAnchor disambiguates with a line range when the typed quote is a substring", () => {
