@@ -2001,7 +2001,57 @@ test("trimming a paragraph quote down to a duplicate substring still anchors to 
   expect(banner).toMatch(/Comment added/i);
 });
 
-test("live-selecting a duplicate phrase anchors to the chosen occurrence", async ({ page }) => {
+test("live-selecting one of two same-line duplicates anchors to the chosen occurrence", async ({ page }) => {
+  // The screenshot bug: a single line mentions "Claude Code" twice (once in
+  // prose, once in possessive form like "Claude Code's"). Line range alone
+  // can't disambiguate — both occurrences share lineStart === lineEnd. The
+  // char-offset hint pinpoints the right one.
+  const probeBody = "\n\n## A\n\nBoth shipped Claude Code plugins surveyed (ClawMem). Claude Code's auto-memory is the second mention.\n";
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator("#mode-title")).toContainText("Spec sessions");
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  // Select "Claude Code" out of the SECOND occurrence ("Claude Code's").
+  await page.evaluate(async () => {
+    const body = document.querySelector(".spec-body-markdown") || document.querySelector(".spec-body");
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    let textNode = null, textOffset = 0;
+    while (walker.nextNode()) {
+      const t = walker.currentNode.textContent || "";
+      const cursor = t.indexOf("Claude Code's");
+      if (cursor !== -1) { textNode = walker.currentNode; textOffset = cursor; break; }
+    }
+    const range = document.createRange();
+    range.setStart(textNode, textOffset);
+    range.setEnd(textNode, textOffset + "Claude Code".length); // stop before apostrophe
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    sel.removeAllRanges();
+    sel.addRange(range);
+    window.__minimapSpec.openCommentComposerWithSelection("Claude Code");
+  });
+  await page.waitForSelector("#spec-comment-form:not([hidden])", { timeout: 5000 });
+
+  // The captured state should carry a non-null quoteOffset — the disambiguator.
+  const snap = await page.evaluate(() => window.__minimapSpec.getSpecStateSnapshot());
+  expect(typeof snap.selectedQuoteOffset, "live selection should capture a char offset").toBe("number");
+
+  await page.locator("#spec-comment-text").fill("partial selection on second same-line occurrence");
+  await page.locator("#spec-comment-form button[type=submit]").click();
+  await page.waitForTimeout(500);
+  const banner = await page.locator("#status-banner").textContent().catch(() => "");
+  expect(banner, "submit should succeed without an anchor-ambiguous error").not.toMatch(/must match exactly one location/i);
+  expect(banner).toMatch(/Comment added/i);
+});
+
+test("live-selecting a duplicate phrase on different lines anchors to the chosen occurrence", async ({ page }) => {
   // Sister-case to the gutter-+/trim test above: the user opens the composer
   // by SELECTING the duplicate phrase directly (not via the paragraph "+" button).
   // The bug was that selectionchange-triggered cleanup wiped the captured
