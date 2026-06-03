@@ -17,6 +17,7 @@ import {
   stripMarkdownSyntaxForUi,
   decodeLiteralEscapes,
 } from "/spec/anchors.js";
+import { createState } from "/state.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -47,78 +48,62 @@ const UNASSIGNED_GROUP_KEY = "__unassigned__";
 const UNASSIGNED_GROUP_LABEL = "Unassigned";
 const EDITOR_MODES = new Set(["preview", "structured", "raw"]);
 
-const state = {
-  appMode: "roadmap",
-  repoPath: "",
-  workspace: null,
-  setupState: null,
-  selectedItemId: null,
-  currentItem: null,
-  activeLens: DEFAULT_LENS_KEY,
-  boardLayout: DEFAULT_BOARD_LAYOUT,
-  dragItemId: null,
-  dragColumnIndex: null,
-  dragClickSuppressUntil: 0,
-  lensesExpanded: false,
-  searchQuery: "",
-  activeFilters: {},
-  filtersExpanded: false,
-  collapsedGroups: new Set(),
+function loadStoredScopePreference() {
+  try {
+    return window.localStorage.getItem(SCOPE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function clampScopeWidth(width) {
+  return Math.max(MIN_SCOPE_WIDTH, Math.min(MAX_SCOPE_WIDTH, Math.round(width)));
+}
+
+function loadStoredScopeWidth() {
+  try {
+    const rawValue = Number(window.localStorage.getItem(SCOPE_WIDTH_STORAGE_KEY));
+    return Number.isFinite(rawValue) && rawValue > 0 ? clampScopeWidth(rawValue) : DEFAULT_SCOPE_WIDTH;
+  } catch {
+    return DEFAULT_SCOPE_WIDTH;
+  }
+}
+
+function loadStoredSpecFilesPreference() {
+  try {
+    const stored = window.localStorage.getItem(SPEC_FILES_COLLAPSED_STORAGE_KEY);
+    return stored === "true";
+  } catch {
+    return false;
+  }
+}
+
+function clampSpecBodyFrac(frac) {
+  if (!Number.isFinite(frac)) return DEFAULT_SPEC_BODY_FRAC;
+  return Math.min(MAX_SPEC_BODY_FRAC, Math.max(MIN_SPEC_BODY_FRAC, frac));
+}
+
+function loadStoredSpecBodyFrac() {
+  try {
+    const raw = Number(window.localStorage.getItem(SPEC_BODY_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(raw) && raw > 0 && raw <= 1) return clampSpecBodyFrac(raw);
+    // One-time migration: older builds stored a pixel width. Discard it.
+    window.localStorage.removeItem(LEGACY_SPEC_BODY_WIDTH_STORAGE_KEY);
+    return DEFAULT_SPEC_BODY_FRAC;
+  } catch {
+    return DEFAULT_SPEC_BODY_FRAC;
+  }
+}
+
+const stateContainer = createState({
   scopeCollapsed: loadStoredScopePreference(),
   scopeWidth: loadStoredScopeWidth(),
-  editorMode: "preview",
-  dirtyStructured: false,
-  dirtyRaw: false,
-  boardEditMode: false,
-  boardDraft: null,
-  boardDirty: false,
-  scopeEditMode: false,
-  scopeDraft: "",
-  scopeDirty: false,
   spec: {
-    sessions: [],
-    selectedPath: "",
-    context: null,
-    content: "",
-    commentComposerOpen: false,
-    replyComposerCommentId: "",
-    selectedQuote: "",
-    // Line range in state.spec.content for the most recently captured quote.
-    // Used as a disambiguation hint when posting comments/suggestions: if the
-    // same quote appears more than once (e.g. in prose and again inside a
-    // fenced code block), the hint lets the server pick the occurrence the
-    // user actually selected. Cleared whenever selectedQuote is cleared so
-    // it can never point at the wrong content.
-    selectedQuoteLineRange: null,
-    // Char offset of selectedQuote's trimmed start in state.spec.content.
-    // Strongest disambiguation hint we send to the server — it pinpoints a
-    // single occurrence even when two are on the same line. Cleared whenever
-    // selectedQuote is cleared.
-    selectedQuoteOffset: null,
-    activeAnchorCommentId: "",
-    anchorHighlightTimer: null,
-    reviewTab: "comments",
-    commentFilter: "open",
-    commentSort: "newest",
-    expandedResolvedCommentIds: new Set(),
-    replyDrafts: new Map(),
-    loadError: null,
-    commentAnchorMode: "global",
-    suggestionComposerOpen: false,
-    suggestionAnchorMode: "quote",
-    previewSuggestionId: "",
-    suggestionPreview: null,
     filesCollapsed: loadStoredSpecFilesPreference(),
     bodyFrac: loadStoredSpecBodyFrac(),
-    resizingMargin: false,
-    viewMode: "review",          // "read" | "review"
-    showComments: true,
-    showSuggestions: true,
-    showResolved: false,
-    sidebarSearch: "",
-    composerTarget: null,        // { kind: "comment" | "suggestion", anchorId: string|"__file" }
   },
-};
+});
+const state = stateContainer.get();
 
 const api = createApi({ getRepo: () => state.repoPath });
 
@@ -232,32 +217,11 @@ const fields = {
   extraMetadataContainer: document.querySelector("#extra-metadata-fields"),
 };
 
-function loadStoredScopePreference() {
-  try {
-    return window.localStorage.getItem(SCOPE_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
 function persistScopePreference() {
   try {
     window.localStorage.setItem(SCOPE_STORAGE_KEY, String(state.scopeCollapsed));
   } catch {
     // Ignore storage failures.
-  }
-}
-
-function clampScopeWidth(width) {
-  return Math.max(MIN_SCOPE_WIDTH, Math.min(MAX_SCOPE_WIDTH, Math.round(width)));
-}
-
-function loadStoredScopeWidth() {
-  try {
-    const rawValue = Number(window.localStorage.getItem(SCOPE_WIDTH_STORAGE_KEY));
-    return Number.isFinite(rawValue) && rawValue > 0 ? clampScopeWidth(rawValue) : DEFAULT_SCOPE_WIDTH;
-  } catch {
-    return DEFAULT_SCOPE_WIDTH;
   }
 }
 
@@ -269,37 +233,11 @@ function persistScopeWidth() {
   }
 }
 
-function loadStoredSpecFilesPreference() {
-  try {
-    const stored = window.localStorage.getItem(SPEC_FILES_COLLAPSED_STORAGE_KEY);
-    return stored === "true";
-  } catch {
-    return false;
-  }
-}
-
 function persistSpecFilesPreference() {
   try {
     window.localStorage.setItem(SPEC_FILES_COLLAPSED_STORAGE_KEY, String(state.spec.filesCollapsed));
   } catch {
     // Ignore storage failures.
-  }
-}
-
-function clampSpecBodyFrac(frac) {
-  if (!Number.isFinite(frac)) return DEFAULT_SPEC_BODY_FRAC;
-  return Math.min(MAX_SPEC_BODY_FRAC, Math.max(MIN_SPEC_BODY_FRAC, frac));
-}
-
-function loadStoredSpecBodyFrac() {
-  try {
-    const raw = Number(window.localStorage.getItem(SPEC_BODY_WIDTH_STORAGE_KEY));
-    if (Number.isFinite(raw) && raw > 0 && raw <= 1) return clampSpecBodyFrac(raw);
-    // One-time migration: older builds stored a pixel width. Discard it.
-    window.localStorage.removeItem(LEGACY_SPEC_BODY_WIDTH_STORAGE_KEY);
-    return DEFAULT_SPEC_BODY_FRAC;
-  } catch {
-    return DEFAULT_SPEC_BODY_FRAC;
   }
 }
 
