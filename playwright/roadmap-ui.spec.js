@@ -2386,3 +2386,189 @@ test("legacy comment without anchorStatus.lineStart still anchors via text-match
   });
   expect(orphanCount, "global-scope comment should anchor at file top, not orphan").toBe(0);
 });
+
+test("applying a suggestion cascades the comment's anchor to the new content (no orphan)", async ({ page }) => {
+  // The exact bug from the live spec: a comment is anchored to a phrase,
+  // the agent's suggestion replaces a longer span containing that phrase,
+  // and applying the suggestion used to orphan the comment because the
+  // old cascade required exact quote-string equality. With offset overlap
+  // the cascade now finds it and re-anchors to the new content.
+  const probeBody = `
+
+## Cascade probe
+
+The whole sentence here that mentions key phrase inside it.
+`;
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+
+  // Comment on the substring; suggestion replaces the whole sentence.
+  const seeded = await page.evaluate(async (file) => {
+    const cmt = await (await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file, by: "human", kind: "concern", scope: "",
+        quote: "key phrase",
+        text: "Worried about the wording.",
+      }),
+    })).json();
+    const sug = await (await fetch("/api/spec-sessions/by-file/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file, by: "ai", kind: "replace", scope: "",
+        quote: "The whole sentence here that mentions key phrase inside it.",
+        content: "A different sentence that says nothing about it.",
+        rationale: "rewrite the whole thing",
+      }),
+    })).json();
+    const applied = await (await fetch(`/api/spec-sessions/by-file/suggestions/${sug.suggestion.id}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "human" }),
+    })).json();
+    return { commentId: cmt.comment.id, suggestionId: sug.suggestion.id, applied };
+  }, targetFile);
+  expect(seeded.applied?.suggestion?.status).toBe("applied");
+
+  await page.reload();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll(".spec-margin-card").length >= 1, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+
+  // The comment's quote should be the suggestion's NEW content, not its old
+  // substring quote. anchorStatus should be `resolved`. The card should NOT
+  // be classified as orphan in the layout.
+  const inspect = await page.evaluate(async (id) => {
+    const ctx = await (await fetch(`/api/spec-sessions/by-file/context?path=${encodeURIComponent(window.location.hash.match(/file=([^&]+)/)[1])}`)).json();
+    return null; // placeholder
+  }, seeded.commentId).catch(() => null);
+  // Read directly via the running page's API call:
+  const verdict = await page.evaluate(async () => {
+    const path = decodeURIComponent(window.location.hash.match(/file=([^&]+)/)[1]);
+    const ctx = await (await fetch(`/api/spec-sessions/by-file/context?path=${encodeURIComponent(path)}`)).json();
+    const cmt = ctx.comments[ctx.comments.length - 1];
+    return {
+      quote: cmt.anchor?.quote,
+      status: cmt.anchorStatus?.status,
+      rewritten: !!cmt.anchorRewrittenAt,
+    };
+  });
+  expect(verdict.quote, "comment should be re-anchored to the new replacement content").toBe(
+    "A different sentence that says nothing about it.",
+  );
+  expect(verdict.status).toBe("resolved");
+  expect(verdict.rewritten).toBe(true);
+
+  // And the card itself should not be classified as orphan in the layout.
+  const orphanCount = await page.evaluate(() => Array.from(document.querySelectorAll(".spec-margin-card"))
+    .filter((c) => c.classList.contains("is-orphan")).length);
+  expect(orphanCount, "no card should be in the orphan stack").toBe(0);
+});
+
+test("orphaned comment with a still-valid lineStart anchors visually at that line, not at the bottom", async ({ page }) => {
+  // The other half of the fix: even when the cascade misses (e.g. legacy
+  // data, or a comment whose anchor really is gone), the UI should still
+  // place the card next to the original line if that line still exists in
+  // the rendered DOM. Backstop for users who can then read the orphan
+  // badge alongside the right paragraph instead of hunting at the bottom.
+  const probeBody = `
+
+## Orphan-line probe
+
+A normal paragraph that won't be touched.
+
+A second paragraph for layout.
+`;
+  await fs.writeFile(ideaCreatePath, originalIdeaCreateText.trimEnd() + probeBody, "utf8");
+
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+
+  const sessionRow = page.locator("[data-spec-session-path]").first();
+  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+
+  // Seed a comment whose quote doesn't exist in the file but whose
+  // lineStart points at a real paragraph. The anchorStatus comes back
+  // orphaned, but anchor.lineStart still maps to a real DOM block.
+  const seeded = await page.evaluate(async (file) => {
+    // Direct anchor write would need raw DB access; instead we add a
+    // legitimate comment and then mutate just the quote in a follow-up:
+    // The simplest reproducible setup is to add a comment, then apply
+    // a suggestion that rewrites the line — leaving the comment whose
+    // re-anchor target is gone. But the cascade now handles that, so
+    // for THIS test we want a case where re-anchoring fails.
+    //
+    // Cheat: post a comment with a quote that exists, then post-process:
+    // we rely on the cascade behavior in production. For coverage of the
+    // PURE Layer-B path, post a comment, apply a `delete` suggestion on
+    // the comment's exact line — the cascade only runs for `replace`,
+    // and `delete` truly removes the quote, leaving the comment
+    // anchorStatus orphaned with a still-existing lineStart in the file.
+    const cmt = await (await fetch("/api/spec-sessions/by-file/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file, by: "human", kind: "concern", scope: "",
+        quote: "A normal paragraph that won't be touched.",
+        text: "I have thoughts.",
+      }),
+    })).json();
+    // Now nuke the line via a `delete` suggestion (cascade does NOT run
+    // for delete, so the comment's quote orphans).
+    const sug = await (await fetch("/api/spec-sessions/by-file/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file, by: "ai", kind: "delete", scope: "",
+        quote: "A normal paragraph that won't be touched.",
+      }),
+    })).json();
+    const applied = await (await fetch(`/api/spec-sessions/by-file/suggestions/${sug.suggestion.id}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, by: "human" }),
+    })).json();
+    return { commentId: cmt.comment.id, applied };
+  }, targetFile);
+  expect(seeded.applied?.suggestion?.status).toBe("applied");
+
+  await page.reload();
+  await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll(".spec-margin-card").length >= 1, null, { timeout: 5000 });
+  await page.waitForTimeout(300);
+
+  // Verify server agrees the anchor is orphaned (the quote is gone).
+  const verdict = await page.evaluate(async () => {
+    const path = decodeURIComponent(window.location.hash.match(/file=([^&]+)/)[1]);
+    const ctx = await (await fetch(`/api/spec-sessions/by-file/context?path=${encodeURIComponent(path)}`)).json();
+    return ctx.comments[ctx.comments.length - 1].anchorStatus?.status;
+  });
+  expect(verdict, "comment must be orphaned server-side for this test to mean anything").not.toBe("resolved");
+
+  // And the card should still NOT be in the bottom orphan stack — the
+  // line-fallback should have placed it at its original lineStart.
+  const placement = await page.evaluate(() => {
+    const card = document.querySelector(".spec-margin-card");
+    return {
+      isOrphanClass: card.classList.contains("is-orphan"),
+      // Internal "Anchor orphaned" badge should still be present.
+      hasOrphanBadge: !!card.querySelector(".spec-card-orphan"),
+      top: parseInt(card.style.top || "0", 10),
+    };
+  });
+  expect(placement.isOrphanClass, "card should not be in the bottom orphan stack").toBe(false);
+  expect(placement.hasOrphanBadge, "card should still display the anchor-orphaned badge").toBe(true);
+  // Top should be NEAR where the original paragraph was, not pushed all the way to the bottom.
+  expect(placement.top, "card should be near top, not stacked at bottom").toBeLessThan(2000);
+});

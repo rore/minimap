@@ -1530,6 +1530,189 @@ test("file session suggestion preview and apply mutate only after explicit apply
   assert.equal(events.filter((event) => event.type === "suggestion_applied").length, 2);
 });
 
+// ── Apply cascade re-anchors siblings inside the replaced span ─────────────
+//
+// When a `replace` suggestion is applied, any other comments or suggestions
+// that pointed inside the replaced region must be re-anchored to the new
+// content — otherwise the conversation loses its anchor every time an edit
+// lands. Coverage:
+//   1. exact quote-string match (legacy contract, must still work)
+//   2. char-offset overlap (modern: comment quote is a substring of the
+//      suggestion's replaced span, both sides have anchor.offset)
+//   3. line-range overlap (defensive: comment lacks offset but its line
+//      falls within the suggestion's lineStart..lineEnd)
+//   4. comment on a different line is NOT touched
+//   5. multi-line replace re-anchors a comment that's mid-region
+
+test("apply cascade re-anchors a comment with the same exact quote (legacy match)", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cascade-exact-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nThe phrase to replace.\n\nKeep this line.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  // Comment anchored on the exact same quote the suggestion will replace.
+  const comment = await addFileSessionComment(specPath, {
+    by: "human", kind: "concern",
+    quote: "The phrase to replace.",
+    text: "Worried about this wording.",
+  }, { minimapHome });
+  const sug = await addFileSessionSuggestion(specPath, {
+    by: "ai", kind: "replace",
+    quote: "The phrase to replace.",
+    content: "The new phrasing.",
+  }, { minimapHome });
+
+  await applyFileSessionSuggestion(specPath, sug.suggestion.id, { by: "human" }, { minimapHome });
+  const ctx = await getFileSessionContext(specPath, { minimapHome });
+  const updated = ctx.comments.find((c) => c.id === comment.comment.id);
+  assert.equal(updated.anchor.quote, "The new phrasing.", "cascade rewrites the comment's quote to point at the new content");
+  assert.equal(updated.anchorStatus.status, "resolved");
+  assert.ok(updated.anchorRewrittenAt, "rewrite is stamped with a timestamp");
+});
+
+test("apply cascade re-anchors a comment whose quote is a substring of the replaced span (offset overlap)", async () => {
+  // The exact bug from the spec session: the user comments on a phrase, the
+  // agent's suggestion replaces a longer span containing that phrase, and
+  // before the offset cascade the comment's anchor would orphan.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cascade-offset-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  const text = "# Feature\n\nThe whole sentence here that mentions key phrase inside it.\n";
+  await fs.writeFile(specPath, text, "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  const comment = await addFileSessionComment(specPath, {
+    by: "human", kind: "concern",
+    quote: "key phrase",
+    text: "Worried about wording.",
+  }, { minimapHome });
+  // Sanity: the comment got a numeric offset on creation.
+  assert.ok(Number.isFinite(comment.comment.anchor.offset), "comment anchor must carry an offset for the cascade");
+
+  const sug = await addFileSessionSuggestion(specPath, {
+    by: "ai", kind: "replace",
+    quote: "The whole sentence here that mentions key phrase inside it.",
+    content: "A different sentence that says nothing about key phrase.",
+  }, { minimapHome });
+
+  await applyFileSessionSuggestion(specPath, sug.suggestion.id, { by: "human" }, { minimapHome });
+  const ctx = await getFileSessionContext(specPath, { minimapHome });
+  const updated = ctx.comments.find((c) => c.id === comment.comment.id);
+  assert.equal(updated.anchor.quote, "A different sentence that says nothing about key phrase.",
+    "comment should be re-anchored to the new content via offset overlap");
+  assert.equal(updated.anchorStatus.status, "resolved", "no longer orphaned");
+  assert.ok(updated.anchorRewrittenAt);
+});
+
+test("apply cascade re-anchors a legacy comment lacking offset via line-range overlap", async () => {
+  // Simulates a pre-2026-05 comment record: has lineStart but no offset.
+  // The line-range fallback inside anchorOverlapsReplacedSpan should still
+  // fire so the cascade catches it.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cascade-line-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nOriginal sentence on this line.\n\nUntouched.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  const comment = await addFileSessionComment(specPath, {
+    by: "human", kind: "question",
+    quote: "Original sentence on this line.",
+    text: "Why phrased this way?",
+  }, { minimapHome });
+
+  // Mutate the on-disk record to drop `offset`, simulating a legacy entry
+  // written before offset capture existed. The line metadata stays.
+  const sessions = await listFileSessions({ minimapHome });
+  const targetMatch = sessions.find((s) => path.resolve(s.targetFile) === path.resolve(specPath));
+  assert.ok(targetMatch, "test setup: session must be findable by target file");
+  const sessionId = targetMatch.id;
+  const commentsPath = path.join(minimapHome, "sessions", sessionId, "comments.jsonl");
+  const lines = (await fs.readFile(commentsPath, "utf8")).trim().split(/\r?\n/);
+  const stripped = lines.map((line) => {
+    const parsed = JSON.parse(line);
+    if (parsed.id === comment.comment.id && parsed.anchor) {
+      delete parsed.anchor.offset;
+    }
+    return JSON.stringify(parsed);
+  });
+  await fs.writeFile(commentsPath, stripped.join("\n") + "\n", "utf8");
+
+  const sug = await addFileSessionSuggestion(specPath, {
+    by: "ai", kind: "replace",
+    quote: "Original sentence on this line.",
+    content: "Rewritten sentence on this line.",
+  }, { minimapHome });
+  await applyFileSessionSuggestion(specPath, sug.suggestion.id, { by: "human" }, { minimapHome });
+
+  const ctx = await getFileSessionContext(specPath, { minimapHome });
+  const updated = ctx.comments.find((c) => c.id === comment.comment.id);
+  assert.equal(updated.anchor.quote, "Rewritten sentence on this line.",
+    "legacy (no-offset) comment re-anchored via line-range overlap");
+  assert.equal(updated.anchorStatus.status, "resolved");
+});
+
+test("apply cascade leaves a comment on a DIFFERENT line untouched", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cascade-other-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  // Two distinct paragraphs on different lines. Make the unrelated paragraph's
+  // text NOT contain any substring of the replaced quote, otherwise the
+  // line-range branch could still match for legacy records.
+  await fs.writeFile(specPath, "# Feature\n\nReplace this paragraph.\n\nUnrelated content lives here.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  const unrelatedComment = await addFileSessionComment(specPath, {
+    by: "human", kind: "concern",
+    quote: "Unrelated content lives here.",
+    text: "Comment on the OTHER paragraph.",
+  }, { minimapHome });
+
+  const sug = await addFileSessionSuggestion(specPath, {
+    by: "ai", kind: "replace",
+    quote: "Replace this paragraph.",
+    content: "Replaced.",
+  }, { minimapHome });
+  await applyFileSessionSuggestion(specPath, sug.suggestion.id, { by: "human" }, { minimapHome });
+
+  const ctx = await getFileSessionContext(specPath, { minimapHome });
+  const survivor = ctx.comments.find((c) => c.id === unrelatedComment.comment.id);
+  assert.equal(survivor.anchor.quote, "Unrelated content lives here.", "unrelated comment must NOT be re-anchored");
+  assert.equal(survivor.anchorRewrittenAt, undefined, "no rewrite stamp on untouched comment");
+  assert.equal(survivor.anchorStatus.status, "resolved");
+});
+
+test("apply cascade re-anchors a sibling SUGGESTION whose quote overlaps the replaced span", async () => {
+  // Two suggestions targeting nearby content. Apply one; the other must be
+  // re-anchored, not orphaned.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cascade-sibling-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const specPath = path.join(repoRoot, "feature.md");
+  await fs.writeFile(specPath, "# Feature\n\nA long sentence with a key phrase inside.\n", "utf8");
+  await attachFileSession(specPath, { minimapHome });
+
+  // Suggestion B targets a substring of suggestion A's range.
+  const suggestionB = await addFileSessionSuggestion(specPath, {
+    by: "ai", kind: "replace",
+    quote: "key phrase",
+    content: "specific term",
+    rationale: "narrower wording",
+  }, { minimapHome });
+  const suggestionA = await addFileSessionSuggestion(specPath, {
+    by: "ai", kind: "replace",
+    quote: "A long sentence with a key phrase inside.",
+    content: "Replaced sentence.",
+    rationale: "rewrite the whole thing",
+  }, { minimapHome });
+
+  await applyFileSessionSuggestion(specPath, suggestionA.suggestion.id, { by: "human" }, { minimapHome });
+  const ctx = await getFileSessionContext(specPath, { minimapHome });
+  const sibling = ctx.suggestions.find((s) => s.id === suggestionB.suggestion.id);
+  assert.equal(sibling.anchor.quote, "Replaced sentence.",
+    "sibling suggestion re-anchored to the new content via offset overlap");
+  assert.ok(sibling.anchorRewrittenAt, "rewrite stamped");
+});
+
 test("file session suggestion preview blocks stale anchors and unsupported section edits", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-suggestion-preview-invalid-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));

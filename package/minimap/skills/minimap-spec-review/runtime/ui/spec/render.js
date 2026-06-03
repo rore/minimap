@@ -181,14 +181,24 @@ export function anchorTargetElement(item) {
   }
   // Server-resolved line is the most authoritative signal. anchorStatus is
   // recomputed on every read, so it tracks file edits the original anchor
-  // text cannot. Fall back to the original anchor.lineStart when the
-  // server hasn't re-resolved (legacy comments without anchorStatus, or
-  // anchorStatus.status === "orphaned" but the line still exists). Final
-  // fallback is the heading-or-quote text-matching path.
+  // text cannot. Fall through to the original anchor.lineStart so an
+  // orphaned-but-on-an-existing-line card lands visually near where the
+  // user wrote it instead of stacked at the bottom of the margin. The
+  // orphan styling is set independently in the layout pass — placement
+  // and "this anchor is gone" visibility are separate concerns. Final
+  // fallback is the heading-or-quote text-matching path for legacy
+  // anchors that have no line metadata at all.
   const status = item?.anchorStatus || {};
-  const lineCandidate = (status.status === "resolved" && Number.isFinite(status.lineStart))
+  const resolvedLine = (status.status === "resolved" && Number.isFinite(status.lineStart))
     ? status.lineStart
-    : (Number.isFinite(anchor.lineStart) ? anchor.lineStart : null);
+    : null;
+  const originalLine = Number.isFinite(anchor.lineStart) ? anchor.lineStart : null;
+  // Try the resolved line first (server's re-resolution against the current
+  // file). If absent (orphaned, ambiguous, or pre-line-metadata anchor),
+  // try the original lineStart — the location the user authored the anchor
+  // against. Either gives us the right visual placement; only when both
+  // miss do we fall through to slow text matching.
+  const lineCandidate = resolvedLine !== null ? resolvedLine : originalLine;
   if (lineCandidate !== null) {
     const byLine = elementForSourceLine(lineCandidate);
     if (byLine) return byLine;
