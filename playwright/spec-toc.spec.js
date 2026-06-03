@@ -124,11 +124,10 @@ test.describe("spec TOC", () => {
     await toggle.click();
     await expect(tocEl).toHaveAttribute("data-collapsed", "true");
 
-    // Re-navigate (goto, not reload) so the spec view URL hash is intact —
-    // the TOC click handler uses history.replaceState to set the heading hash,
-    // which strips view=spec from the URL. Reloading from there would land us
-    // on the roadmap. The persisted-state assertion that follows is what we
-    // actually care about: localStorage drives the initial paint.
+    // Re-navigate (goto, not reload) for robustness against any future hash
+    // mutation; the persisted-state assertion that follows is what we actually
+    // care about: localStorage drives the initial paint regardless of how we
+    // got back to the spec view.
     await page.goto(url);
     // Wait for spec view to mount — the spec body renders the H1 from the
     // fixture once the file has loaded. The TOC links exist in the DOM but

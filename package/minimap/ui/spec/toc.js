@@ -101,10 +101,9 @@ function renderTocList(listEl, model) {
   }
   const html = model
     .map((entry) => {
-      const klass = entry.level === 3 ? "spec-toc-link is-sub" : "spec-toc-link";
-      const text = escapeTocHtml(entry.text);
-      const href = `#${escapeTocHtml(entry.id)}`;
-      return `<li><a class="${klass}" href="${href}" title="${text}" data-spec-toc-target="${escapeTocHtml(entry.id)}">${text}</a></li>`;
+      // class is a literal ternary; the rest goes through escapeTocHtml so the
+      // lint in test/ui-lint-html-escape.test.js can verify safety inline.
+      return `<li><a class="${entry.level === 3 ? "spec-toc-link is-sub" : "spec-toc-link"}" href="#${escapeTocHtml(entry.id)}" title="${escapeTocHtml(entry.text)}" data-spec-toc-target="${escapeTocHtml(entry.id)}">${escapeTocHtml(entry.text)}</a></li>`;
     })
     .join("");
   listEl.innerHTML = html;
@@ -177,10 +176,15 @@ function findScrollAncestor(el) {
 // Module-level scroll-listener bookkeeping so we can detach it on rebuild.
 let activeScrollEl = null;
 let activeScrollHandler = null;
+let activeScrollRafId = 0;
 
 function detachScrollHandler() {
   if (activeScrollEl && activeScrollHandler) {
     activeScrollEl.removeEventListener("scroll", activeScrollHandler);
+  }
+  if (activeScrollRafId) {
+    cancelAnimationFrame(activeScrollRafId);
+    activeScrollRafId = 0;
   }
   activeScrollEl = null;
   activeScrollHandler = null;
@@ -241,13 +245,14 @@ export function buildSpecToc({ bodyEl, tocEl, listEl }) {
 
   // Scroll listener on the actual scroll container. requestAnimationFrame-
   // throttled so we don't recompute on every scroll event (which can fire
-  // dozens of times a second on a fast wheel).
+  // dozens of times a second on a fast wheel). The rafId is module-scoped
+  // so detachScrollHandler() can cancel a pending frame from a previous
+  // build before its callback runs against stale state.
   if (scrollEl) {
-    let rafId = 0;
     activeScrollHandler = () => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = 0;
+      if (activeScrollRafId) return;
+      activeScrollRafId = requestAnimationFrame(() => {
+        activeScrollRafId = 0;
         const chosen = pickActiveHeading(scrollEl);
         if (chosen && chosen.id) setActiveLink(listEl, chosen.id);
       });

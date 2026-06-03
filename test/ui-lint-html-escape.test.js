@@ -24,6 +24,7 @@ const FILES = [
   "package/minimap/ui/app.js",
   "package/minimap/ui/spec/render.js",
   "package/minimap/ui/spec/composer.js",
+  "package/minimap/ui/spec/toc.js",
 ];
 
 // Names of locals/globals whose value is known to be either pre-escaped HTML
@@ -63,6 +64,7 @@ const SAFE_NAMES = new Set([
 // Whitelisted call expressions that produce safe strings.
 const SAFE_FUNCTION_CALLS = [
   /^escapeHtml\(/,
+  /^escapeTocHtml\(/,
   /^renderMarkdownToHtml\(/,
   /^renderInlineMarkdown\(/,
   /^CSS\.escape\(/,
