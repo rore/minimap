@@ -2103,3 +2103,33 @@ test("live-selecting a duplicate phrase on different lines anchors to the chosen
   expect(banner, "submit should succeed without an anchor-ambiguous error").not.toMatch(/must match exactly one location/i);
   expect(banner).toMatch(/Comment added/i);
 });
+
+test("comment composer closes after a successful submit", async ({ page }) => {
+  // Regression: addSpecComment used to flip state.spec.commentComposerOpen
+  // to false but the form's visibility is driven by the form.hidden DOM
+  // attribute, not the state flag — so the dialog stayed on screen after
+  // posting. Same bug existed for the suggestion composer.
+  await page.goto(repoUrl());
+  await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await page.locator("#open-in-spec-button").click();
+  await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
+
+  // Open the composer on a real block via the gutter "+" hook, the same
+  // way the user opens it in the screenshot. Picks the first paragraph
+  // we can find in the rendered body.
+  const opened = await page.evaluate(() => {
+    const body = document.querySelector(".spec-body-markdown");
+    const para = body && body.querySelector("p");
+    if (!para) return false;
+    window.__minimapSpec.openCommentComposerForBlock(para);
+    return true;
+  });
+  expect(opened, "should be able to find a paragraph block to open the composer on").toBe(true);
+  await expect(page.locator("#spec-comment-form")).toBeVisible({ timeout: 2000 });
+
+  await page.locator("#spec-comment-text").fill("auto-test: composer must close on submit");
+  await page.locator("#spec-comment-form button[type='submit']").click();
+
+  // Form must be hidden after the POST resolves.
+  await expect(page.locator("#spec-comment-form")).toBeHidden({ timeout: 3000 });
+});

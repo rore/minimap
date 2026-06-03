@@ -5573,7 +5573,11 @@ async function addSpecComment() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  state.spec.commentComposerOpen = false;
+  // Form visibility is driven by `form.hidden`, not the state flag — flipping
+  // commentComposerOpen alone leaves the form on screen. Use hideSpecComposerForm
+  // to actually take it down, mirroring the cancel/escape paths.
+  hideSpecComposerForm();
+  state.spec.composerTarget = null;
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
   state.spec.selectedQuoteOffset = null;
@@ -5621,7 +5625,8 @@ async function addSpecSuggestion() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  state.spec.suggestionComposerOpen = false;
+  hideSpecComposerForm();
+  state.spec.composerTarget = null;
   state.spec.selectedQuote = "";
   state.spec.selectedQuoteLineRange = null;
   state.spec.selectedQuoteOffset = null;
