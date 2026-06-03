@@ -146,7 +146,10 @@ async function runCli(args, options = {}) {
   const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "cli.js"), ...args], {
     cwd: options.cwd || projectRoot,
     env: { ...process.env, ...(options.env || {}) },
-    stdio: ["ignore", "pipe", "pipe"],
+    // Pipe stdin so callers can hand the CLI a JSON body via --json-stdin.
+    // When no `stdin` option is passed we still pipe but write nothing,
+    // matching the previous "ignore" behavior end-to-end.
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -157,6 +160,11 @@ async function runCli(args, options = {}) {
   child.stderr.on("data", (chunk) => {
     stderr += String(chunk);
   });
+
+  if (typeof options.stdin === "string") {
+    child.stdin.write(options.stdin);
+  }
+  child.stdin.end();
 
   const exitCode = await new Promise((resolve) => {
     child.on("exit", resolve);
