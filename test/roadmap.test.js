@@ -3174,3 +3174,48 @@ test("createTextAnchor disambiguates with a line range when the typed quote is a
     (error) => error.code === "anchor_ambiguous",
   );
 });
+
+test("createTextAnchor disambiguates same-line duplicates via quoteOffset hint", () => {
+  // The screenshot bug: a single line mentions "Claude Code" twice (once in
+  // prose, once in possessive form like "Claude Code's"). The line range
+  // hint can't pick a side because both occurrences share lineStart === lineEnd.
+  // The byte-offset hint points at exactly one occurrence.
+  const text = [
+    "# Top",                                                                  // 1
+    "",                                                                       // 2
+    "## A",                                                                   // 3
+    "",                                                                       // 4
+    "Both shipped Claude Code plugins surveyed. Claude Code's auto-memory.",  // 5
+  ].join("\n");
+
+  const firstOffset = text.indexOf("Claude Code");
+  const secondOffset = text.indexOf("Claude Code", firstOffset + 1);
+  assert.notEqual(firstOffset, secondOffset);
+
+  // Without quoteOffset, line range alone is ambiguous (both on line 5).
+  assert.throws(
+    () => createTextAnchor(text, { quote: "Claude Code", lineStart: 5, lineEnd: 5 }),
+    (error) => error.code === "anchor_ambiguous",
+  );
+
+  // quoteOffset at the first occurrence → first match.
+  const first = createTextAnchor(text, {
+    quote: "Claude Code",
+    quoteOffset: firstOffset,
+  });
+  assert.equal(first.offset, firstOffset);
+
+  // quoteOffset at the second occurrence → second match.
+  const second = createTextAnchor(text, {
+    quote: "Claude Code",
+    quoteOffset: secondOffset,
+  });
+  assert.equal(second.offset, secondOffset);
+
+  // Slightly-off quoteOffset (e.g. whitespace drift) snaps to the closest match.
+  const nearSecond = createTextAnchor(text, {
+    quote: "Claude Code",
+    quoteOffset: secondOffset + 2,
+  });
+  assert.equal(nearSecond.offset, secondOffset);
+});
