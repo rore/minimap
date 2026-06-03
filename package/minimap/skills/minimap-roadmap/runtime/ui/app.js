@@ -39,6 +39,29 @@ import {
   undecorateSpecAnchors,
   layoutSpecMargin,
 } from "/spec/render.js";
+import {
+  wireSpecComposer,
+  getSpecSelectionText,
+  captureSpecSelectedQuote,
+  renderedSelectionOccurrenceIndex,
+  specAnchorSummary,
+  setSpecCommentAnchorMode,
+  renderSpecCommentAnchorMode,
+  setSpecSuggestionAnchorMode,
+  renderSpecSuggestionAnchorMode,
+  specBlockCandidates,
+  quoteForSpecBlock,
+  hideSpecContextToolbar,
+  showSpecContextToolbar,
+  showSpecToolbarForSelection,
+  openSpecComposer,
+  openSpecComposerForBlock,
+  showSpecComposerForm,
+  hideSpecComposerForm,
+  previewSpecSuggestion,
+  applySpecSuggestion,
+  rollbackSpecSuggestion,
+} from "/spec/composer.js";
 import { createState } from "/state.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
@@ -270,6 +293,50 @@ wireSpecRender({
     specBlockCandidates,
     syncSpecToolbarChrome,
     updateSpecNavButtons,
+  },
+});
+
+// Composer / form-handling and selection-toolbar logic — same shape as
+// wireSpecRender. Reuses the live state + api references, extends the DOM
+// bag with the form inputs, and forwards a few app.js utilities that the
+// composer reaches back into (banner, source-quote resolver, render
+// callbacks for the suggestion preview path).
+wireSpecComposer({
+  dom: {
+    specFileContentElement,
+    specContextToolbarElement,
+    specCommentForm,
+    specCommentByInput,
+    specCommentKindInput,
+    specCommentAnchorInput,
+    specCommentAnchorLabelElement,
+    specCommentAnchorSummaryElement,
+    specCommentTextInput,
+    specCommentGlobalInput,
+    specCommentAnchorModeButtons,
+    specSuggestionForm,
+    specSuggestionByInput,
+    specSuggestionKindInput,
+    specSuggestionAnchorInput,
+    specSuggestionAnchorLabelElement,
+    specSuggestionAnchorSummaryElement,
+    specSuggestionContentInput,
+    specSuggestionRationaleInput,
+    specSuggestionAnchorModeButtons,
+  },
+  state,
+  api,
+  helpers: {
+    setBanner,
+    SPEC_COMMENT_ANCHOR_MODES,
+    SPEC_SUGGESTION_ANCHOR_MODES,
+    normalizeAnchorWhitespace,
+    sourceQuoteForRenderedSelection,
+    resolveSourceQuoteFromRendered,
+    clearSpecSuggestionPreview,
+    renderSpecComments,
+    renderSpecInlineSuggestionPreview,
+    loadSpecSession,
   },
 });
 
@@ -2897,337 +2964,6 @@ function resolveSourceQuoteFromRendered(selectionText, occurrenceIndex = 0) {
   return specResolveSourceQuoteFromRendered(selectionText, state.spec.content, occurrenceIndex);
 }
 
-function getSpecSelectionText() {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return "";
-  }
-
-  const range = selection.getRangeAt(0);
-  const container = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-    ? range.commonAncestorContainer
-    : range.commonAncestorContainer.parentElement;
-  if (!container || !specFileContentElement.contains(container)) {
-    return "";
-  }
-
-  return selection.toString().trim();
-}
-
-function captureSpecSelectedQuote() {
-  const selectedText = getSpecSelectionText();
-  if (!selectedText) {
-    state.spec.selectedQuote = "";
-    state.spec.selectedQuoteLineRange = null;
-  state.spec.selectedQuoteOffset = null;
-    state.spec.selectedQuoteOffset = null;
-    return;
-  }
-  // Count how many times the selected text appears in the rendered body
-  // BEFORE the live selection's start. That gives us the occurrence index
-  // (0-based) the user actually selected, which we then use to pick the
-  // matching occurrence in the source map. Without this, indexOf in the
-  // source map always picks the first match — wrong when the same phrase
-  // appears more than once.
-  const occurrenceIndex = renderedSelectionOccurrenceIndex(selectedText);
-  const resolved = resolveSourceQuoteFromRendered(selectedText, occurrenceIndex);
-  state.spec.selectedQuote = resolved.quote;
-  state.spec.selectedQuoteLineRange = resolved.lineRange;
-  state.spec.selectedQuoteOffset = resolved.quoteOffset;
-}
-
-// 0-based count of how many times `needle` appears in the rendered body
-// before the live selection's start, matching whatever normalization the
-// renderer uses on textContent. Returns 0 (treat as first occurrence) when
-// there's no selection or no match in front of it. Whitespace is collapsed
-// the same way normalizeAnchorWhitespace handles it so the count lines up
-// with what the source-map matcher will see.
-function renderedSelectionOccurrenceIndex(needle) {
-  const trimmedNeedle = normalizeAnchorWhitespace(needle);
-  if (!trimmedNeedle) return 0;
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return 0;
-  const range = selection.getRangeAt(0);
-  if (!specFileContentElement.contains(range.startContainer)) return 0;
-
-  // textContent up to the selection start.
-  const beforeRange = document.createRange();
-  beforeRange.selectNodeContents(specFileContentElement);
-  beforeRange.setEnd(range.startContainer, range.startOffset);
-  const before = normalizeAnchorWhitespace(beforeRange.toString());
-
-  let count = 0;
-  let cursor = before.indexOf(trimmedNeedle);
-  while (cursor !== -1) {
-    count += 1;
-    cursor = before.indexOf(trimmedNeedle, cursor + 1);
-  }
-  return count;
-}
-
-function specAnchorSummary(mode, value) {
-  if (mode === "global") {
-    return "File-level comment";
-  }
-  if (mode === "section") {
-    return value ? `Anchored to section: ${value}` : "Anchored to section";
-  }
-  if (!value) {
-    return "Anchored to selected text";
-  }
-  const normalized = normalizeVisibleText(value);
-  return `Anchored to: ${normalized.length > 96 ? `${normalized.slice(0, 96)}...` : normalized}`;
-}
-
-function setSpecCommentAnchorMode(mode) {
-  state.spec.commentAnchorMode = SPEC_COMMENT_ANCHOR_MODES.has(mode) ? mode : "global";
-  renderSpecCommentAnchorMode();
-}
-
-function renderSpecCommentAnchorMode() {
-  specCommentAnchorModeButtons.forEach((button) => {
-    const active = button.dataset.commentAnchorMode === state.spec.commentAnchorMode;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-  });
-
-  const globalMode = state.spec.commentAnchorMode === "global";
-  specCommentGlobalInput.checked = globalMode;
-  specCommentAnchorInput.closest("label").hidden = globalMode;
-  specCommentAnchorSummaryElement.textContent = specAnchorSummary(state.spec.commentAnchorMode, specCommentAnchorInput.value);
-  if (globalMode) {
-    specCommentAnchorInput.value = "";
-    return;
-  }
-
-  if (state.spec.commentAnchorMode === "section") {
-    specCommentAnchorLabelElement.textContent = "Section";
-    specCommentAnchorInput.placeholder = "Heading > Subheading";
-    return;
-  }
-
-  specCommentAnchorLabelElement.textContent = "Quote";
-  specCommentAnchorInput.placeholder = "Exact quote from the file";
-}
-
-function setSpecSuggestionAnchorMode(mode) {
-  state.spec.suggestionAnchorMode = SPEC_SUGGESTION_ANCHOR_MODES.has(mode) ? mode : "quote";
-  renderSpecSuggestionAnchorMode();
-}
-
-function renderSpecSuggestionAnchorMode() {
-  specSuggestionAnchorModeButtons.forEach((button) => {
-    const active = button.dataset.suggestionAnchorMode === state.spec.suggestionAnchorMode;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-  });
-
-  if (state.spec.suggestionAnchorMode === "section") {
-    specSuggestionAnchorLabelElement.textContent = "Section";
-    specSuggestionAnchorInput.placeholder = "Heading > Subheading";
-    specSuggestionAnchorSummaryElement.textContent = specAnchorSummary("section", specSuggestionAnchorInput.value);
-    return;
-  }
-
-  specSuggestionAnchorLabelElement.textContent = "Quote";
-  specSuggestionAnchorInput.placeholder = "Exact quote from the file";
-  specSuggestionAnchorSummaryElement.textContent = specAnchorSummary("quote", specSuggestionAnchorInput.value);
-}
-
-function specBlockCandidates() {
-  return Array.from(specFileContentElement.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, pre, th, td"));
-}
-
-function quoteForSpecBlock(element) {
-  const visibleText = normalizeVisibleText(element?.textContent || "");
-  return visibleText ? sourceQuoteForRenderedSelection(visibleText) : "";
-}
-
-function hideSpecContextToolbar() {
-  specContextToolbarElement.hidden = true;
-  specContextToolbarElement.dataset.quote = "";
-}
-
-function showSpecContextToolbar(quote, rect) {
-  if (!quote || !rect || !state.spec.context) {
-    hideSpecContextToolbar();
-    return;
-  }
-  // Position above the selection, centered horizontally on its midpoint.
-  // Falls back below the selection if there's no room above.
-  const toolbarWidth = 152;
-  const toolbarHeight = 32;
-  const cx = rect.left + rect.width / 2;
-  let left = Math.round(cx - toolbarWidth / 2);
-  left = Math.min(Math.max(8, left), window.innerWidth - toolbarWidth - 8);
-  let top = Math.round(rect.top - toolbarHeight - 6);
-  if (top < 8) {
-    top = Math.round(rect.bottom + 6);
-  }
-  specContextToolbarElement.dataset.quote = quote;
-  specContextToolbarElement.style.left = `${left}px`;
-  specContextToolbarElement.style.top = `${top}px`;
-  specContextToolbarElement.hidden = false;
-}
-
-function selectedSpecRangeRect() {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return null;
-  }
-  const range = selection.getRangeAt(0);
-  const rect = range.getBoundingClientRect();
-  return rect.width || rect.height ? rect : null;
-}
-
-function showSpecToolbarForSelection() {
-  captureSpecSelectedQuote();
-  const rect = selectedSpecRangeRect();
-  if (!state.spec.selectedQuote || !rect) {
-    return false;
-  }
-  showSpecContextToolbar(state.spec.selectedQuote, rect);
-  return true;
-}
-
-function openSpecComposer(kind, quote = "") {
-  const cleanQuote = quote.trim();
-  // Preserve the captured line range when the caller is opening on the same
-  // quote we just captured from a live DOM selection. Other entry points
-  // (paragraph "+" gutter, programmatic) pass a quote that didn't come from
-  // a tracked selection — drop the range so we don't smuggle a stale hint
-  // onto an unrelated occurrence.
-  if (cleanQuote !== state.spec.selectedQuote) {
-    state.spec.selectedQuoteLineRange = null;
-  state.spec.selectedQuoteOffset = null;
-    state.spec.selectedQuoteOffset = null;
-  }
-  if (kind === "suggestion") {
-    if (!cleanQuote) {
-      setBanner("Select text or use a paragraph action to suggest an edit.", "error");
-      return;
-    }
-    state.spec.selectedQuote = cleanQuote;
-    state.spec.commentComposerOpen = false;
-    state.spec.suggestionComposerOpen = true;
-    specSuggestionAnchorInput.value = cleanQuote;
-    setSpecSuggestionAnchorMode("quote");
-    showSpecComposerForm("suggestion");
-    specSuggestionContentInput.focus();
-    return;
-  }
-
-  state.spec.selectedQuote = cleanQuote;
-  state.spec.suggestionComposerOpen = false;
-  state.spec.commentComposerOpen = true;
-  if (cleanQuote) {
-    specCommentAnchorInput.value = cleanQuote;
-    setSpecCommentAnchorMode("quote");
-  } else {
-    // No selection → anchor to the document's first H1 if available.
-    // The legacy `__file` (global) anchor is kept in the schema but no
-    // longer surfaced as an authoring choice.
-    const firstHeading = specFileContentElement.querySelector("h1, h2, h3");
-    const headingText = firstHeading ? normalizeVisibleText(firstHeading.textContent) : "";
-    if (headingText) {
-      specCommentAnchorInput.value = headingText;
-      setSpecCommentAnchorMode("section");
-    } else {
-      specCommentAnchorInput.value = "";
-      setSpecCommentAnchorMode("global");
-    }
-  }
-  showSpecComposerForm("comment");
-  specCommentTextInput.focus();
-}
-
-// Open the comment composer pre-anchored to a specific block in the spec
-// body. Used by the hover-to-add `+` button in the gutter — gives the
-// user an obvious way to add a comment without having to first select
-// text. Headings get a section anchor (matches what they'd get if they
-// typed the heading by hand); paragraphs and list items get a quote
-// anchor against the block's visible text.
-function openSpecComposerForBlock(block) {
-  if (!block) return;
-  const tag = (block.tagName || "").toLowerCase();
-  state.spec.suggestionComposerOpen = false;
-  state.spec.commentComposerOpen = true;
-  if (tag.startsWith("h") && tag.length === 2) {
-    // Headings: use a section anchor. No quote, no line-range hint.
-    state.spec.selectedQuote = "";
-    state.spec.selectedQuoteLineRange = null;
-  state.spec.selectedQuoteOffset = null;
-    state.spec.selectedQuoteOffset = null;
-    const headingText = normalizeVisibleText(block.textContent);
-    specCommentAnchorInput.value = headingText;
-    setSpecCommentAnchorMode("section");
-  } else {
-    // Paragraphs / list items: capture both the quote AND its source line
-    // range so a disambiguation hint travels with the submission. Without
-    // this, a paragraph quote that happens to share text with another
-    // location in the file (or that the user trims down to a shorter,
-    // non-unique substring) would fail with anchor_ambiguous and the user
-    // would have no way to recover.
-    const visibleText = normalizeVisibleText(block.textContent || "");
-    const occurrenceIndex = visibleText ? renderedBlockOccurrenceIndex(block, visibleText) : 0;
-    const resolved = visibleText
-      ? resolveSourceQuoteFromRendered(visibleText, occurrenceIndex)
-      : { quote: "", lineRange: null, quoteOffset: null };
-    state.spec.selectedQuote = resolved.quote;
-    state.spec.selectedQuoteLineRange = resolved.lineRange;
-    state.spec.selectedQuoteOffset = resolved.quoteOffset;
-    if (resolved.quote) {
-      specCommentAnchorInput.value = resolved.quote;
-      setSpecCommentAnchorMode("quote");
-    } else {
-      specCommentAnchorInput.value = "";
-      setSpecCommentAnchorMode("global");
-    }
-  }
-  showSpecComposerForm("comment");
-  specCommentTextInput.focus();
-}
-
-// 0-based count of how many times `needle` appears in the rendered body
-// before this block's start. Used to pick the right occurrence in the
-// source map when the user opens the composer from the gutter `+` rather
-// than via a live text selection (which uses renderedSelectionOccurrenceIndex).
-function renderedBlockOccurrenceIndex(block, needle) {
-  const trimmedNeedle = normalizeAnchorWhitespace(needle);
-  if (!trimmedNeedle) return 0;
-  if (!specFileContentElement.contains(block)) return 0;
-  const beforeRange = document.createRange();
-  beforeRange.selectNodeContents(specFileContentElement);
-  beforeRange.setEndBefore(block);
-  const before = normalizeAnchorWhitespace(beforeRange.toString());
-  let count = 0;
-  let cursor = before.indexOf(trimmedNeedle);
-  while (cursor !== -1) {
-    count += 1;
-    cursor = before.indexOf(trimmedNeedle, cursor + 1);
-  }
-  return count;
-}
-
-// Show the (hidden) composer form as a floating panel anchored to the file pane.
-// It overlays the spec doc so it doesn't shift layout while open.
-function showSpecComposerForm(kind) {
-  const form = kind === "suggestion" ? specSuggestionForm : specCommentForm;
-  const other = kind === "suggestion" ? specCommentForm : specSuggestionForm;
-  if (other) other.hidden = true;
-  if (!form) return;
-  form.hidden = false;
-  // Position the form: center horizontally over the spec body, near the top.
-  // (Keep CSS simple: it's `position: fixed` styled below.)
-}
-
-function hideSpecComposerForm() {
-  if (specCommentForm) specCommentForm.hidden = true;
-  if (specSuggestionForm) specSuggestionForm.hidden = true;
-  state.spec.commentComposerOpen = false;
-  state.spec.suggestionComposerOpen = false;
-}
-
 function focusSpecCommentAnchor(commentId) {
   const comment = (state.spec.context?.comments || []).find((candidate) => candidate.id === commentId);
   focusSpecAnchorItem(comment, commentId);
@@ -3735,46 +3471,6 @@ async function setSpecSuggestionStatus(suggestionId, action) {
   });
   await refreshSpecReviewState();
   setBanner(action === "accept" ? "Suggestion accepted." : action === "reopen" ? "Suggestion reopened." : "Suggestion dismissed.", "success");
-}
-
-async function previewSpecSuggestion(suggestionId) {
-  if (state.spec.previewSuggestionId === suggestionId) {
-    state.spec.previewSuggestionId = "";
-    state.spec.suggestionPreview = null;
-    clearSpecSuggestionPreview();
-    renderSpecComments();
-    setBanner("Suggestion preview hidden.", "success");
-    return;
-  }
-
-  const result = await api.previewSuggestion(state.spec.selectedPath, suggestionId);
-  state.spec.previewSuggestionId = suggestionId;
-  state.spec.suggestionPreview = result.preview;
-  renderSpecInlineSuggestionPreview(result.suggestion, result.preview);
-  renderSpecComments();
-  setBanner("Suggestion preview shown in the spec.", "success");
-}
-
-async function applySpecSuggestion(suggestionId) {
-  await api.applySuggestion(state.spec.selectedPath, suggestionId, {
-    by: specSuggestionByInput.value || specCommentByInput.value || "human",
-  });
-  state.spec.previewSuggestionId = "";
-  state.spec.suggestionPreview = null;
-  clearSpecSuggestionPreview();
-  await loadSpecSession(state.spec.selectedPath);
-  setBanner("Suggestion applied.", "success");
-}
-
-async function rollbackSpecSuggestion(suggestionId) {
-  await api.rollbackSuggestion(state.spec.selectedPath, suggestionId, {
-    by: specSuggestionByInput.value || specCommentByInput.value || "human",
-  });
-  state.spec.previewSuggestionId = "";
-  state.spec.suggestionPreview = null;
-  clearSpecSuggestionPreview();
-  await loadSpecSession(state.spec.selectedPath);
-  setBanner("Suggestion rolled back.", "success");
 }
 
 async function switchAppMode(nextMode) {
