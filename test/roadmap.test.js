@@ -876,23 +876,21 @@ test("portable minimap package includes app, skills, and starter templates", asy
   assert.equal(packageJson.bin.minimap, "./cli.js");
   assert.equal(packageJson.scripts.start, "node server.js");
 
-  const bundledRuntimeFiles = [
-    ["server.js"],
-    ["cli.js"],
-    ["src", "roadmap.js"],
-    ["src", "sessions.js"],
-    ["src", "server-registry.js"],
-    ["ui", "index.html"],
-    ["ui", "app.js"],
-    ["ui", "styles.css"],
-  ];
-
-  for (const segments of bundledRuntimeFiles) {
-    const packageFile = await fs.readFile(path.join(projectRoot, "package", "minimap", ...segments), "utf8");
-    const runtimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "runtime", ...segments), "utf8");
-    assert.equal(runtimeFile, packageFile, `Bundled spec-review runtime is stale: ${segments.join("/")}`);
-    const roadmapRuntimeFile = await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "runtime", ...segments), "utf8");
-    assert.equal(roadmapRuntimeFile, packageFile, `Bundled roadmap runtime is stale: ${segments.join("/")}`);
+  // Byte-identity of runtime files (server.js, cli.js, src/, ui/, package.json)
+  // is enforced by test/sync-mirrors.test.js, which runs scripts/sync-mirrors.mjs
+  // and re-verifies the trees match. The block below adds a positive guarantee
+  // that no runtime/ tree introduces install-time dependencies — skills install
+  // by file copy, never by `npm install`.
+  for (const skill of ["minimap-roadmap", "minimap-spec-review"]) {
+    const runtimePackageJson = JSON.parse(
+      await fs.readFile(path.join(projectRoot, "package", "minimap", "skills", skill, "runtime", "package.json"), "utf8"),
+    );
+    const deps = runtimePackageJson.dependencies || {};
+    assert.equal(
+      Object.keys(deps).length,
+      0,
+      `Runtime ${skill} must not declare dependencies (skills install via copy, not npm install).`,
+    );
   }
 
   // Both skills' scripts/ directories carry the same set of lifecycle scripts
