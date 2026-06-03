@@ -30,6 +30,25 @@ It rewrites both runtime trees (`package/minimap/skills/minimap-roadmap/runtime/
 
 **Do not** hand-edit files under `package/minimap/skills/*/runtime/` — they are derived. Edit the top-level copy and run the sync script.
 
+## Skill-doc drift check — after every behavior change
+
+Behavior changes ship in code + tests, but the prose docs under `package/minimap/skills/*/SKILL.md` and `package/minimap/skills/*/references/*.md` describe that same behavior to agents. Tri-tree sync only handles `runtime/` byte-identity; skill docs are not auto-synced and silently rot. Caught real drift twice in one session: the apply-cascade was widened from exact-quote to range-overlap (commit `e0456c6`) but `references/http.md` still claimed exact-quote; `--json-stdin` made the CLI multi-line-capable but `references/http.md` still framed CLI as "single-line text only."
+
+**Before declaring a behavior change done, grep the skill docs for the OLD behavior's keywords:**
+
+```bash
+# After changing the cascade, anchor logic, status semantics, etc.:
+grep -rn "<old-behavior-phrase>" package/minimap/skills/*/SKILL.md package/minimap/skills/*/references/
+
+# Sanity sweeps that catch most drift:
+grep -rn "exact quote\|same quote\|same old quote" package/minimap/skills/
+grep -rn "single-line\|short.*--text\|--text-file\|--quote-file" package/minimap/skills/
+```
+
+If the grep finds anything, fix it in the same change set as the behavior. The drift is invisible until a future agent reads the doc and follows the wrong rule, which makes it the kind of bug that survives review (the doc lives in a different file than the code) but stings every agent reading the contract.
+
+This applies to changes in: anchor cascades, comment/suggestion shapes, CLI flag semantics, HTTP route bodies/responses, error codes, server lifecycle. It does NOT apply to UI-only changes that don't reach the documented surface (DOM rendering, layout, etc.).
+
 ## Frontend module map
 
 `ui/index.html` loads `app.js` as a native ES module. App.js imports leaf modules directly; the static server serves whatever path the import asks for, so no bundler.
