@@ -3319,6 +3319,163 @@ test("CLI suggest add reads JSON from stdin", async () => {
   assert.equal(payload.suggestion.rationale, "Because — em-dashes — work in JSON");
 });
 
+// ── `mm context --summary` and `--filter` projections ─────────────────────
+//
+// The agent UX problem these flags address: the raw context can be 10k+ lines
+// of JSON for a real spec session, and the agent only wants to scan id/kind/
+// status/line/snippet for each item. Without --summary the agent has to dump
+// the JSON to disk and PowerShell-parse columns. Coverage:
+//   - default behavior unchanged (full shape, no counts/summary keys)
+//   - --summary alone defaults --filter to "open"
+//   - --summary projects to compact rows + adds counts + filter + summary keys
+//   - --filter open  : comments status=open + suggestions status=pending
+//   - --filter resolved: comments resolved/etc + suggestions accepted/applied/rejected
+//   - --filter all   : every comment and suggestion regardless of status
+//   - --filter <bogus>: bad_request
+
+async function seedContextFixture() {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-ctx-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await fs.writeFile(path.join(repoRoot, "spec.md"), "# Spec\n\nLine A.\nLine B.\nLine C.\n", "utf8");
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  // Seed three comments, three suggestions, varied statuses so the filter tests
+  // can verify each slice picks the right items.
+  const post = (args) => runCli(args, { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  // 2 open comments + 1 resolved
+  await post(["comment", "add", "spec.md", "--by", "tester", "--kind", "concern", "--quote", "Line A.", "--text", "Concern about A.", "--json"]);
+  await post(["comment", "add", "spec.md", "--by", "tester", "--kind", "question", "--global", "--text", "Global question.", "--json"]);
+  const c3 = JSON.parse((await post(["comment", "add", "spec.md", "--by", "tester", "--kind", "recommendation", "--quote", "Line B.", "--text", "Worth noting.", "--json"])).stdout);
+  await post(["comment", "resolve", "spec.md", c3.comment.id, "--by", "human", "--json"]);
+
+  // 1 pending suggestion + 1 accepted + 1 applied
+  await post(["suggest", "add", "spec.md", "--by", "ai", "--kind", "replace", "--quote", "Line C.", "--content", "Line C improved.", "--json"]);
+  const s2 = JSON.parse((await post(["suggest", "add", "spec.md", "--by", "ai", "--kind", "delete", "--quote", "Line A.", "--json"])).stdout);
+  await post(["suggest", "accept", "spec.md", s2.suggestion.id, "--by", "human", "--json"]);
+  const s3 = JSON.parse((await post(["suggest", "add", "spec.md", "--by", "ai", "--kind", "replace", "--quote", "Line B.", "--content", "Line B revised.", "--json"])).stdout);
+  await post(["suggest", "apply", "spec.md", s3.suggestion.id, "--by", "human", "--json"]);
+
+  return { repoRoot, minimapHome };
+}
+
+test("CLI context default: returns full shape (no --summary, no --filter)", async () => {
+  // Backward-compat: every existing caller (HTTP API, scripts, tests) reads
+  // the full {session, outline, comments, suggestions} shape with no extra
+  // keys. The new projection layer must NOT activate without an opt-in flag.
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  // Full shape preserved: outline present, items have full bodies (text/content).
+  assert.ok(Array.isArray(payload.outline), "outline should be present in default mode");
+  assert.equal(payload.comments.length, 3);
+  assert.equal(payload.suggestions.length, 3);
+  // Comments still carry their full text in default mode.
+  assert.ok(payload.comments.some((c) => c.text === "Concern about A."));
+  // No projection keys leak into the default response.
+  assert.equal(Object.hasOwn(payload, "counts"), false);
+  assert.equal(Object.hasOwn(payload, "filter"), false);
+  assert.equal(Object.hasOwn(payload, "summary"), false);
+});
+
+test("CLI context --summary: returns compact rows + counts; defaults --filter to open", async () => {
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json", "--summary"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.summary, true);
+  assert.equal(payload.filter, "open", "--summary defaults to --filter open");
+  // Counts are computed against the FULL context, not the filtered slice.
+  assert.deepEqual(payload.counts, {
+    commentsOpen: 2,
+    commentsResolved: 1,
+    suggestionsPending: 1,
+    suggestionsApplied: 1,
+    suggestionsRejected: 0,
+    suggestionsAccepted: 1,
+  });
+  // Filter "open" returns 2 open comments + 1 pending suggestion.
+  assert.equal(payload.comments.length, 2);
+  assert.equal(payload.suggestions.length, 1);
+  // Compact rows: presence of summary fields, absence of full-body fields.
+  for (const row of payload.comments) {
+    assert.ok(row.id);
+    assert.ok(row.kind);
+    assert.ok(typeof row.text === "string", "summary row carries a text snippet");
+    assert.equal(Object.hasOwn(row, "anchor"), false, "no full anchor object on summary rows");
+    assert.equal(Object.hasOwn(row, "replies"), false, "no replies array on summary rows; replyCount instead");
+    assert.ok(Number.isFinite(row.replyCount));
+  }
+  for (const row of payload.suggestions) {
+    assert.ok(row.id);
+    assert.equal(row.status, "pending");
+    assert.ok(typeof row.rationale === "string");
+    assert.equal(Object.hasOwn(row, "content"), false);
+    assert.equal(Object.hasOwn(row, "originalAnchor"), false);
+  }
+  // outline is dropped on summary — agents don't need it for status scanning.
+  assert.equal(payload.outline, undefined);
+});
+
+test("CLI context --filter open: includes open comments and pending suggestions only", async () => {
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json", "--filter", "open"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.filter, "open");
+  assert.equal(payload.summary, false, "--filter alone does not engage summary projection");
+  assert.equal(payload.comments.length, 2);
+  for (const c of payload.comments) assert.equal(c.status, "open");
+  assert.equal(payload.suggestions.length, 1);
+  assert.equal(payload.suggestions[0].status, "pending");
+});
+
+test("CLI context --filter resolved: includes done items only", async () => {
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json", "--filter", "resolved"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.filter, "resolved");
+  assert.equal(payload.comments.length, 1);
+  assert.equal(payload.comments[0].status, "resolved");
+  assert.equal(payload.suggestions.length, 2, "accepted + applied counted as resolved");
+  for (const s of payload.suggestions) assert.notEqual(s.status, "pending");
+});
+
+test("CLI context --filter all: returns every item regardless of status", async () => {
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json", "--filter", "all"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.filter, "all");
+  assert.equal(payload.comments.length, 3);
+  assert.equal(payload.suggestions.length, 3);
+});
+
+test("CLI context --summary --filter all: compact rows for everything", async () => {
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json", "--summary", "--filter", "all"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.summary, true);
+  assert.equal(payload.filter, "all");
+  assert.equal(payload.comments.length, 3);
+  assert.equal(payload.suggestions.length, 3);
+  // Each row should still be the compact projection.
+  for (const c of payload.comments) {
+    assert.equal(Object.hasOwn(c, "anchor"), false);
+  }
+});
+
+test("CLI context --filter <bogus>: errors with bad_request", async () => {
+  const { repoRoot, minimapHome } = await seedContextFixture();
+  const result = await runCli(["context", "spec.md", "--json", "--filter", "nonsense"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+  assert.equal(result.exitCode, 2, "exit 2 = AppError 4xx");
+  assert.match(result.stderr, /Unknown --filter value/);
+  assert.match(result.stderr, /open \| resolved \| all/);
+});
+
 test("createTextAnchor disambiguates with a line range when the typed quote is a substring", () => {
   // The user opens the composer from a paragraph (the gutter +), the prefilled
   // quote is the whole paragraph, then they trim it down to a shorter common
