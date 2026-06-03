@@ -20,4 +20,12 @@ A single running server transparently serves both modes for any number of repos.
 
 ## Tri-tree sync
 
-When changing server, CLI, API, UI, or scripts behavior, also update **both** packaged skills in [`package/minimap/skills/minimap-spec-review/`](package/minimap/skills/minimap-spec-review/) and [`package/minimap/skills/minimap-roadmap/`](package/minimap/skills/minimap-roadmap/). The three trees (top-level + two skills) must stay byte-identical for the bundled files; verify with `diff -r` before committing. The unit test "portable minimap package includes app, skills, and starter templates" enforces this.
+Top-level `package/minimap/` is the source of truth. After any change to server, CLI, API, UI, or scripts, run:
+
+```
+node scripts/sync-mirrors.mjs
+```
+
+It rewrites both runtime trees (`package/minimap/skills/minimap-roadmap/runtime/` and `package/minimap/skills/minimap-spec-review/runtime/`) from the top-level files. The unit test `test/sync-mirrors.test.js` runs the script and re-verifies byte-identity in CI; `test/roadmap.test.js`'s portability test additionally guards against any runtime/ tree introducing install-time dependencies (skills install via copy, never `npm install`).
+
+**Do not** hand-edit files under `package/minimap/skills/*/runtime/` — they are derived. Edit the top-level copy and run the sync script.
