@@ -72,6 +72,54 @@ test("renderInlineMarkdown applies escape + backticks + bold + italic", () => {
   assert.equal(renderInlineMarkdown("a `b` *c* **d** <e>"), "a <code>b</code> <em>c</em> <strong>d</strong> &lt;e&gt;");
 });
 
+test("renderInlineMarkdown renders [text](url) as <a href>", () => {
+  assert.equal(
+    renderInlineMarkdown("see [the docs](https://example.com/x) here"),
+    'see <a href="https://example.com/x">the docs</a> here',
+  );
+});
+
+test("renderInlineMarkdown renders relative-path links (no scheme)", () => {
+  // Common in spec docs: [file.py:42](../file.py#L42)
+  assert.equal(
+    renderInlineMarkdown("[file.py:42](../file.py#L42)"),
+    '<a href="../file.py#L42">file.py:42</a>',
+  );
+});
+
+test("renderInlineMarkdown escapes HTML inside link text and href", () => {
+  // The href is attribute-quoted, so any " in the URL must be escaped.
+  // The text goes through the same escapeHtml path as plain text.
+  assert.equal(
+    renderInlineMarkdown('[<x>](http://e.com/?q="y")'),
+    '<a href="http://e.com/?q=&quot;y&quot;">&lt;x&gt;</a>',
+  );
+});
+
+test("renderInlineMarkdown rejects javascript: hrefs", () => {
+  // Defense-in-depth: don't emit a clickable javascript: URL.
+  // Falls back to the original literal text, escaped.
+  const html = renderInlineMarkdown("[click](javascript:alert(1))");
+  assert.doesNotMatch(html, /<a /);
+  assert.match(html, /\[click\]/);
+});
+
+test("renderInlineMarkdown handles backticks inside link text", () => {
+  // Code-span preprocessing happens before link replacement; the link
+  // pattern must tolerate <code>…</code> in its [text] capture.
+  assert.equal(
+    renderInlineMarkdown("[`code`](https://e.com)"),
+    '<a href="https://e.com"><code>code</code></a>',
+  );
+});
+
+test("renderInlineMarkdown renders multiple links on the same line", () => {
+  assert.equal(
+    renderInlineMarkdown("[a](http://a) and [b](http://b)"),
+    '<a href="http://a">a</a> and <a href="http://b">b</a>',
+  );
+});
+
 test("normalizes CRLF line endings", () => {
   const html = renderMarkdownToHtml("line1\r\nline2");
   // single paragraph from two lines joined by space (per current renderer)
