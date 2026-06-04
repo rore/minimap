@@ -15,11 +15,35 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+// Gate the link's URL scheme. By the time link replacement runs, escapeHtml
+// has already turned `"`, `<`, `>`, `&` into entities — so the URL is safe
+// to drop inside an href="" attribute. The remaining risk is a dangerous
+// scheme (javascript:/data:/vbscript:) producing a clickable XSS vector,
+// which we block here. On rejection, the link replacer leaves the literal
+// `[text](url)` source intact (already escapeHtml'd) so the user can see
+// what the author wrote without it being clickable.
+function isSafeHref(href) {
+  const stripped = String(href).trim().toLowerCase();
+  if (stripped.startsWith("javascript:")) return false;
+  if (stripped.startsWith("data:")) return false;
+  if (stripped.startsWith("vbscript:")) return false;
+  return true;
+}
+
 export function renderInlineMarkdown(value) {
   let html = escapeHtml(value);
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  // [text](url) — link replacement runs LAST so the text can contain the
+  // tag output of the earlier passes (e.g. <code>x</code> from a backtick
+  // span, <strong>x</strong> from bold). Both captures are already
+  // HTML-escaped from the first pass, so we don't need to re-escape; we
+  // only need to refuse dangerous schemes.
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+    if (!isSafeHref(url)) return match;
+    return `<a href="${url}">${text}</a>`;
+  });
   return html;
 }
 
