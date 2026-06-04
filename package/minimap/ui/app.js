@@ -309,6 +309,7 @@ initSpec({
   api,
   helpers: {
     setBanner,
+    clearTransientBanner,
     sameSpecUiPath,
     parseLeadingFrontmatter,
     buildSpecDocHeaderHtml,
@@ -3003,7 +3004,7 @@ function focusSpecSuggestionAnchor(suggestionId) {
     void diff.offsetWidth;
     diff.classList.add("is-spec-diff-pulse");
     window.setTimeout(() => diff.classList.remove("is-spec-diff-pulse"), 1500);
-    setBanner("");
+    clearTransientBanner();
     return;
   }
 
