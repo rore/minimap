@@ -3157,6 +3157,8 @@ async function loadSpecSessions(options = {}) {
     state.spec.selectedPath = "";
     state.spec.context = null;
     state.spec.content = "";
+    state.spec.lastSeenContentHash = "";
+    state.spec.fileChangedDetected = false;
     state.spec.loadError = null;
   }
   if (!state.spec.selectedPath && state.spec.sessions.length > 0) {
@@ -3187,6 +3189,8 @@ async function loadSpecSession(filePath, options = {}) {
   } catch (error) {
     state.spec.context = null;
     state.spec.content = "";
+    state.spec.lastSeenContentHash = "";
+    state.spec.fileChangedDetected = false;
     state.spec.previewSuggestionId = "";
     state.spec.suggestionPreview = null;
     state.spec.loadError = {
@@ -3205,6 +3209,8 @@ async function loadSpecSession(filePath, options = {}) {
   }
   state.spec.context = context;
   state.spec.content = content.content || "";
+  state.spec.lastSeenContentHash = context?.session?.contentHash || "";
+  state.spec.fileChangedDetected = false;
   state.spec.loadError = null;
   state.spec.previewSuggestionId = "";
   state.spec.suggestionPreview = null;
@@ -3238,6 +3244,8 @@ async function removeSpecSession(filePath) {
     state.spec.selectedPath = state.spec.sessions[0]?.targetFile || "";
     state.spec.context = null;
     state.spec.content = "";
+    state.spec.lastSeenContentHash = "";
+    state.spec.fileChangedDetected = false;
     state.spec.loadError = null;
   }
 
