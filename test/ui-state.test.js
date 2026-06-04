@@ -84,6 +84,13 @@ test("Set and Map fields are independent per-instance", () => {
   assert.equal(s2.get().spec.replyDrafts.size, 0);
 });
 
+test("createState seeds spec.lastSeenContentHash to empty string and spec.fileChangedDetected to false", () => {
+  const s = createState();
+  const v = s.get();
+  assert.equal(v.spec.lastSeenContentHash, "");
+  assert.equal(v.spec.fileChangedDetected, false);
+});
+
 test("multiple subscribers all fire on set", () => {
   const s = createState();
   let a = 0, b = 0;
