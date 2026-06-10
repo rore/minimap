@@ -321,11 +321,11 @@ export function focusSpecAnchorItem(item, activeKey) {
 
   if (item.anchorStatus?.status && item.anchorStatus.status !== "resolved") {
     // The anchor's quote/section is no longer in the file (often after a
-    // suggestion was applied that rewrote the anchored text). Tell the
-    // user calmly — this is expected, not an error condition. The card
-    // itself is already visible (scrolled in above), so there IS
-    // something to look at; we just can't pulse the body anchor.
-    HELPERS.setBanner("The anchored text is no longer in the file — nothing to jump to.", "info");
+    // suggestion was applied that rewrote the anchored text). The card
+    // itself already carries an inline "Anchor orphaned" / "Anchor
+    // ambiguous" warning, and we've scrolled the card into view above —
+    // a top-of-pane banner on top of that is redundant noise.
+    HELPERS.clearTransientBanner();
     return;
   }
 
