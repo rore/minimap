@@ -46,7 +46,7 @@ Body shape per command — see [http.md](http.md) for the full field list:
 
 **Newlines inside string values must be `\n`, not raw newlines.** The CLI parses the JSON before posting and rejects malformed input loudly.
 
-Inline flags (`--text "..."`, `--quote "..."`, etc.) still work for trivial single-line values with no shell-hostile characters. Use them when you'd write a one-line note in chat.
+Inline flags (`--text "..."`, `--quote "..."`, etc.) still work for trivial single-line values with no shell-hostile characters. Use them when you'd write a one-line note in chat. For duplicate quotes, the inline `--line-start N --line-end N` and `--quote-offset N` flags disambiguate without dropping to `--json-stdin` — the same fields the HTTP API and the JSON body accept.
 
 ## Reading state: `mm context`
 
@@ -86,7 +86,7 @@ These rules apply server-side — both the CLI and direct HTTP calls get them.
 - **Heading anchors** match the canonical full path first; if not, they try a Unicode-normalized comparison (case- and dash-insensitive), then a unique suffix match, then a unique leaf-only match. So `--heading "MCP Impact (Committed)"` works even if the actual outline path is `Operational Fact Memory > MCP Impact (Committed)`, as long as that leaf is unique.
 - **Quote anchors** try a literal substring match first; if not, they retry with markdown syntax stripped from both sides (backticks, `*`, `_`, leading `### `). So a quote captured from a rendered view (no backticks) finds its line in the raw markdown, and vice versa.
 
-If a section anchor matches multiple headings, the server returns `anchor_ambiguous` with the candidate paths — pass the full path to disambiguate. If a quote matches multiple locations, pass `quoteOffset` (char offset, strongest hint) or a tighter `lineStart`/`lineEnd` window.
+If a section anchor matches multiple headings, the server returns `anchor_ambiguous` with the candidate paths in the message — pass the full path to disambiguate. If a quote matches multiple locations, the server returns `anchor_ambiguous` ("Text anchor quote must match exactly one location"); read the file to find the line numbers of each occurrence, then pass `--quote-offset N` (char offset, strongest hint) or `--line-start N --line-end N` (1-based line range, fallback) to pick one. The same fields work via `--json-stdin` (`quoteOffset`, `lineStart`, `lineEnd`) and HTTP.
 
 ## Attach
 
@@ -111,10 +111,31 @@ mm comment add path/to/spec.md --by codex --kind recommendation \
 mm comment add path/to/spec.md --by codex --kind question \
    --global --text "File-level question." --json
 
+# Disambiguating a duplicate quote — when the same quote appears more than once,
+# add --line-start / --line-end (the line range you mean) or --quote-offset
+# (the exact char offset). Without one of these the server returns
+# anchor_ambiguous rather than picking arbitrarily.
+mm comment add path/to/spec.md --by codex --kind concern \
+   --quote "Claude Code" --line-start 42 --line-end 42 \
+   --text "About the line-42 occurrence." --json
+
 # Multi-line / shell-hostile content via stdin (recommended for any non-trivial body)
 mm comment add path/to/spec.md --json-stdin --json <<'PAYLOAD'
 { "by": "codex", "kind": "concern", "quote": "...", "text": "...", "scope": "" }
 PAYLOAD
+
+# PowerShell equivalent of --json-stdin (ConvertTo-Json -Compress + native pipe).
+# Build the body as a hashtable, serialize, pipe to node's stdin. Avoids every
+# PowerShell quoting trap (backticks, em-dashes, embedded apostrophes).
+# Note: PowerShell has no `mm` shell alias — invoke node directly with the
+# absolute path to scripts/minimap.mjs.
+$body = @{
+  by = "codex"; kind = "concern"; scope = ""
+  quote = "exact text from the file"
+  lineStart = 42; lineEnd = 42
+  text  = "Multi-line body with `n embedded newlines and ``backticks``."
+} | ConvertTo-Json -Compress
+$body | node <skill>/scripts/minimap.mjs comment add path/to/spec.md --json-stdin --json
 
 # Reply / resolve / reopen
 mm comment reply   path/to/spec.md <comment-id> --by codex --text "..." --json
@@ -138,6 +159,12 @@ Supported `--kind` values: `replace`, `insert_after`, `delete`.
 mm suggest add path/to/spec.md --by codex --kind replace \
    --quote "exact text from the file" --content "replacement text" \
    --rationale "Why this edit helps." --json
+
+# Disambiguating a duplicate quote — same as comment add. Use --line-start /
+# --line-end (or --quote-offset) when the quote appears more than once.
+mm suggest add path/to/spec.md --by codex --kind replace \
+   --quote "TODO" --line-start 87 --line-end 87 \
+   --content "Resolved." --rationale "Specific TODO on line 87." --json
 
 # Multi-line content via stdin (recommended for any non-trivial replacement)
 mm suggest add path/to/spec.md --json-stdin --json <<'PAYLOAD'
