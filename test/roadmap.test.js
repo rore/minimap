@@ -3319,6 +3319,177 @@ test("CLI suggest add reads JSON from stdin", async () => {
   assert.equal(payload.suggestion.rationale, "Because — em-dashes — work in JSON");
 });
 
+// ── Inline anchor disambiguators on `comment add` / `suggest add` ──────────
+//
+// The HTTP API and `--json-stdin` mode both accept lineStart / lineEnd /
+// quoteOffset on quote anchors to disambiguate when the same quote text
+// appears more than once. Without inline equivalents on the bare-flag path,
+// agents who hit `anchor_ambiguous` from a one-line `--quote ...` invocation
+// have no recovery option short of switching to `--json-stdin`. We exposed
+// inline `--line-start`, `--line-end`, and `--quote-offset` for that case.
+//
+// Coverage:
+//   - comment add picks the right occurrence given a line range
+//   - comment add uses --quote-offset to pick a same-line occurrence
+//   - integer coercion: payload.anchor.lineStart is a number, not a string
+//   - suggest add accepts the same hints
+//   - duplicate quote with no hint still returns anchor_ambiguous (regression)
+//   - non-matching --line-start hint falls through to anchor_ambiguous
+
+test("CLI comment add --line-start/--line-end picks correct occurrence of duplicate quote", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  // "example phrase" appears on line 3 and line 7.
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# H\n\nexample phrase first.\n\n## H2\n\nexample phrase second.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+     "--quote", "example phrase", "--line-start", "3", "--line-end", "3",
+     "--text", "First occurrence.", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 0, `expected exit 0, stderr=${result.stderr}`);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.comment.anchor.lineStart, 3, "--line-start 3 should pick the line-3 occurrence");
+  // Strict numeric — guards against valueAfter() returning the raw string.
+  assert.equal(typeof payload.comment.anchor.lineStart, "number");
+
+  // And the other occurrence is reachable too.
+  const second = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+     "--quote", "example phrase", "--line-start", "7", "--line-end", "7",
+     "--text", "Second occurrence.", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(second.exitCode, 0, `expected exit 0, stderr=${second.stderr}`);
+  assert.equal(JSON.parse(second.stdout).comment.anchor.lineStart, 7);
+});
+
+test("CLI comment add --quote-offset picks same-line occurrence", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  // Two occurrences of "Claude Code" on the same line — line range alone
+  // can't disambiguate; the byte offset of the second occurrence does.
+  const text = "# Top\n\nBoth shipped Claude Code plugins. Claude Code's auto-memory.\n";
+  await fs.writeFile(path.join(repoRoot, "spec.md"), text, "utf8");
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const firstOffset = text.indexOf("Claude Code");
+  const secondOffset = text.indexOf("Claude Code", firstOffset + 1);
+  assert.notEqual(firstOffset, secondOffset);
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+     "--quote", "Claude Code", "--quote-offset", String(secondOffset),
+     "--text", "Second occurrence.", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 0, `expected exit 0, stderr=${result.stderr}`);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.comment.anchor.offset, secondOffset);
+  assert.equal(typeof payload.comment.anchor.offset, "number");
+});
+
+test("CLI suggest add --line-start/--line-end picks correct occurrence", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# H\n\nrepeated text here.\n\n## H2\n\nrepeated text here.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const result = await runCli(
+    ["suggest", "add", "spec.md", "--by", "tester", "--kind", "replace",
+     "--quote", "repeated text here.", "--line-start", "7", "--line-end", "7",
+     "--content", "rewritten.", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  assert.equal(result.exitCode, 0, `expected exit 0, stderr=${result.stderr}`);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.suggestion.anchor.lineStart, 7);
+});
+
+test("CLI comment add: duplicate quote with no hint still returns anchor_ambiguous", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# H\n\ntwo of me.\n\ntwo of me.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+     "--quote", "two of me.", "--text", "Which one?", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  // 4xx error → exit code 2. Server message is the same generic one for both
+  // anchor_ambiguous and anchor_orphaned; we only need to confirm the bare
+  // duplicate-quote path does NOT silently pick an arbitrary occurrence.
+  assert.equal(result.exitCode, 2, `expected exit 2, got ${result.exitCode} stdout=${result.stdout} stderr=${result.stderr}`);
+  assert.match(result.stderr, /must match exactly one location/i);
+});
+
+test("CLI comment add --line-start with no matching occurrence still returns anchor_ambiguous", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# H\n\ntwo of me.\n\ntwo of me.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  const result = await runCli(
+    ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+     "--quote", "two of me.", "--line-start", "9999", "--line-end", "9999",
+     "--text", "Wrong line.", "--json"],
+    { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+  );
+  // The hint is honored but matches nothing in the range, so the cascade
+  // falls back and (because the bare quote is duplicated) returns ambiguous
+  // rather than silently picking an arbitrary occurrence.
+  assert.equal(result.exitCode, 2);
+  assert.match(result.stderr, /must match exactly one location/i);
+});
+
+test("CLI comment add --line-start with non-integer value is dropped (no truncation)", async () => {
+  // intFlag() must reject lenient-parse traps. parseInt('3abc', 10) returns 3;
+  // parseInt('1e3', 10) returns 1, NOT 1000. Without strict validation, an
+  // agent typing `--line-start 1e3` would silently anchor at line 1 of a
+  // duplicate-quote file instead of getting anchor_ambiguous back. The CLI
+  // now emits a stderr warning and treats the flag as absent, so the
+  // duplicate quote falls through to the ambiguous error.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
+  await fs.writeFile(
+    path.join(repoRoot, "spec.md"),
+    "# H\n\ndup phrase.\n\n## H2\n\ndup phrase.\n",
+    "utf8",
+  );
+  await runCli(["attach", "spec.md", "--json"], { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } });
+
+  for (const badValue of ["3abc", "1e3", "3.7"]) {
+    const result = await runCli(
+      ["comment", "add", "spec.md", "--by", "tester", "--kind", "concern",
+       "--quote", "dup phrase.", "--line-start", badValue, "--line-end", badValue,
+       "--text", "Should not silently truncate.", "--json"],
+      { cwd: repoRoot, env: { MINIMAP_HOME: minimapHome } },
+    );
+    assert.equal(result.exitCode, 2, `${badValue}: expected exit 2 (ambiguous), got ${result.exitCode}`);
+    assert.match(result.stderr, /must match exactly one location/i, `${badValue}: should fall through to ambiguous`);
+    assert.match(result.stderr, /ignoring non-integer/i, `${badValue}: should warn about dropped flag`);
+  }
+});
+
 // ── `mm context --summary` and `--filter` projections ─────────────────────
 //
 // The agent UX problem these flags address: the raw context can be 10k+ lines
