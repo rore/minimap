@@ -22,6 +22,7 @@ import {
   clearSpecAnchorHighlight,
   clearSpecSuggestionPreview,
   scrollSpecTargetIntoView,
+  scrollSpecCardIntoView,
   focusSpecAnchorItem,
   renderSpecInlineSuggestionPreview,
   renderSpecParticipantsFacepile,
@@ -2995,6 +2996,12 @@ function focusSpecSuggestionAnchor(suggestionId) {
   clearSpecAnchorHighlight();
   renderSpecComments();
 
+  // Make the suggestion card visible first — for nav-button jumps the
+  // card may be off-screen, and even for diff-present suggestions the
+  // card sits in the same scroll container so a card scroll keeps the
+  // active card in view.
+  scrollSpecCardIntoView(`suggestion:${suggestionId}`);
+
   const diff = specFileContentElement.querySelector(
     `[data-spec-diff-suggestion-id="${CSS.escape(suggestionId)}"]`,
   );
@@ -3068,10 +3075,22 @@ function syncSpecToolbarChrome() {
   const ctx = state.spec.context;
   const comments = ctx?.comments || [];
   const suggestions = ctx?.suggestions || [];
-  const totalC = comments.length;
-  const totalS = suggestions.length;
-  document.querySelectorAll('[data-spec-count="comments"]').forEach((el) => { el.textContent = totalC; });
-  document.querySelectorAll('[data-spec-count="suggestions"]').forEach((el) => { el.textContent = totalS; });
+  // Counts reflect what's actually rendered in the margin given the
+  // current Resolved toggle — match the predicates in renderSpecComments
+  // (commentMatchesFilter for comments; pending/accepted always visible
+  // for suggestions, applied/rejected only when showResolved is on) so
+  // the chip never overcounts hidden cards. When showResolved is off,
+  // resolved items are not currently visible so they don't tick the
+  // count; toggling Resolved on flips them back into the tally.
+  const showResolved = state.spec.showResolved;
+  const visibleComments = showResolved
+    ? comments.length
+    : comments.filter((c) => c.status !== "resolved").length;
+  const visibleSuggestions = showResolved
+    ? suggestions.length
+    : suggestions.filter((s) => s.status === "pending" || s.status === "accepted").length;
+  document.querySelectorAll('[data-spec-count="comments"]').forEach((el) => { el.textContent = visibleComments; });
+  document.querySelectorAll('[data-spec-count="suggestions"]').forEach((el) => { el.textContent = visibleSuggestions; });
   renderSpecParticipantsFacepile();
   specViewSegButtons.forEach((btn) => {
     const active = btn.dataset.specView === state.spec.viewMode;
