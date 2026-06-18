@@ -8,6 +8,7 @@ The CLI ([cli.md](cli.md)) and HTTP routes reach the same server code. Pick whic
 
 - **CLI** is usually fine. `mm comment add --json-stdin` and `mm suggest add --json-stdin` accept the same JSON bodies documented here on stdin, with loud failure on malformed JSON.
 - **Direct HTTP** is the right call when the CLI can't run in your environment (sandbox restrictions on `node` exec, see [cli.md](cli.md) § "If `node ...` fails to spawn"), when batch-style work is easier as a sequence of `curl` calls, or when an integration is already speaking HTTP.
+- **Don't reach for HTTP just to read full comment / suggestion bodies.** `mm context <file> --json --filter all` already returns them; piping through `jq` gives you single-item plucking. The read endpoint here uses different parameter names than the write endpoints (read takes `?path=`, the create-comment POST body takes `file`), which is exactly where agents pick the wrong route.
 
 There is no behavioral difference between the two paths.
 

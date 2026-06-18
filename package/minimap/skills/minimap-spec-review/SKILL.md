@@ -46,7 +46,7 @@ The CLI ([references/cli.md](references/cli.md)) and the HTTP API ([references/h
 Standard flow:
 
 1. `minimap.mjs attach <file> --json`
-2. `minimap.mjs context <file> --json --summary` — compact scan of unresolved items + a counts block; the right first call for "where am I in this review?". Use `--filter all` (with or without `--summary`) for the full picture, or no flags for the raw shape.
+2. `minimap.mjs context <file> --json --summary` — compact scan of unresolved items + a counts block; the right first call for "where am I in this review?". Use `--filter all` (with or without `--summary`) for the full picture, or no flags for the raw shape. **`--summary` truncates comment / suggestion bodies to ~120-char snippets — drop it (`--json --filter all`) when you actually need to read what someone wrote, and pipe through `jq` to pluck one item by id.**
 3. Read the target file directly before substantive review.
 4. Add comments, replies, or suggestions. For multi-line content (backticks, em-dashes, embedded newlines), use `--json-stdin` and pipe the JSON body — inline `--text` survives only trivial single-line strings. When the same quote appears more than once and `anchor_ambiguous` comes back, read the file to find the line of the occurrence you mean, then retry with `--line-start N --line-end N` (line range) or `--quote-offset N` (exact char offset) — both work inline and via `--json-stdin`.
 5. Preview suggestions before applying; apply only when the user explicitly asks.

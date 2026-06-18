@@ -58,7 +58,7 @@ Returns the full session metadata, outline, and every comment + suggestion with 
 
 For typical review work the raw context is too large to scan. Two flags trim it:
 
-- `--summary` — projects each comment and suggestion to a compact row (`id`, `by`, `kind`, `status`, `anchorScope`, `anchorStatus`, `lineStart`, `headingPath`, `replyCount`, ~120-char snippet of `text` or `rationale`). Drops the full `outline`. Adds a `counts` block at the top so the high-level numbers are visible at a glance.
+- `--summary` — projects each comment and suggestion to a compact row (`id`, `by`, `kind`, `status`, `anchorScope`, `anchorStatus`, `lineStart`, `headingPath`, `replyCount`, ~120-char snippet of `text` or `rationale`). **`text` and `rationale` are truncated** — use this to scan, drop it to read. Drops the full `outline`. Adds a `counts` block at the top so the high-level numbers are visible at a glance.
 - `--filter <open|resolved|all>` — narrows the items returned:
   - `open` — comments with `status=open` plus suggestions with `status=pending` (what's still on your plate). **Default when `--summary` is on without an explicit filter.**
   - `resolved` — comments that have been resolved (or otherwise closed) plus suggestions that have been accepted, rejected, or applied (what's been dealt with).
@@ -78,6 +78,23 @@ mm context path/to/spec.md --json --filter resolved
 ```
 
 Without `--summary` or `--filter`, the response shape is unchanged from previous versions — full session, outline, full bodies on every comment and suggestion. New flags are opt-in only.
+
+### Reading the full body of one comment or suggestion
+
+There is no `mm comment show <id>` — every body lives inside `mm context`. The two everyday patterns:
+
+```sh
+# All open items, full bodies — the right call when --summary's snippet
+# isn't enough and you want to actually read what someone wrote.
+# Drop --summary; --filter all keeps resolved items in view too.
+mm context path/to/spec.md --json --filter all
+
+# Pluck one item by id (full body, no truncation).
+mm context path/to/spec.md --json --filter all | jq '.comments[]      | select(.id == "cmt_000003")'
+mm context path/to/spec.md --json --filter all | jq '.suggestions[]   | select(.id == "sug_000001")'
+```
+
+Don't reach for HTTP just to read full bodies — `mm context` already returns them and the HTTP read route uses different param names (`?path=` vs the create-comment body's `file`), which is exactly where agents pick the wrong endpoint.
 
 ## Anchor matching is tolerant
 

@@ -65,3 +65,42 @@ test("SKILL.md guides recovery from anchor_ambiguous with the inline flags", asy
     "SKILL.md should point at the inline disambiguator flags as the recovery path",
   );
 });
+
+test("cli.md tells agents how to read full comment / suggestion bodies", async () => {
+  // Guards: agents trip on `--summary` truncating text fields to ~120 chars
+  // and assume that's the full body. The doc must explicitly say to drop
+  // --summary (or pipe through jq) when the full body is needed. Without
+  // this hint they reach for HTTP and pick the wrong route.
+  const doc = await readDoc("references/cli.md");
+  assert.ok(
+    /reading the full body|full comment|full bodies/i.test(doc),
+    "cli.md should have a 'reading full bodies' recipe",
+  );
+  assert.ok(
+    /drop --summary|without --summary|omit --summary|--summary.*truncate/i.test(doc),
+    "cli.md should explicitly say to drop --summary for full bodies",
+  );
+});
+
+test("SKILL.md step 2 warns that --summary truncates bodies", async () => {
+  // Guards: the first-call hint in SKILL.md leads with --summary. Agents
+  // who follow it then think the snippet they get IS the full text. One
+  // sentence here saves an hour of confusion downstream.
+  const doc = await readDoc("SKILL.md");
+  assert.ok(
+    /truncate|snippet|drop.*--summary|omit.*--summary/i.test(doc),
+    "SKILL.md should warn that --summary truncates text fields",
+  );
+});
+
+test("http.md signposts that reads should stay on the CLI, not HTTP", async () => {
+  // Guards: agents reach for HTTP just to read full comment bodies, then
+  // pick the wrong route (`/comments` vs `/context`, `?file=` vs `?path=`).
+  // The "When to use HTTP vs CLI" section should explicitly say reads
+  // belong on `mm context`, not HTTP.
+  const doc = await readDoc("references/http.md");
+  assert.ok(
+    /mm context.*--filter all|context.*--filter all|--filter all.*context/i.test(doc),
+    "http.md should point reads at `mm context --filter all` rather than HTTP",
+  );
+});
