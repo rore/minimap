@@ -93,6 +93,18 @@ Render the real file sections in edit mode.
 - keep the section order from the file
 `;
 
+async function restoreFixture(file, contents) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await fs.writeFile(file, contents, "utf8");
+      return;
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+}
+
 async function openMetadataDetails(page) {
   const details = page.locator(".metadata-details");
   if ((await details.getAttribute("open")) === null) {
@@ -137,18 +149,18 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async () => {
-  await fs.writeFile(boardPath, originalBoardText, "utf8");
-  await fs.writeFile(scopePath, originalScopeText, "utf8");
-  await fs.writeFile(featurePath, originalFeatureText, "utf8");
-  await fs.writeFile(searchFeaturePath, originalSearchFeatureText, "utf8");
-  await fs.writeFile(ideaCreatePath, originalIdeaCreateText, "utf8");
+  await restoreFixture(boardPath, originalBoardText);
+  await restoreFixture(scopePath, originalScopeText);
+  await restoreFixture(featurePath, originalFeatureText);
+  await restoreFixture(searchFeaturePath, originalSearchFeatureText);
+  await restoreFixture(ideaCreatePath, originalIdeaCreateText);
   await fs.rm(setupSandboxPath, { recursive: true, force: true });
   if (originalConfigText === null) {
     await fs.rm(configPath, { force: true });
     return;
   }
 
-  await fs.writeFile(configPath, originalConfigText, "utf8");
+  await restoreFixture(configPath, originalConfigText);
 });
 
 test("shows repo name and ASCII workspace summary in the header", async ({ page }) => {
@@ -225,6 +237,39 @@ test("allows resizing the scope panel on desktop", async ({ page }) => {
   expect(resizedEditorBox.width).toBeLessThan(initialEditorBox.width - 80);
 });
 
+test("resizes the List board and item panes and persists the board width", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(repoUrl());
+
+  const handle = page.locator("#board-editor-resizer");
+  await expect(handle).toBeVisible();
+  await expect(handle).toHaveAttribute("role", "separator");
+
+  const initialBoard = await page.locator(".board-panel").boundingBox();
+  const initialEditor = await page.locator(".editor-panel").boundingBox();
+  const handleBox = await handle.boundingBox();
+  expect(initialBoard).not.toBeNull();
+  expect(initialEditor).not.toBeNull();
+  expect(handleBox).not.toBeNull();
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 120);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + 140, handleBox.y + 120, { steps: 8 });
+  await page.mouse.up();
+
+  const resizedBoard = await page.locator(".board-panel").boundingBox();
+  const resizedEditor = await page.locator(".editor-panel").boundingBox();
+  expect(resizedBoard.width).toBeGreaterThan(initialBoard.width + 100);
+  expect(resizedEditor.width).toBeLessThan(initialEditor.width - 100);
+  await expect(handle).toHaveAttribute("aria-valuenow", String(Math.round(resizedBoard.width)));
+
+  const storedWidth = await page.evaluate(() => window.localStorage.getItem("roadmap-ui.board-width"));
+  expect(Number(storedWidth)).toBeGreaterThan(initialBoard.width + 100);
+
+  await page.reload();
+  const restoredBoard = await page.locator(".board-panel").boundingBox();
+  expect(Math.abs(restoredBoard.width - resizedBoard.width)).toBeLessThan(2);
+});
 test("keeps the board visible at medium widths and pushes scope below", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
   await page.goto(repoUrl());
@@ -489,7 +534,7 @@ test("renders extra sections from the item file in the structured editor", async
   await fs.writeFile(featurePath, nextText, "utf8");
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#editor-title")).toContainText("Setup guidance");
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
 
@@ -502,7 +547,7 @@ test("edit mode renders the item's real section headings for repo-specific item 
   await fs.writeFile(featurePath, repoSpecificFeatureText, "utf8");
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#editor-title")).toContainText("Repo-specific feature shape");
   await page.locator('[data-editor-mode="structured"]').click();
 
   await expect(page.locator('[data-section-heading="Goal"]')).toHaveValue("Render the real file sections in edit mode.");
@@ -532,7 +577,7 @@ test("renders and edits generic scalar metadata fields like lane", async ({ page
   await fs.writeFile(featurePath, addFrontmatterField(originalFeatureText, "lane", "integration-feedback"), "utf8");
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
-  await page.locator('#refresh-button').click();
+  await expect(page.locator("#editor-title")).toContainText("Setup guidance");
 
   const boardCard = page.locator('[data-item-id="feature-setup-guidance"]').first();
   await expect(boardCard).toContainText('Lane: integration-feedback');
@@ -565,7 +610,7 @@ test("renders nested and wrapped markdown list content in read mode", async ({ p
   await fs.writeFile(featurePath, replaceSectionContent(originalFeatureText, "In Scope", nestedInScope), "utf8");
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#editor-title")).toContainText("Setup guidance");
 
   const section = page.locator(".preview-section", { has: page.locator("h2", { hasText: "In Scope" }) });
   const html = await section.locator(".preview-markdown").innerHTML();
@@ -619,6 +664,7 @@ test("inline edit mode shows cancel beside save and discards changes back to rea
 
 test("raw mode saves full-file edits", async ({ page }) => {
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  await expect(page.locator("#editor-title")).toContainText("Setup guidance");
 
   await page.locator('[data-editor-mode="raw"]').click();
   await page.locator("#raw-text").fill(replaceTitle(originalFeatureText, "Search roadmap items through raw mode"));
@@ -635,6 +681,7 @@ test("raw mode saves full-file edits", async ({ page }) => {
 
 test("refresh reloads the workspace after an external file edit", async ({ page }) => {
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  await expect(page.locator("#editor-title")).toContainText("Setup guidance");
 
   const changedTitle = "Search roadmap items with guided setup";
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, changedTitle), "utf8");
@@ -1143,9 +1190,10 @@ test("milestone columns stay browse-only without drag handles", async ({ page })
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
-  await page.goto(repoUrl());
+  await page.goto(repoUrl("/#layout=columns"));
   await page.locator("#refresh-button").click();
-  await page.locator("#board-layout-columns").click();
+  await expect(page.locator("#board-layout-columns")).toBeVisible();
+  await expect(page.locator(".board-columns")).toBeVisible();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="milestone"]').click();
 
@@ -1154,6 +1202,60 @@ test("milestone columns stay browse-only without drag handles", async ({ page })
 });
 
 
+test("keeps long milestone labels and cards inside columns while list remains readable", async ({ page }) => {
+  const longMilestone = "2026-very-long-milestone-name-for-historical-memory-quality-and-work-continuity";
+  const longTitle = "A deliberately long roadmap card title that should remain fully readable in the list without leaking across adjacent milestone columns";
+
+  await fs.writeFile(boardPath, `# ${longMilestone}` + "\n\n- feature-setup-guidance\n", "utf8");
+
+  await Promise.all([
+    fs.writeFile(featurePath, addMilestone(replaceTitle(originalFeatureText, longTitle), longMilestone), "utf8"),
+    fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, longMilestone), "utf8"),
+    fs.writeFile(ideaCreatePath, addMilestone(originalIdeaCreateText, longMilestone), "utf8"),
+  ]);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(repoUrl("/#layout=columns"));
+  await expect(page.locator(".board-columns")).toBeVisible();
+
+  const milestoneColumn = page.locator(".board-column").filter({ has: page.locator(".board-column-name", { hasText: longMilestone }) }).first();
+  await expect(milestoneColumn).toBeVisible();
+  await expect(milestoneColumn.locator(".board-column-name")).toHaveAttribute("title", longMilestone);
+
+  const columnMetrics = await milestoneColumn.evaluate((column) => {
+    const lane = column.getBoundingClientRect();
+    const header = column.querySelector(".board-column-name");
+    return {
+      laneRight: lane.right,
+      laneScrollWidth: column.scrollWidth,
+      laneClientWidth: column.clientWidth,
+      headerHeight: header?.getBoundingClientRect().height || 0,
+      cards: Array.from(column.querySelectorAll(".board-column-card")).map((card) => card.getBoundingClientRect().right),
+    };
+  });
+
+  expect(columnMetrics.laneScrollWidth).toBeLessThanOrEqual(columnMetrics.laneClientWidth + 1);
+  expect(columnMetrics.headerHeight).toBeLessThan(42);
+  expect(columnMetrics.cards.every((right) => right <= columnMetrics.laneRight + 1)).toBe(true);
+
+  await page.locator("#board-layout-list").click();
+  const listCard = page.locator('[data-item-id="feature-setup-guidance"]').first();
+  await expect(listCard).toBeVisible();
+
+  const listMetrics = await listCard.evaluate((card) => {
+    const panel = document.querySelector(".board-panel");
+    const title = card.querySelector(".board-item-title");
+    const overview = card.querySelector(".board-item-overview");
+    return {
+      panelWidth: panel?.getBoundingClientRect().width || 0,
+      titleClipped: (title?.scrollHeight || 0) > (title?.clientHeight || 0) + 1,
+      overviewClipped: (overview?.scrollHeight || 0) > (overview?.clientHeight || 0) + 1,
+    };
+  });
+
+  expect(listMetrics.panelWidth).toBeGreaterThan(420);
+  expect(listMetrics.titleClipped).toBe(false);
+  expect(listMetrics.overviewClipped).toBe(false);
+});
 test("lets a crowded desktop column scroll inside the lane", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 720 });
   await page.goto(repoUrl());
@@ -1162,6 +1264,14 @@ test("lets a crowded desktop column scroll inside the lane", async ({ page }) =>
   const doneColumn = page.locator(".board-column").filter({ has: page.locator(".board-column-name", { hasText: "Done" }) }).first();
   const doneList = doneColumn.locator(".board-column-list");
   await expect(doneList).toBeVisible();
+  await expect(doneColumn).toHaveClass(/board-column-dense/);
+  const firstDenseCard = doneColumn.locator(".board-column-card").first();
+  await expect(firstDenseCard.locator(".board-item-title")).toBeVisible();
+  await expect(firstDenseCard.locator(".board-column-card-open")).toBeVisible();
+  await expect(firstDenseCard.locator(".board-item-overview")).toBeHidden();
+  const denseCardBox = await firstDenseCard.boundingBox();
+  expect(denseCardBox.height).toBeGreaterThanOrEqual(40);
+  expect(denseCardBox.height).toBeLessThan(90);
 
   const before = await doneList.evaluate((element) => ({
     clientHeight: element.clientHeight,
@@ -1176,7 +1286,7 @@ test("lets a crowded desktop column scroll inside the lane", async ({ page }) =>
   });
 
   const after = await doneList.evaluate((element) => element.scrollTop);
-  expect(after).toBeGreaterThan(before.scrollTop + 120);
+  expect(after).toBeGreaterThan(before.scrollTop + 80);
 });
 
 test("mobile list view keeps board mode and search rows stacked cleanly", async ({ page }) => {
@@ -1613,6 +1723,7 @@ test("commenting on a selection that crosses backticks saves successfully", asyn
   await page.goto(repoUrl());
   // Navigate to the idea-create-items roadmap item.
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page.locator("#editor-title")).toContainText("Create roadmap items from the UI");
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
