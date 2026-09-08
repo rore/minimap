@@ -22,6 +22,8 @@ All three answers must be yes:
 
 If any answer is no, do not file. Briefly tell the user what happened only when it affects their task.
 
+Host-agent orchestration, skill dispatch, and session coordination belong to agent-workflow. Relay, Session History, and derived memory belong to Pallium. Follow those projects' reporting workflows instead of filing them in `rore/minimap`; if ownership is mixed, isolate the Minimap-owned boundary or do not file.
+
 ## Privacy and duplicates
 
 Never include raw prompts, transcripts, target-file content, repository or organization identity, credentials, secrets, personal data, or absolute local paths. Use the smallest sanitized error excerpt and a generic reproduction.

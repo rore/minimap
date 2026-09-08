@@ -116,7 +116,7 @@ test("both installed skills carry the same lazy upstream-feedback contract", asy
   assert.ok(specEntry.includes("references/upstream-feedback.md"));
   assert.ok(roadmapEntry.includes("references/upstream-feedback.md"));
   assert.equal(roadmapFeedback, specFeedback, "independently installed skills must ship one feedback contract");
-  for (const required of ["Repeatable", "Actionable", "Upstream-owned", "rore/minimap", "at most 200 words"]) {
+  for (const required of ["Repeatable", "Actionable", "Upstream-owned", "rore/minimap", "agent-workflow", "Pallium", "at most 200 words"]) {
     assert.ok(specFeedback.includes(required), `upstream feedback should include ${required}`);
   }
 });
