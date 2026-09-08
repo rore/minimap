@@ -18,6 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 const SKILL = path.join(projectRoot, "package/minimap/skills/minimap-spec-review");
+const ROADMAP_SKILL = path.join(projectRoot, "package/minimap/skills/minimap-roadmap");
 
 async function readDoc(relPath) {
   return fs.readFile(path.join(SKILL, relPath), "utf8");
@@ -103,4 +104,19 @@ test("http.md signposts that reads should stay on the CLI, not HTTP", async () =
     /mm context.*--filter all|context.*--filter all|--filter all.*context/i.test(doc),
     "http.md should point reads at `mm context --filter all` rather than HTTP",
   );
+});
+test("both installed skills carry the same lazy upstream-feedback contract", async () => {
+  const [specEntry, roadmapEntry, specFeedback, roadmapFeedback] = await Promise.all([
+    fs.readFile(path.join(SKILL, "SKILL.md"), "utf8"),
+    fs.readFile(path.join(ROADMAP_SKILL, "SKILL.md"), "utf8"),
+    fs.readFile(path.join(SKILL, "references/upstream-feedback.md"), "utf8"),
+    fs.readFile(path.join(ROADMAP_SKILL, "references/upstream-feedback.md"), "utf8"),
+  ]);
+
+  assert.ok(specEntry.includes("references/upstream-feedback.md"));
+  assert.ok(roadmapEntry.includes("references/upstream-feedback.md"));
+  assert.equal(roadmapFeedback, specFeedback, "independently installed skills must ship one feedback contract");
+  for (const required of ["Repeatable", "Actionable", "Upstream-owned", "rore/minimap", "at most 200 words"]) {
+    assert.ok(specFeedback.includes(required), `upstream feedback should include ${required}`);
+  }
 });
