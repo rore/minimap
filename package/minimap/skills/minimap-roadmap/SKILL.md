@@ -52,3 +52,4 @@ If only this skill is installed, the user can still drive the conversation throu
 - Do not treat chat as the source of truth when roadmap files exist.
 - Always pass the absolute repo path in the URL hash; do not assume the running server is rooted in your repo.
 - Do not curl the server, send signals, or edit `$MINIMAP_HOME/server.json` by hand. Use the bundled scripts only.
+- If Minimap's documented workflow fails or contradicts itself, load [`references/upstream-feedback.md`](references/upstream-feedback.md); otherwise do not load it.
