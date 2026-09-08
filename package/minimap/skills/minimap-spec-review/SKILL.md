@@ -62,4 +62,4 @@ If `node ...` fails to spawn (sandbox restriction — `CreateProcessWithLogonW f
 - Prefer anchored comments over chat-only feedback.
 - Treat the user as the merge authority.
 - Do not edit `$MINIMAP_HOME/server.json` by hand or send process signals to the server. Use the bundled scripts (`start-server.mjs`, `restart-server.mjs`, `stop-server.mjs`).
-- If Minimap's documented workflow fails or contradicts itself, load [`references/upstream-feedback.md`](references/upstream-feedback.md); otherwise do not load it.
+- If Minimap's documentation, CLI, HTTP API, server, UI, or lifecycle scripts fail or contradict documented behavior, load [`references/upstream-feedback.md`](references/upstream-feedback.md); otherwise do not load it.
