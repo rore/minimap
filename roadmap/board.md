@@ -2,6 +2,7 @@
 
 # Next
 - add-pallium-work-item-participants
+- add-work-item-dependencies
 
 # Ideas
 - idea-board-management
