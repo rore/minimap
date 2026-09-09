@@ -1,7 +1,7 @@
 ---
 id: add-metadata-first-grouping-and-ordering
 title: Make metadata grouping and list prioritization a first-class workflow
-status: queued
+status: done
 priority: high
 commitment: committed
 labels:
@@ -141,7 +141,9 @@ metadata migration, and a general schema/PM framework.
 
 ## Notes
 
-The first implementation plan must settle URL/default precedence, filtered-order
-anchors, freeform-board restrictions, and write atomicity. These are bounded design
-choices, not a request for another broad research pass. This item is queued, not
-implemented; avoid advertising new configuration keys until their contract ships.
+Implemented metadata-owned membership, shared board ordering, configurable group
+order, default-lens precedence, accessible List/Columns reorder controls, explicit
+Unassigned clearing, stale-write protection, and rollback for combined writes.
+Validated with unit/integration coverage and real Chromium journeys, including an
+84-item board with 10 lanes, 12 long Unicode milestones, narrow viewports, resize,
+filtering, focus, dirty drafts, scrolling, containment, and opening distant cards.

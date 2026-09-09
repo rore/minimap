@@ -12,7 +12,7 @@ const TARGETS = [
 ];
 
 const FILES = ["cli.js", "server.js", "package.json"];
-const DIRS = ["src", "ui"];
+const DIRS = ["src", "ui", "templates"];
 
 async function copyFile(src, dst) {
   await fs.mkdir(path.dirname(dst), { recursive: true });

@@ -170,9 +170,18 @@ Optional repo-root config:
 
 ```json
 {
-  "roadmapPath": "docs/roadmap"
+  "roadmapPath": "docs/roadmap",
+  "defaultLens": "lane",
+  "lenses": {
+    "fields": {
+      "lane": { "order": ["Product", "Platform", "Operations"], "draggable": true },
+      "milestone": { "order": ["M1", "M2", "Later"] }
+    }
+  }
 }
 ```
+
+`defaultLens` controls grouping only; List/Columns stays independent. An explicit URL grouping, including `lens=board`, wins. Metadata owns classification and `board.md` owns one shared order; use a neutral `# Items` group for unrestricted metadata-first prioritization.
 
 For the file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md).
 

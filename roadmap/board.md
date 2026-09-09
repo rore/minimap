@@ -1,7 +1,6 @@
 # Now
 
 # Next
-- add-metadata-first-grouping-and-ordering
 - add-pallium-work-item-participants
 - add-work-item-dependencies
 
@@ -24,3 +23,4 @@
 - feature-card-preview-and-overview
 - feature-column-board-view
 - idea-parent-grouping-overview
+- add-metadata-first-grouping-and-ordering

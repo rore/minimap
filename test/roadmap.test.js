@@ -13,6 +13,9 @@ import {
   parseBoardText,
   parseItemText,
   readItemById,
+  moveBoardItemRelative,
+  reorderLensField,
+  reorderMetadataItem,
   saveBoardByGroups,
   saveItemById,
   saveScopeText,
@@ -530,15 +533,43 @@ test("server endpoints return workspace and allow board, scope, structured, and 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         groups: [
-          { name: "Ideas", itemIds: ["idea-a"] },
-          { name: "Now", itemIds: ["feature-a"] },
+          { name: "Items", itemIds: ["feature-a", "idea-a"] },
         ],
       }),
     });
 
     assert.equal(boardResponse.status, 200);
     const boardPayload = await boardResponse.json();
-    assert.equal(boardPayload.boardGroups[0].name, "Ideas");
+    assert.equal(boardPayload.boardGroups[0].name, "Items");
+
+    const orderBody = {
+      itemId: "feature-a",
+      anchorItemId: "idea-a",
+      placement: "after",
+      expectedBoardRevision: boardPayload.boardRevision,
+    };
+    const orderResponse = await fetch("http://localhost:4412/api/metadata-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(orderBody),
+    });
+    assert.equal(orderResponse.status, 200);
+    assert.deepEqual((await orderResponse.json()).boardGroups[0].items.map((entry) => entry.id), ["idea-a", "feature-a"]);
+    const staleOrderResponse = await fetch("http://localhost:4412/api/metadata-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...orderBody, placement: "before" }),
+    });
+    assert.equal(staleOrderResponse.status, 409);
+    assert.equal((await staleOrderResponse.json()).error.code, "conflict");
+
+    const lensOrderResponse = await fetch("http://localhost:4412/api/lenses/status/order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "done", anchorValue: "queued", placement: "before", expectedConfigRevision: boardPayload.configRevision }),
+    });
+    assert.equal(lensOrderResponse.status, 200);
+    assert.equal((await lensOrderResponse.json()).availableLenses.find((lens) => lens.key === "status").values[0], "done");
 
     const scopeResponse = await fetch("http://localhost:4412/api/scope", {
       method: "POST",
@@ -862,6 +893,8 @@ test("portable minimap package includes app, skills, and starter templates", asy
     ["package", "minimap", "skills", "minimap-spec-review", "runtime", "ui", "index.html"],
     ["package", "minimap", "skills", "minimap-spec-review", "runtime", "ui", "app.js"],
     ["package", "minimap", "skills", "minimap-spec-review", "runtime", "ui", "styles.css"],
+    ["package", "minimap", "skills", "minimap-roadmap", "runtime", "templates", "roadmap", "board.md"],
+    ["package", "minimap", "skills", "minimap-spec-review", "runtime", "templates", "roadmap", "board.md"],
     ["package", "minimap", "CONTRACT.md"],
     ["package", "minimap", "README.md"],
     ["package", "minimap", "AGENTS_SNIPPET.md"],
@@ -2136,6 +2169,264 @@ test("loadWorkspace exposes derived lenses from metadata and roadmap config", as
   assert.equal(workspace.availableLenses.some((lens) => lens.key === "labels"), false);
 });
 
+test("loadWorkspace resolves a valid default lens and warns on an unknown one", async () => {
+  const repoRoot = await makeTempRepo();
+  const configPath = path.join(repoRoot, "roadmap.config.json");
+  await fs.writeFile(configPath, JSON.stringify({ roadmapPath: "roadmap", defaultLens: "status" }), "utf8");
+  assert.equal((await loadWorkspace(repoRoot)).defaultLens, "status");
+
+  await fs.writeFile(configPath, JSON.stringify({ roadmapPath: "roadmap", defaultLens: "missing-field" }), "utf8");
+  const fallback = await loadWorkspace(repoRoot);
+  assert.equal(fallback.defaultLens, "board");
+  assert.equal(fallback.warnings.some((warning) => warning.code === "unknown_default_lens"), true);
+
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+
+test("moveBoardItemRelative uses exact anchors, preserves hidden order, and rejects cross-group moves", () => {
+  const groups = [{ name: "Items", itemIds: ["a", "hidden-1", "hidden-2", "b"] }];
+  assert.deepEqual(moveBoardItemRelative(groups, "b", "a", "before")[0].itemIds, ["b", "a", "hidden-1", "hidden-2"]);
+  assert.deepEqual(moveBoardItemRelative(groups, "a", "b", "after")[0].itemIds, ["hidden-1", "hidden-2", "b", "a"]);
+  assert.deepEqual(groups[0].itemIds, ["a", "hidden-1", "hidden-2", "b"]);
+
+  assert.throws(
+    () => moveBoardItemRelative([{ name: "A", itemIds: ["a"] }, { name: "B", itemIds: ["b"] }], "a", "b", "before"),
+    (error) => error.code === "board_group_conflict" && error.statusCode === 409,
+  );
+  assert.throws(
+    () => moveBoardItemRelative([{ name: "Items", itemIds: ["a", "a", "b"] }], "a", "b", "before"),
+    (error) => error.code === "board_conflict",
+  );
+  assert.throws(
+    () => moveBoardItemRelative([{ name: "Items", itemIds: ["a"] }], "a", "unlisted", "before"),
+    (error) => error.code === "unlisted_item",
+  );
+});
+
+test("reorderMetadataItem atomically changes metadata and canonical order with stale-write protection", async () => {
+  const repoRoot = await makeTempRepo();
+  const boardPath = path.join(repoRoot, "roadmap", "board.md");
+  const featureBPath = path.join(repoRoot, "roadmap", "features", "feature-b.md");
+  await fs.writeFile(featureBPath, sampleItemText.replaceAll("feature-a", "feature-b").replace("title: Test item", "title: Second item"), "utf8");
+  await fs.writeFile(boardPath, "# Items\n- feature-a\n- idea-a\n- feature-b\n", "utf8");
+
+  const before = await loadWorkspace(repoRoot);
+  const unchangedBoard = await fs.readFile(boardPath, "utf8");
+  const unchangedItem = await fs.readFile(featureBPath, "utf8");
+  await assert.rejects(
+    reorderMetadataItem(repoRoot, {
+      itemId: "feature-b",
+      anchorItemId: "feature-a",
+      placement: "before",
+      expectedBoardRevision: before.boardRevision,
+      field: "lane",
+      value: "Platform / Core",
+      expectedItemRevision: "stale",
+    }),
+    (error) => error.code === "conflict",
+  );
+  assert.equal(await fs.readFile(boardPath, "utf8"), unchangedBoard);
+  assert.equal(await fs.readFile(featureBPath, "utf8"), unchangedItem);
+
+  const after = await reorderMetadataItem(repoRoot, {
+    itemId: "feature-b",
+    anchorItemId: "feature-a",
+    placement: "before",
+    expectedBoardRevision: before.boardRevision,
+    field: "lane",
+    value: "Platform / Core",
+    expectedItemRevision: before.items["feature-b"].revision,
+  });
+  assert.deepEqual(after.boardGroups[0].items.map((item) => item.id), ["feature-b", "feature-a", "idea-a"]);
+  assert.equal((await readItemById(repoRoot, "feature-b")).metadata.lane, "Platform / Core");
+
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+
+
+test("reorderMetadataItem rejects missing source and anchor without changing board", async () => {
+  const repoRoot = await makeTempRepo();
+  const boardPath = path.join(repoRoot, "roadmap", "board.md");
+  await fs.writeFile(boardPath, "# Items\n- feature-a\n- missing-item\n- idea-a\n", "utf8");
+  const before = await fs.readFile(boardPath, "utf8");
+  const revision = (await loadWorkspace(repoRoot)).boardRevision;
+
+  for (const payload of [
+    { itemId: "missing-item", anchorItemId: "feature-a" },
+    { itemId: "feature-a", anchorItemId: "missing-item" },
+  ]) {
+    await assert.rejects(
+      reorderMetadataItem(repoRoot, { ...payload, placement: "before", expectedBoardRevision: revision }),
+      (error) => error.code === "not_found",
+    );
+    assert.equal(await fs.readFile(boardPath, "utf8"), before);
+  }
+
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+
+test("simultaneous metadata reorders with one revision allow exactly one writer", async () => {
+  const repoRoot = await makeTempRepo();
+  const boardPath = path.join(repoRoot, "roadmap", "board.md");
+  await fs.writeFile(path.join(repoRoot, "roadmap", "features", "feature-b.md"), sampleItemText.replaceAll("feature-a", "feature-b"), "utf8");
+  await fs.writeFile(boardPath, "# Items\n- feature-a\n- idea-a\n- feature-b\n", "utf8");
+  const before = await loadWorkspace(repoRoot);
+  const request = (itemId, anchorItemId, placement) => reorderMetadataItem(repoRoot, {
+    itemId,
+    anchorItemId,
+    placement,
+    expectedBoardRevision: before.boardRevision,
+  });
+
+  const results = await Promise.allSettled([
+    request("feature-a", "feature-b", "after"),
+    request("feature-b", "feature-a", "before"),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && result.reason?.code === "conflict").length, 1);
+  const final = await loadWorkspace(repoRoot);
+  assert.notDeepEqual(final.boardGroups[0].items.map((item) => item.id), ["feature-a", "idea-a", "feature-b"]);
+
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+test("reorderMetadataItem rolls back both files when promotion fails", async () => {
+  const repoRoot = await makeTempRepo();
+  const boardPath = path.join(repoRoot, "roadmap", "board.md");
+  const itemPath = path.join(repoRoot, "roadmap", "features", "feature-b.md");
+  await fs.writeFile(itemPath, sampleItemText.replaceAll("feature-a", "feature-b").replace("title: Test item", "title: Second item"), "utf8");
+  await fs.writeFile(boardPath, "# Items\n- feature-a\n- idea-a\n- feature-b\n", "utf8");
+  const before = await loadWorkspace(repoRoot);
+  const originalBoard = await fs.readFile(boardPath, "utf8");
+  const originalItem = await fs.readFile(itemPath, "utf8");
+  const realRename = fs.rename.bind(fs);
+  let promotionCount = 0;
+  fs.rename = async (from, to) => {
+    if (String(from).includes(".tmp-") && !String(to).includes(".bak-")) {
+      promotionCount += 1;
+      if (promotionCount === 2) throw new Error("simulated promotion failure");
+    }
+    return realRename(from, to);
+  };
+  let caught;
+  try {
+    await reorderMetadataItem(repoRoot, {
+      itemId: "feature-b",
+      anchorItemId: "feature-a",
+      placement: "before",
+      expectedBoardRevision: before.boardRevision,
+      field: "lane",
+      value: "Platform / Core",
+      expectedItemRevision: before.items["feature-b"].revision,
+    });
+  } catch (error) {
+    caught = error;
+  } finally {
+    fs.rename = realRename;
+  }
+  assert.match(caught?.message || "", /simulated promotion failure/);
+  assert.equal(await fs.readFile(boardPath, "utf8"), originalBoard);
+  assert.equal(await fs.readFile(itemPath, "utf8"), originalItem);
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+
+test("reorderMetadataItem succeeds when backup cleanup fails", async () => {
+  const repoRoot = await makeTempRepo();
+  const boardPath = path.join(repoRoot, "roadmap", "board.md");
+  const itemPath = path.join(repoRoot, "roadmap", "features", "feature-b.md");
+  await fs.writeFile(itemPath, sampleItemText.replaceAll("feature-a", "feature-b").replace("title: Test item", "title: Second item"), "utf8");
+  await fs.writeFile(boardPath, "# Items\n- feature-a\n- idea-a\n- feature-b\n", "utf8");
+  const before = await loadWorkspace(repoRoot);
+  const realRm = fs.rm.bind(fs);
+  let sabotaged = false;
+  fs.rm = async (target, ...rest) => {
+    if (!sabotaged && String(target).includes(".bak-")) {
+      sabotaged = true;
+      throw new Error("simulated backup cleanup failure");
+    }
+    return realRm(target, ...rest);
+  };
+  let after;
+  try {
+    after = await reorderMetadataItem(repoRoot, {
+      itemId: "feature-b",
+      anchorItemId: "feature-a",
+      placement: "before",
+      expectedBoardRevision: before.boardRevision,
+      field: "lane",
+      value: "Platform / Core",
+      expectedItemRevision: before.items["feature-b"].revision,
+    });
+  } finally {
+    fs.rm = realRm;
+  }
+  assert.ok(sabotaged);
+  assert.deepEqual(after.boardGroups[0].items.map((item) => item.id), ["feature-b", "feature-a", "idea-a"]);
+  assert.equal((await readItemById(repoRoot, "feature-b")).metadata.lane, "Platform / Core");
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+test("reorderLensField changes config group order without touching board.md", async () => {
+  const repoRoot = await makeTempRepo();
+  const configPath = path.join(repoRoot, "roadmap.config.json");
+  const boardPath = path.join(repoRoot, "roadmap", "board.md");
+  await fs.writeFile(configPath, JSON.stringify({
+    roadmapPath: "roadmap",
+    defaultLens: "status",
+    lenses: { fields: { status: { order: ["queued", "in-progress", "done"] } } },
+  }, null, 2), "utf8");
+  const before = await loadWorkspace(repoRoot);
+  const boardText = await fs.readFile(boardPath, "utf8");
+  const after = await reorderLensField(repoRoot, "status", {
+    value: "done",
+    anchorValue: "queued",
+    placement: "before",
+    expectedConfigRevision: before.configRevision,
+  });
+  assert.deepEqual(after.availableLenses.find((lens) => lens.key === "status").values.slice(0, 3), ["done", "queued", "in-progress"]);
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, "utf8")).lenses.fields.status.order, ["done", "queued", "in-progress"]);
+  assert.equal(await fs.readFile(boardPath, "utf8"), boardText);
+  const savedConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
+  assert.equal(savedConfig.roadmapPath, "roadmap");
+  assert.equal(savedConfig.defaultLens, "status");
+
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
+test("reorderLensField rejects a config edit between its two reads", async () => {
+  const repoRoot = await makeTempRepo();
+  const configPath = path.join(repoRoot, "roadmap.config.json");
+  const originalConfig = {
+    roadmapPath: "roadmap",
+    defaultLens: "status",
+    lenses: { fields: { status: { order: ["queued", "in-progress", "done"] } } },
+  };
+  await fs.writeFile(configPath, JSON.stringify(originalConfig, null, 2), "utf8");
+  const before = await loadWorkspace(repoRoot);
+  const externalText = JSON.stringify({ ...originalConfig, externalSetting: "keep-me" }, null, 2);
+  const realReadFile = fs.readFile.bind(fs);
+  const realWriteFile = fs.writeFile.bind(fs);
+  let configReads = 0;
+  fs.readFile = async (target, ...args) => {
+    const result = await realReadFile(target, ...args);
+    if (path.resolve(String(target)) === configPath && ++configReads === 1) {
+      await realWriteFile(configPath, externalText, "utf8");
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(
+      reorderLensField(repoRoot, "status", {
+        value: "done",
+        anchorValue: "queued",
+        placement: "before",
+        expectedConfigRevision: before.configRevision,
+      }),
+      (error) => error.code === "conflict",
+    );
+  } finally {
+    fs.readFile = realReadFile;
+  }
+  assert.equal(await fs.readFile(configPath, "utf8"), externalText);
+  await fs.rm(repoRoot, { recursive: true, force: true });
+});
 test("saveItemById updates generic metadata and can move an item between feature and idea kinds", async () => {
   const repoRoot = await makeTempRepo();
   const featureFilePath = path.join(repoRoot, "roadmap", "features", "feature-a.md");
@@ -2152,6 +2443,14 @@ test("saveItemById updates generic metadata and can move an item between feature
   assert.equal(saved.kind, "idea");
   assert.equal(await fs.readFile(ideaFilePath, "utf8").then((content) => content.includes("team: platform")), true);
   await assert.rejects(() => fs.access(featureFilePath));
+
+  const cleared = await saveItemById(repoRoot, "feature-a", { metadata: { team: null }, expectedRevision: saved.revision });
+  assert.equal((await fs.readFile(ideaFilePath, "utf8")).includes("team:"), false);
+  await assert.rejects(
+    saveItemById(repoRoot, "feature-a", { metadata: { status: null }, expectedRevision: cleared.revision }),
+    (error) => error.code === "bad_request",
+  );
+  await fs.rm(repoRoot, { recursive: true, force: true });
 });
 
 test("server-registry: writeServerRegistry then readServerRegistry round-trips", async () => {
