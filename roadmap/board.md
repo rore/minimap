@@ -1,6 +1,7 @@
 # Now
 
 # Next
+- add-metadata-first-grouping-and-ordering
 - add-pallium-work-item-participants
 - add-work-item-dependencies
 

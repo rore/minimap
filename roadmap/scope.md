@@ -13,6 +13,7 @@ Current focus:
 - keep edits thin, file-canonical, and generic across different repo structures
 
 Concrete next steps:
+- first, ship metadata-first grouping and direct List-view ordering so lane and delivery-slice roadmaps have one membership authority (`add-metadata-first-grouping-and-ordering`)
 - explore higher-level grouping only when repos already expose useful parent metadata
 - keep the UI focused on scanning, lightweight control, and file-canonical editing
 - keep improving overview density without turning the board into a heavy PM surface
