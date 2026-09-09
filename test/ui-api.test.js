@@ -91,6 +91,32 @@ test("saveItem url-encodes the id", async () => {
   assert.equal(f.calls[0].url, "/api/items/foo%20bar%2Fbaz");
 });
 
+test("reorderMetadata posts an anchor-based order request with revisions", async () => {
+  const f = fakeFetch([{ body: { boardRevision: "next" } }]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/repo" });
+  await api.reorderMetadata({
+    itemId: "feature-a", anchorItemId: "feature-b", placement: "before", expectedBoardRevision: "board-1",
+    field: "status", value: "done", expectedItemRevision: "item-1",
+  });
+  assert.equal(f.calls[0].url, "/api/metadata-order");
+  assert.equal(f.calls[0].opts.method, "POST");
+  assert.deepEqual(JSON.parse(f.calls[0].opts.body), {
+    itemId: "feature-a", anchorItemId: "feature-b", placement: "before", expectedBoardRevision: "board-1",
+    field: "status", value: "done", expectedItemRevision: "item-1",
+  });
+  assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/repo");
+});
+
+test("reorderLensGroup posts a config-only anchor request", async () => {
+  const f = fakeFetch([{ body: { configRevision: "next" } }]);
+  const api = createApi({ fetch: f });
+  await api.reorderLensGroup("status", { value: "done", anchorValue: "queued", placement: "after", expectedConfigRevision: "config-1" });
+  assert.equal(f.calls[0].url, "/api/lenses/status/order");
+  assert.equal(f.calls[0].opts.method, "POST");
+  assert.deepEqual(JSON.parse(f.calls[0].opts.body), {
+    value: "done", anchorValue: "queued", placement: "after", expectedConfigRevision: "config-1",
+  });
+});
 test("addComment forwards file plus payload as JSON body", async () => {
   const f = fakeFetch([{}]);
   const api = createApi({ fetch: f });

@@ -28,6 +28,44 @@ function repoUrl(suffix = "") {
   return `${suffix}#${repoHashParam}`;
 }
 
+function repoUrlFor(repoRoot, suffix = "") {
+  const repo = `repo=${encodeURIComponent(repoRoot)}`;
+  if (!suffix || suffix === "/") return `/#${repo}`;
+  return suffix.startsWith("/#") ? `/#${repo}&${suffix.slice(2)}` : `${suffix}#${repo}`;
+}
+
+async function makeLargeRoadmapFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-large-roadmap-"));
+  await fs.mkdir(path.join(root, "roadmap", "features"), { recursive: true });
+  await fs.mkdir(path.join(root, "roadmap", "ideas"), { recursive: true });
+  const lanes = Array.from({ length: 10 }, (_, i) => `lane-${String(i + 1).padStart(2, "0")}`);
+  const milestones = Array.from({ length: 12 }, (_, i) => `Milestone ${String(i + 1).padStart(2, "0")} — Unicode 🚀 / very long planning label`);
+  const ids = Array.from({ length: 84 }, (_, i) => `large-item-${String(i + 1).padStart(2, "0")}`);
+  const board = [`# Backlog`, ...ids.slice(0, 28).map((id) => `- ${id}`), ``, `# Delivery`, ...ids.slice(28, 56).map((id) => `- ${id}`), ``, `# Done`, ...ids.slice(56).map((id) => `- ${id}`), ``].join("\n");
+  await fs.writeFile(path.join(root, "roadmap", "board.md"), board, "utf8");
+  await fs.writeFile(path.join(root, "roadmap", "scope.md"), "Large-project usability fixture.\n", "utf8");
+  await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({
+    roadmapPath: "roadmap",
+    defaultLens: "lane",
+    lenses: { fields: {
+      lane: { order: lanes, values: lanes, draggable: true },
+      milestone: { order: milestones, values: milestones },
+      status: { order: ["queued", "in-progress", "blocked", "done"], draggable: true },
+    } },
+  }), "utf8");
+  for (let i = 0; i < ids.length; i += 1) {
+    const id = ids[i];
+    const title = i % 7 === 0
+      ? `A deliberately long roadmap title for ${id} that must remain reachable without card overlap or hidden open controls`
+      : `Large project item ${id} — usable title`;
+    const overview = i % 5 === 0 ? "Long overview ".repeat(24) : "Short overview.";
+    const lane = i < 66 ? lanes[0] : i % 13 === 0 ? "" : lanes[1 + ((i - 66) % (lanes.length - 1))];
+    const milestone = i % 17 === 0 ? "" : milestones[i % milestones.length];
+    const status = ["queued", "in-progress", "blocked", "done"][i % 4];
+    await fs.writeFile(path.join(root, "roadmap", "features", `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\npriority: ${i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low"}\ncommitment: committed\n${lane ? `lane: ${lane}\n` : ""}${milestone ? `milestone: ${milestone}\n` : ""}---\n\n## Summary\n\n${overview}\n`, "utf8");
+  }
+  return root;
+}
 function extractHeadings(boardText) {
   return boardText
     .split(/\r?\n/)
@@ -412,16 +450,16 @@ test("edit mode stacks sections in one clean column and autosizes long content",
   await expect(page.locator('#tab-structured')).toHaveClass(/is-active/);
   await expect(page.locator('[data-mode-pane="structured"]')).toBeVisible();
 
-  const whyLabel = page.locator('label:has([data-section-heading="Why"])');
-  const inScopeLabel = page.locator('label:has([data-section-heading="In Scope"])');
-  const whyBox = await whyLabel.boundingBox();
-  const inScopeBox = await inScopeLabel.boundingBox();
+  const sectionLabels = page.locator('.structured-section-field');
+  expect(await sectionLabels.count()).toBeGreaterThanOrEqual(2);
+  const firstBox = await sectionLabels.nth(0).boundingBox();
+  const secondBox = await sectionLabels.nth(1).boundingBox();
 
-  expect(whyBox).not.toBeNull();
-  expect(inScopeBox).not.toBeNull();
-  expect(inScopeBox.y).toBeGreaterThan(whyBox.y + whyBox.height - 10);
+  expect(firstBox).not.toBeNull();
+  expect(secondBox).not.toBeNull();
+  expect(secondBox.y).toBeGreaterThan(firstBox.y + firstBox.height - 10);
 
-  const size = await page.locator('[data-section-heading="In Scope"]').evaluate((element) => ({
+  const size = await sectionLabels.nth(1).locator('[data-section-heading]').evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
   }));
@@ -742,8 +780,10 @@ test("moves an item to another board group from the structured editor and saves 
   await expect(page.locator(".board-group").nth(1)).toContainText("Optional timeline view");
 
   const updatedBoardText = (await fs.readFile(boardPath, "utf8")).replace(/\r/g, "");
-  expect(updatedBoardText).toContain("# Next\n- idea-timeline-view");
-  expect(updatedBoardText).not.toContain("# Ideas\n- idea-timeline-view");
+  const nextSection = updatedBoardText.match(/# Next\n([\s\S]*?)(?=\n# |$)/)?.[1] || "";
+  const ideasSection = updatedBoardText.match(/# Ideas\n([\s\S]*?)(?=\n# |$)/)?.[1] || "";
+  expect(nextSection).toContain("- idea-timeline-view");
+  expect(ideasSection).not.toContain("- idea-timeline-view");
 });
 
 test("prioritizes the selected item before the board on a narrow viewport", async ({ page }) => {
@@ -879,6 +919,26 @@ test("switches to the status lens, hides board editing, and restores from the UR
   await expect(page.locator(".board-group").first().locator(".group-name")).toContainText("queued");
 });
 
+test("repository default grouping stays independent from layout and explicit Board wins", async ({ page }) => {
+  await fs.writeFile(configPath, JSON.stringify({
+    roadmapPath: "roadmap",
+    defaultLens: "status",
+    lenses: { fields: { status: { order: ["queued", "in-progress", "blocked", "done"], draggable: true } } },
+  }), "utf8");
+
+  await page.goto(repoUrl());
+  await expect(page.locator("#board-view-toggle")).toContainText("By status");
+  await expect(page).not.toHaveURL(/lens=/);
+  await expect(page.locator("#board-layout-list")).toHaveClass(/is-active/);
+
+  await page.goto(repoUrl("/#lens=board"));
+  await expect(page.locator("#board-view-toggle")).toContainText("Group by");
+  await expect(page).toHaveURL(/lens=board/);
+
+  await page.goto(repoUrl("/#lens=retired-lane"));
+  await expect(page.locator("#board-view-toggle")).toContainText("By status");
+  await expect(page.locator("#status-banner")).toContainText(/URL grouping.*unavailable/i);
+});
 test("keeps the view chooser compact when switching to the milestone lens", async ({ page }) => {
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
@@ -1186,6 +1246,228 @@ test("dragging between status columns uses the handle and updates the canonical 
   expect(updatedIdeaText).toContain("status: done");
 });
 
+test("stress-tests large metadata boards in list and columns views", async ({ page }) => {
+  test.setTimeout(90_000);
+  const fixture = await makeLargeRoadmapFixture();
+  try {
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await page.goto(repoUrlFor(fixture));
+    await expect(page).not.toHaveURL(/lens=/);
+    await expect(page.locator("#board-view-toggle")).toContainText("By lane");
+    await expect(page.locator(".board-group").first()).toBeVisible();
+    expect(await page.locator(".board-group").count()).toBeGreaterThanOrEqual(8);
+    await page.locator("#board-filter-toggle").click();
+    const milestoneFilter = page.locator('[data-filter-key="milestone"]').first();
+    const selectedMilestone = await milestoneFilter.getAttribute("data-filter-value");
+    await milestoneFilter.click();
+    await expect(page.locator('[data-filter-key="milestone"].is-active')).toBeVisible();
+    await expect(page.locator("#board-view-toggle")).toContainText("By lane");
+    const milestoneItemIds = await page.locator("[data-item-id]:visible").evaluateAll((cards) => cards.map((card) => card.dataset.itemId));
+    expect(milestoneItemIds.length).toBeGreaterThan(0);
+    for (const itemId of milestoneItemIds) {
+      expect(await fs.readFile(path.join(fixture, "roadmap", "features", `${itemId}.md`), "utf8")).toContain(`milestone: ${selectedMilestone}`);
+    }
+    await page.locator("#board-clear-filters").click();
+    await page.locator("#board-search").fill("");
+    const listMetrics = await page.locator("#board-groups").evaluate((root) => ({
+      right: root.getBoundingClientRect().right,
+      scrollWidth: root.scrollWidth,
+      clientWidth: root.clientWidth,
+    }));
+    expect(listMetrics.scrollWidth).toBeLessThanOrEqual(listMetrics.clientWidth + 2);
+    await expect(page.locator(".group-name", { hasText: "Unassigned" })).toBeVisible();
+    for (const group of await page.locator(".board-group").all()) {
+      const box = await group.boundingBox();
+      if (!box) continue;
+      const header = group.locator(".board-group-header");
+      const card = group.locator("[data-item-id]:visible").first();
+      if (await card.count()) {
+        const headerBox = await header.boundingBox();
+        const cardBox = await card.boundingBox();
+        const titleBox = await card.locator(".board-item-title").boundingBox();
+        const actionsBox = await card.locator("xpath=..").locator(".board-item-order-actions").boundingBox();
+        if (!headerBox || !cardBox || !titleBox || !actionsBox) continue;
+        expect(cardBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+        expect(titleBox.width).toBeGreaterThan(64);
+        expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(actionsBox.x + 1);
+        await expect(card).toHaveAttribute("aria-label", /^Open /);
+      }
+    }
+
+    const openedCard = page.locator("[data-item-id]").first();
+    const openedTitle = await openedCard.getAttribute("title");
+    await openedCard.click();
+    await expect(page.locator("#editor-title")).toHaveText(openedTitle);
+    if (await page.locator("#editor-overlay-backdrop").isVisible()) {
+      await page.locator("#editor-overlay-backdrop").click();
+      await expect(page.locator("#editor-overlay")).toBeHidden();
+    }
+
+    const boardPath = path.join(fixture, "roadmap", "board.md");
+    const boardBeforeGroupOrder = await fs.readFile(boardPath, "utf8");
+    const groupMove = page.locator("[data-move-lens-group='up']:not([disabled])").first();
+    const groupValue = await groupMove.getAttribute("data-lens-group-value");
+    const groupAnchor = await groupMove.getAttribute("data-lens-group-anchor");
+    await groupMove.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#status-banner")).toContainText(/group order saved/i);
+    const savedConfig = JSON.parse(await fs.readFile(path.join(fixture, "roadmap.config.json"), "utf8"));
+    expect(savedConfig.lenses.fields.lane.order.indexOf(groupValue)).toBe(savedConfig.lenses.fields.lane.order.indexOf(groupAnchor) - 1);
+    expect(await fs.readFile(boardPath, "utf8")).toBe(boardBeforeGroupOrder);
+
+    await page.locator("#board-search").fill("usable title");
+    const firstMove = page.locator("[data-move-item='down']:not([disabled])").first();
+    await expect(firstMove).toBeVisible();
+    const movedId = await firstMove.getAttribute("data-item-id-order");
+    const anchorId = await firstMove.getAttribute("data-anchor-item-id");
+    const beforeOrder = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
+    await firstMove.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
+    const afterOrder = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
+    expect(afterOrder.indexOf(movedId)).toBe(afterOrder.indexOf(anchorId) + 1);
+    expect(afterOrder.filter((id) => id !== movedId)).toEqual(beforeOrder.filter((id) => id !== movedId));
+    await page.goto(`/?qa=dense-list#repo=${encodeURIComponent(fixture)}`);
+    await expect(page.locator("#board-view-toggle")).toContainText("By lane");
+    await expect(page.locator("#board-search")).toHaveValue("");
+    await expect(page.locator(`[data-item-id="${movedId}"]`)).toBeVisible();
+
+    await page.setViewportSize({ width: 1440, height: 820 });
+    const largeBoardResizer = page.locator("#board-editor-resizer");
+    await expect(largeBoardResizer).toBeVisible();
+    const boardBeforeResize = await page.locator(".board-panel").boundingBox();
+    const largeResizerBox = await largeBoardResizer.boundingBox();
+    await page.mouse.move(largeResizerBox.x + largeResizerBox.width / 2, largeResizerBox.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(largeResizerBox.x - 120, largeResizerBox.y + 100, { steps: 8 });
+    await page.mouse.up();
+    const boardAfterResize = await page.locator(".board-panel").boundingBox();
+    expect(boardAfterResize.width).toBeLessThan(boardBeforeResize.width - 80);
+    const resizedTitleBox = await page.locator(".board-group").filter({ hasText: "lane-01" }).locator(".board-item-title").first().boundingBox();
+    expect(resizedTitleBox.width).toBeGreaterThan(64);
+
+    await page.setViewportSize({ width: 760, height: 700 });
+    await page.locator(".board-panel").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "test-results/dense-lane-list-narrow.png" });
+    const denseCards = page.locator(".board-group").filter({ hasText: "lane-01" }).locator("[data-item-id]");
+    await expect(denseCards).toHaveCount(66, { timeout: 10000 });
+    for (const index of [0, 33, 65]) {
+      const card = denseCards.nth(index);
+      await card.scrollIntoViewIfNeeded();
+      const geometry = await card.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const group = element.closest(".board-group")?.getBoundingClientRect();
+        const row = element.parentElement?.getBoundingClientRect();
+        const title = element.querySelector(".board-item-title")?.getBoundingClientRect();
+        const actions = element.parentElement?.querySelector(".board-item-order-actions")?.getBoundingClientRect();
+        const previous = element.parentElement?.previousElementSibling?.querySelector("[data-item-id]")?.getBoundingClientRect();
+        return {
+          card: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+          group: group && { left: group.left, right: group.right },
+          row: row && { top: row.top, bottom: row.bottom },
+          title: title && { left: title.left, right: title.right, top: title.top, bottom: title.bottom, width: title.width, height: title.height },
+          actions: actions && { left: actions.left, top: actions.top, bottom: actions.bottom },
+          previous: previous && { bottom: previous.bottom },
+        };
+      });
+      expect(geometry.card.left).toBeGreaterThanOrEqual(geometry.group.left - 1);
+      expect(geometry.card.right).toBeLessThanOrEqual(geometry.group.right + 1);
+      expect(geometry.title.width).toBeGreaterThan(64);
+      expect(geometry.title.right).toBeLessThanOrEqual(geometry.actions.left + 1);
+      expect(geometry.title.height).toBeGreaterThanOrEqual(16);
+      expect(geometry.title.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
+      expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
+      expect(geometry.actions.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
+      expect(geometry.actions.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
+      if (geometry.previous) expect(geometry.card.top).toBeGreaterThanOrEqual(geometry.previous.bottom - 1);
+    }
+
+    const middleMove = denseCards.nth(33).locator("xpath=..").locator('[data-move-item="up"]');
+    await middleMove.scrollIntoViewIfNeeded();
+    await middleMove.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
+    await expect(page.locator('[data-move-item="up"]:focus')).toBeVisible();
+
+    const lastCard = denseCards.last();
+    await lastCard.scrollIntoViewIfNeeded();
+    const lastCardTitle = await lastCard.getAttribute("title");
+    await lastCard.locator(".board-item-title").click();
+    await expect(page.locator("#editor-title")).toHaveText(lastCardTitle);
+
+    await page.setViewportSize({ width: 1440, height: 820 });
+    await denseCards.first().click();
+    await page.locator("#tab-structured").click();
+    await openMetadataDetails(page);
+    await page.locator("#field-title").fill("Unsaved dense-board draft A");
+    const otherMove = denseCards.nth(10).locator("xpath=..").locator('[data-move-item="up"]');
+    const otherMovedId = await otherMove.getAttribute("data-item-id-order");
+    await otherMove.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
+    await expect(page.locator("#field-title")).toHaveValue("Unsaved dense-board draft A");
+    await expect(page.locator(`[data-item-id-order="${otherMovedId}"][data-move-item="up"]:focus`)).toBeVisible();
+    await page.setViewportSize({ width: 760, height: 700 });
+    await page.goto(repoUrlFor(fixture, "/#layout=columns"));
+    await page.reload();
+    await expect(page.locator("#board-view-toggle")).toContainText("By lane");
+    await expect(page.locator(".board-columns")).toBeVisible();
+    if (await page.locator("#editor-overlay").isVisible()) await page.locator("#editor-overlay-backdrop").click();
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await page.screenshot({ path: "test-results/dense-lane-columns.png" });
+    const columns = await page.locator(".board-column").count();
+    expect(columns).toBeGreaterThanOrEqual(8);
+    const laneColumn = page.locator(".board-column").filter({ hasText: "lane-01" }).first();
+    const columnMove = laneColumn.locator('[data-move-item="down"]:not([disabled])').first();
+    await columnMove.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await expect(page.locator('[data-move-item="down"]:focus')).toBeVisible();
+    const columnCards = laneColumn.locator(".board-column-card");
+    await expect(columnCards).toHaveCount(66);
+    for (const index of [0, 33, 65]) {
+      const columnCard = columnCards.nth(index);
+      await columnCard.scrollIntoViewIfNeeded();
+      const geometry = await columnCard.evaluate((card) => {
+        const rect = card.getBoundingClientRect();
+        const title = card.querySelector(".board-item-title")?.getBoundingClientRect();
+        const actions = card.querySelector(".board-column-card-actions")?.getBoundingClientRect();
+        const previous = card.previousElementSibling?.getBoundingClientRect();
+        return {
+          card: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+          title: title && { left: title.left, right: title.right, top: title.top, bottom: title.bottom, height: title.height },
+          actions: actions && { left: actions.left, right: actions.right, top: actions.top, bottom: actions.bottom },
+          previous: previous && { bottom: previous.bottom },
+        };
+      });
+      expect(geometry.title.left).toBeGreaterThanOrEqual(geometry.card.left - 1);
+      expect(geometry.title.right).toBeLessThanOrEqual(geometry.card.right + 1);
+      expect(geometry.actions.left).toBeGreaterThanOrEqual(geometry.card.left - 1);
+      expect(geometry.actions.right).toBeLessThanOrEqual(geometry.card.right + 1);
+      expect(geometry.title.height).toBeGreaterThanOrEqual(16);
+      expect(geometry.title.top).toBeGreaterThanOrEqual(geometry.card.top - 1);
+      expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.card.bottom + 1);
+      expect(geometry.actions.top).toBeGreaterThanOrEqual(geometry.card.top - 1);
+      expect(geometry.actions.bottom).toBeLessThanOrEqual(geometry.card.bottom + 1);
+      if (geometry.previous) expect(geometry.card.top).toBeGreaterThanOrEqual(geometry.previous.bottom - 1);
+    }
+    const columnMetrics = await page.locator(".board-columns").evaluate((root) => ({
+      clientWidth: root.clientWidth,
+      scrollWidth: root.scrollWidth,
+    }));
+    expect(columnMetrics.scrollWidth).toBeGreaterThan(columnMetrics.clientWidth);
+    await page.locator(".board-columns").evaluate((root) => { root.scrollLeft = root.scrollWidth; });
+    expect(await page.locator(".board-columns").evaluate((root) => root.scrollLeft)).toBeGreaterThan(0);
+
+    await page.locator("#board-view-toggle").click();
+    await page.locator('[data-lens-key="milestone"]').click();
+    await expect(page.locator(".board-column").first().locator(".board-column-name")).toHaveAttribute("title", /Milestone/);
+    await expect(page.locator("[data-drag-item-id]")).toHaveCount(0);
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
 test("milestone columns stay browse-only without drag handles", async ({ page }) => {
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");

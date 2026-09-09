@@ -55,6 +55,24 @@ http://localhost:4312/#repo=/abs/path/to/repo&view=board
 
 Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
 
+## Metadata-first roadmap setup
+
+Keep lane, milestone, status, and similar classifications in item frontmatter. Keep one shared manual order in `board.md`; use a neutral `# Items` group when prioritization must work across every metadata group.
+
+```json
+{
+  "roadmapPath": "roadmap",
+  "defaultLens": "lane",
+  "lenses": {
+    "fields": {
+      "lane": { "order": ["Product", "Platform", "Operations"], "draggable": true },
+      "milestone": { "order": ["M1", "M2", "Later"] }
+    }
+  }
+}
+```
+
+A valid URL grouping overrides `defaultLens`, including explicit `lens=board`. Grouping and List/Columns layout are independent. Moving an item to Unassigned removes the active grouping field. See [`skills/minimap-roadmap/references/roadmap-contract.md`](skills/minimap-roadmap/references/roadmap-contract.md) for ownership and manual migration.
 ## Server lifecycle (agent contract)
 
 Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.

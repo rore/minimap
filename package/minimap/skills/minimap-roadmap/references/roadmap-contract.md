@@ -7,6 +7,8 @@
 3. If it does not exist, use `roadmap/`.
 4. Do not guess alternate paths when the configured location is missing.
 
+An optional top-level `defaultLens` in `roadmap.config.json` selects the initial metadata grouping. A valid URL `lens` wins, including explicit `lens=board`; without one, a valid `defaultLens` wins, then Board. Unknown URL or configured values fall back safely with a warning.
+
 ## Ownership
 
 Within the resolved roadmap root:
@@ -15,6 +17,8 @@ Within the resolved roadmap root:
 - `scope.md` owns the current-focus narrative
 - `features/*.md` owns committed or active work
 - `ideas/*.md` owns uncommitted or parked ideas
+
+Metadata owns classification fields such as lane, milestone, and status. `board.md` owns one shared traversal order. Moving an item between metadata groups changes metadata only and retains that board position. Reordering in a metadata view uses visible neighboring items as before/after anchors in the canonical order, preserving hidden items; it must not silently cross freeform board groups. Use one neutral `Items` group when full cross-group prioritization is required. Metadata group order is configured by `lenses.fields.<field>.order`, not by board headings.
 
 Do not create parallel roadmap trackers outside this structure unless the user explicitly asks.
 
@@ -62,6 +66,15 @@ When editing items:
 
 Use `scope.md` for short current-focus narrative and near-term direction. Item state belongs in item files, not in scope.
 
+## Manual Metadata-First Migration
+
+1. Check that the installed `minimap-roadmap` skill documents `defaultLens`; update the packaged skill before using the new key.
+2. Inventory each board heading and the intended metadata field, then list every disagreement. Ask the developer to resolve conflicts; never guess which value wins.
+3. Keep the chosen classification in item frontmatter. Preserve item ids, content, unrelated metadata, and feature/idea location.
+4. Flatten existing board bullets in their current traversal order into one neutral `# Items` group. Do not add missing or unlisted items implicitly.
+5. Configure `defaultLens` and `lenses.fields.<field>.order`, then reopen List view and verify filters and ordering. Moving an item to Unassigned must remove the grouped field, not write a placeholder value.
+
+There is no automatic migration or board-to-metadata synchronization.
 ## Constraints
 
 - no UI-only roadmap state, no separate database, no sync source

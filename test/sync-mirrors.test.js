@@ -13,7 +13,7 @@ const roadmapRuntime = path.join(top, "skills/minimap-roadmap/runtime");
 const specRuntime = path.join(top, "skills/minimap-spec-review/runtime");
 
 const RUNTIME_FILES = ["cli.js", "server.js", "package.json"];
-const RUNTIME_DIRS = ["src", "ui"];
+const RUNTIME_DIRS = ["src", "ui", "templates"];
 
 async function readBytes(p) {
   return fs.readFile(p);

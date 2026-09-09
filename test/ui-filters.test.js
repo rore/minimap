@@ -158,10 +158,25 @@ test("buildDerivedVisibleGroups: items without the lens key go into Unassigned g
   };
   const groups = buildDerivedVisibleGroups(
     workspace,
-    { key: "status", values: ["queued"], draggable: false },
+    { key: "status", values: ["queued"], draggable: true },
     { defaultLensKey: "board", unassignedKey: "__u__", unassignedLabel: "Unassigned" },
   );
   assert.equal(groups.length, 2);
   assert.equal(groups[1].name, "Unassigned");
   assert.equal(groups[1].draggable, false);
+});
+test("buildDerivedVisibleGroups: clearable fields keep an empty Unassigned drop target", () => {
+  const workspace = {
+    boardGroups: [{ name: "G", items: [{ id: "a" }] }],
+    items: { a: { id: "a", metadata: { lane: "platform" }, searchText: "" } },
+  };
+  const groups = buildDerivedVisibleGroups(
+    workspace,
+    { key: "lane", values: ["platform"], draggable: true },
+    { defaultLensKey: "board", unassignedKey: "__u__", unassignedLabel: "Unassigned", showEmptyGroups: true },
+  );
+  assert.equal(groups.at(-1).name, "Unassigned");
+  assert.equal(groups.at(-1).dropValue, "__u__");
+  assert.equal(groups.at(-1).draggable, true);
+  assert.equal(groups.at(-1).items.length, 0);
 });

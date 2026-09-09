@@ -56,6 +56,12 @@ Within the resolved roadmap root:
 - `features/*.md` owns active or committed roadmap work
 - `ideas/*.md` owns parked or uncommitted roadmap ideas
 
+Metadata fields own item classification such as lane, milestone, and status. The board traversal remains the one shared item order; metadata lenses do not create a second priority list. A metadata membership move changes that item metadata and retains its board position; moving to Unassigned removes that field rather than storing a sentinel value. Metadata ordering uses a visible neighbor as a before/after anchor in canonical board order, preserves hidden items, and must not silently move an item across freeform board groups. A neutral single `Items` board group is recommended when metadata grouping needs full cross-item prioritization.
+
+Configured metadata group order lives at `lenses.fields.<field>.order` and is independent of board heading order.
+
+`defaultLens` is optional. A valid URL `lens` wins, including explicit `lens=board`; otherwise a valid configured default is used, then Board. Unknown URL or config values fall back safely and should be reported as warnings.
+
 ## Board Contract
 
 `board.md` is a simple grouped list of item ids.
