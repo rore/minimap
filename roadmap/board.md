@@ -1,6 +1,7 @@
 # Now
 
 # Next
+- add-pallium-work-item-participants
 
 # Ideas
 - idea-board-management
