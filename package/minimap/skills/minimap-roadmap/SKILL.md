@@ -38,6 +38,8 @@ The active repo is the directory the user is working in. Always pass an absolute
 3. Edit the smallest owning file set.
 4. Preserve unknown frontmatter and sections.
 
+When completed work affects a roadmap item, reconcile its state using [Completion Reconciliation](references/roadmap-contract.md#completion-reconciliation).
+
 For metadata-first roadmaps, keep classification in item metadata and the single shared traversal order in `board.md`. A membership move changes only metadata; moving to Unassigned removes that field rather than writing a placeholder; a metadata reorder uses visible before/after neighbors, preserves filtered-out items, and cannot silently cross freeform board groups. Configure group order with `lenses.fields.<field>.order` and optionally set the top-level `defaultLens`. A valid URL lens, including `lens=board`, overrides that default; unknown values fall back with a warning. Do not perform automatic migration: check the installed skill version and follow the manual migration steps in [references/roadmap-contract.md](references/roadmap-contract.md).
 
 For ownership rules, item shape, board rules, and edit constraints, read [references/roadmap-contract.md](references/roadmap-contract.md).

@@ -87,3 +87,14 @@ There is no automatic migration or board-to-metadata synchronization.
 1. Read the relevant roadmap files first.
 2. Change the smallest set of files that own the requested truth.
 3. Group/order changes → `board.md`. Focus narrative → `scope.md`. Item state → item file frontmatter and sections.
+
+## Completion Reconciliation
+
+Reconcile the affected canonical roadmap; a shipped note alone does not correct stale instructions. Make no edit where the roadmap is already accurate.
+
+1. Update the owning item’s status and clearly distinguish shipped scope from remaining work; preserve useful completion evidence.
+2. Remove or rewrite obsolete next-step claims that still tell the next agent to implement completed work.
+3. Adjust board placement or order only where needed under the existing grouping and priority convention.
+4. Check dependency statements directly affected by the completed slice.
+
+Preserve unfinished or deferred scope honestly. If independently prioritized residual work remains under an umbrella item, propose a split; do not automatically split or reorder unrelated work.
