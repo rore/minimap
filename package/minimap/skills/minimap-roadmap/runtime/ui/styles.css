@@ -2393,26 +2393,6 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   border-radius: 3px;
 }
 
-.board-item-drag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 0.66rem;
-  font-weight: 500;
-}
-
-.board-item-draggable {
-  cursor: grab;
-}
-
-.board-item.is-dragging {
-  opacity: 0.56;
-}
-
 .board-columns {
   display: flex;
   gap: 10px;
@@ -3272,7 +3252,6 @@ textarea:focus,
 .editor-tab:focus-visible,
 .board-item:focus-visible,
 .board-column-card-main:focus-visible,
-.board-column-card-drag:focus-visible,
 .board-column-reorder-handle:focus-visible,
 .metadata-summary:focus-visible {
   outline: 2px solid rgba(44, 108, 255, 0.28);
