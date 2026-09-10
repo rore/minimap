@@ -172,6 +172,9 @@ Optional repo-root config:
 {
   "roadmapPath": "docs/roadmap",
   "defaultLens": "lane",
+  "filters": {
+    "fields": ["owner", "team"]
+  },
   "lenses": {
     "fields": {
       "lane": { "order": ["Product", "Platform", "Operations"], "draggable": true },
@@ -181,7 +184,7 @@ Optional repo-root config:
 }
 ```
 
-`defaultLens` controls grouping only; List/Columns stays independent. An explicit URL grouping, including `lens=board`, wins. Metadata owns classification and `board.md` owns one shared order; use a neutral `# Items` group for unrestricted metadata-first prioritization.
+`defaultLens` controls grouping only; List/Columns stays independent. An explicit URL grouping, including `lens=board`, wins. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. Metadata owns classification and `board.md` owns one shared order; use a neutral `# Items` group for unrestricted metadata-first prioritization.
 
 For the file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md).
 
@@ -191,7 +194,7 @@ A roadmap item is just a markdown file. Click `Review` on any item to attach it 
 
 ### Other roadmap views
 
-Columns view gives the same data a denser kanban-style layout. Drag-and-drop updates the roadmap files instead of creating a second board state.
+Columns view gives the same data a denser kanban-style layout. Collapse columns you are not using to give the remaining columns more reading width; widened dense columns reveal feature descriptions. Drag-and-drop updates the roadmap files instead of creating a second board state.
 
 ![Columns view](docs/images/minimap-board-columns.png)
 

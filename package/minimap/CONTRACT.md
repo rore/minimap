@@ -60,6 +60,8 @@ Metadata fields own item classification such as lane, milestone, and status. The
 
 Configured metadata group order lives at `lenses.fields.<field>.order` and is independent of board heading order.
 
+Filters are intentionally curated. Common planning fields (`status`, `priority`, `commitment`, `kind`, `milestone`, `lane`, and `labels`) appear when they have two to eight distinct values. Add repo-specific frontmatter keys with `filters.fields`; fields configured under `lenses.fields` also remain filterable. Explicitly configured fields are not subject to the eight-value limit. `id` and `title` cannot become facets because search already covers them.
+
 `defaultLens` is optional. A valid URL `lens` wins, including explicit `lens=board`; otherwise a valid configured default is used, then Board. Unknown URL or config values fall back safely and should be reported as warnings.
 
 ## Board Contract

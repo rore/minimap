@@ -63,6 +63,9 @@ Keep lane, milestone, status, and similar classifications in item frontmatter. K
 {
   "roadmapPath": "roadmap",
   "defaultLens": "lane",
+  "filters": {
+    "fields": ["owner", "team"]
+  },
   "lenses": {
     "fields": {
       "lane": { "order": ["Product", "Platform", "Operations"], "draggable": true },
@@ -72,7 +75,7 @@ Keep lane, milestone, status, and similar classifications in item frontmatter. K
 }
 ```
 
-A valid URL grouping overrides `defaultLens`, including explicit `lens=board`. Grouping and List/Columns layout are independent. Moving an item to Unassigned removes the active grouping field. See [`skills/minimap-roadmap/references/roadmap-contract.md`](skills/minimap-roadmap/references/roadmap-contract.md) for ownership and manual migration.
+A valid URL grouping overrides `defaultLens`, including explicit `lens=board`. Grouping and List/Columns layout are independent. In Columns, collapse unneeded groups to give the remaining columns more reading width; widened dense columns reveal descriptions. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. Moving an item to Unassigned removes the active grouping field. See [`skills/minimap-roadmap/references/roadmap-contract.md`](skills/minimap-roadmap/references/roadmap-contract.md) for ownership and manual migration.
 ## Server lifecycle (agent contract)
 
 Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.
