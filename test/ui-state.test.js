@@ -76,10 +76,12 @@ test("Set and Map fields are independent per-instance", () => {
   const s1 = createState();
   const s2 = createState();
   s1.get().collapsedGroups.add("g1");
+  s1.get().columnScrollTops.set("g1", 120);
   s1.get().spec.expandedResolvedCommentIds.add("cmt1");
   s1.get().spec.replyDrafts.set("k", "v");
   // Second instance must not see s1's mutations
   assert.equal(s2.get().collapsedGroups.size, 0);
+  assert.equal(s2.get().columnScrollTops.size, 0);
   assert.equal(s2.get().spec.expandedResolvedCommentIds.size, 0);
   assert.equal(s2.get().spec.replyDrafts.size, 0);
 });

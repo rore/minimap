@@ -1402,7 +1402,7 @@ function renderSearchControls() {
     ? facets.map((facet) => {
         const activeValues = new Set(state.activeFilters[facet.key] || []);
         const chips = facet.values.map((value) => `
-          <button class="filter-chip${activeValues.has(value) ? " is-active" : ""}" data-filter-key="${escapeHtml(facet.key)}" data-filter-value="${escapeHtml(value)}" type="button" ${state.boardEditMode ? "disabled" : ""}>${escapeHtml(value)}</button>
+          <button class="filter-chip${activeValues.has(value) ? " is-active" : ""}" data-filter-key="${escapeHtml(facet.key)}" data-filter-value="${escapeHtml(value)}" type="button" title="${escapeHtml(value)}" ${state.boardEditMode ? "disabled" : ""}>${escapeHtml(value)}</button>
         `).join("");
 
         return `
@@ -1473,6 +1473,7 @@ function renderScopeChrome() {
   scopeSubtitleElement.textContent = "";
   scopeSubtitleElement.hidden = true;
   scopeEditButton.hidden = setupMode || state.scopeEditMode || state.scopeCollapsed;
+  scopeEditButton.disabled = !state.workspace;
   scopeSaveButton.hidden = setupMode || !state.scopeEditMode;
   scopeCancelButton.hidden = setupMode || !state.scopeEditMode;
   scopeSaveButton.disabled = !state.scopeDirty;
@@ -1680,14 +1681,50 @@ function beginBoardEditorResize(event) {
   window.addEventListener("pointercancel", stop);
 }
 
+function collapsedGroupKey(name) {
+  return `${state.repoPath}\n${normalizeLensKey(state.activeLens)}\n${name}`;
+}
+
+function isGroupCollapsed(name) {
+  return state.collapsedGroups.has(collapsedGroupKey(name));
+}
+
 function toggleGroup(name) {
-  if (state.collapsedGroups.has(name)) {
-    state.collapsedGroups.delete(name);
+  const key = collapsedGroupKey(name);
+  if (state.collapsedGroups.has(key)) {
+    state.collapsedGroups.delete(key);
   } else {
-    state.collapsedGroups.add(name);
+    state.collapsedGroups.add(key);
   }
 
   renderBoard();
+}
+
+function toggleColumn(name) {
+  const columns = boardGroupsElement.querySelector(".board-columns");
+  const scrollLeft = columns?.scrollLeft || 0;
+  for (const column of columns?.querySelectorAll(".board-column") || []) {
+    const groupName = column.querySelector("[data-group-toggle]")?.dataset.groupToggle;
+    const list = column.querySelector(".board-column-list");
+    if (groupName && list && !list.hidden) {
+      state.columnScrollTops.set(collapsedGroupKey(groupName), list.scrollTop);
+    }
+  }
+
+  toggleGroup(name);
+
+  const nextColumns = boardGroupsElement.querySelector(".board-columns");
+  if (nextColumns) nextColumns.scrollLeft = scrollLeft;
+  for (const column of nextColumns?.querySelectorAll(".board-column") || []) {
+    const groupName = column.querySelector("[data-group-toggle]")?.dataset.groupToggle;
+    const list = column.querySelector(".board-column-list");
+    const storedScrollTop = groupName ? state.columnScrollTops.get(collapsedGroupKey(groupName)) : null;
+    if (list && storedScrollTop != null) list.scrollTop = storedScrollTop;
+  }
+
+  const nextToggle = [...boardGroupsElement.querySelectorAll("[data-group-toggle]")]
+    .find((button) => button.dataset.groupToggle === name);
+  nextToggle?.focus({ preventScroll: true });
 }
 
 function reorderGroups(groups, fromIndex, toIndex) {
@@ -2316,6 +2353,7 @@ function renderBoardColumnsMode() {
   }
 
   const columnsHtml = visibleGroups.map((group) => {
+    const collapsed = isGroupCollapsed(group.name);
     const dropAttributes = allowColumnDrag
       ? (boardGrouping
         ? `data-board-drop-group-index="${group.originalIndex}"`
@@ -2360,9 +2398,10 @@ function renderBoardColumnsMode() {
     }).join("");
 
     return `
-      <section class="board-column${group.items.length >= 10 ? " board-column-dense" : ""}${allowColumnReorder ? " board-column-reorderable" : ""}${reorderAttributes ? " board-column-reorder-dropzone" : ""}" ${reorderAttributes}>
+      <section class="board-column${collapsed ? " board-column-collapsed" : ""}${group.items.length >= 10 ? " board-column-dense" : ""}${allowColumnReorder ? " board-column-reorderable" : ""}${reorderAttributes ? " board-column-reorder-dropzone" : ""}" ${reorderAttributes}>
         <div class="board-column-header">
           <div class="board-column-heading">
+            <button class="order-button board-column-collapse-toggle" data-group-toggle="${escapeHtml(group.name)}" type="button" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(group.name)} column" title="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(group.name)} column"><span aria-hidden="true">${collapsed ? "+" : "−"}</span></button>
             <span class="board-column-name" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
             <span class="group-count">${group.items.length}</span>
           </div>
@@ -2379,7 +2418,7 @@ function renderBoardColumnsMode() {
                 </div>`;
               })()}
         </div>
-        <div class="board-column-list${dropAttributes ? " board-column-dropzone" : ""}" ${dropAttributes}>
+        <div class="board-column-list${dropAttributes ? " board-column-dropzone" : ""}" ${collapsed ? "hidden" : ""} ${dropAttributes}>
           ${cardsHtml || '<div class="board-column-empty">No visible items.</div>'}
         </div>
       </section>
@@ -2400,6 +2439,10 @@ function renderBoardColumnsMode() {
   }
 
   bindMissingItemCopyButtons();
+  for (const button of boardGroupsElement.querySelectorAll("[data-group-toggle]")) {
+    button.addEventListener("click", () => toggleColumn(button.dataset.groupToggle));
+  }
+
   for (const button of boardGroupsElement.querySelectorAll("[data-move-item]")) {
     button.addEventListener("click", () => {
       void persistMetadataOrder(button.dataset.itemIdOrder, button.dataset.anchorItemId, button.dataset.placement, button);
@@ -2618,7 +2661,7 @@ function renderBoardReadMode() {
     : "";
 
   const html = visibleGroups.map((group) => {
-    const collapsed = state.collapsedGroups.has(group.name);
+    const collapsed = isGroupCollapsed(group.name);
     const items = group.items.map((item, itemIndex) => {
       if (isMissingBoardItem(item)) {
         return renderMissingBoardCardRead(item);

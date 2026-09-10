@@ -9,6 +9,8 @@
 
 An optional top-level `defaultLens` in `roadmap.config.json` selects the initial metadata grouping. A valid URL `lens` wins, including explicit `lens=board`; without one, a valid `defaultLens` wins, then Board. Unknown URL or configured values fall back safely with a warning.
 
+Filters use the common planning fields `status`, `priority`, `commitment`, `kind`, `milestone`, `lane`, and `labels` when each has two to eight distinct values. Add repo-specific frontmatter keys with `filters.fields`; fields configured under `lenses.fields` are also filterable. Explicitly configured fields may have more than eight values. `id` and `title` remain search-only.
+
 ## Ownership
 
 Within the resolved roadmap root:

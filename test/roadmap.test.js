@@ -2082,11 +2082,16 @@ test("minimap CLI attaches files and returns JSON context", async () => {
 });
 
 
-test("loadWorkspace exposes compact search text and generic metadata filters", async () => {
+test("loadWorkspace exposes compact search text and curated metadata filters", async () => {
   const repoRoot = await makeTempRepo();
+  const featurePath = path.join(repoRoot, "roadmap", "features", "feature-a.md");
   const ideaPath = path.join(repoRoot, "roadmap", "ideas", "idea-a.md");
+  const originalFeatureText = await fs.readFile(featurePath, "utf8");
   const originalIdeaText = await fs.readFile(ideaPath, "utf8");
-  await fs.writeFile(ideaPath, originalIdeaText.replace("labels:\n  - ui", "labels:\n  - docs"), "utf8");
+  await fs.writeFile(featurePath, originalFeatureText.replace("commitment: committed", "commitment: committed\nresolved_by: feature-a"), "utf8");
+  await fs.writeFile(ideaPath, originalIdeaText
+    .replace("commitment: uncommitted", "commitment: uncommitted\nresolved_by: idea-a")
+    .replace("labels:\n  - ui", "labels:\n  - docs"), "utf8");
 
   const workspace = await loadWorkspace(repoRoot);
   assert.deepEqual(workspace.items["feature-a"].metadata.labels, ["ui"]);
@@ -2097,6 +2102,15 @@ test("loadWorkspace exposes compact search text and generic metadata filters", a
   assert.match(workspace.items["feature-a"].overviewExcerpt, /Initial summary/);
   assert.ok(workspace.boardGroups[0].items[0].overviewExcerpt.length > 0);
   assert.deepEqual(workspace.availableFilters.find((facet) => facet.key === "labels")?.values, ["docs", "ui"]);
+  assert.equal(workspace.availableFilters.some((facet) => facet.key === "resolved_by"), false);
+
+  await fs.writeFile(path.join(repoRoot, "roadmap.config.json"), JSON.stringify({
+    roadmapPath: "roadmap",
+    filters: { fields: ["resolved_by", "id", "not valid"] },
+  }), "utf8");
+  const configured = await loadWorkspace(repoRoot);
+  assert.deepEqual(configured.availableFilters.find((facet) => facet.key === "resolved_by")?.values, ["feature-a", "idea-a"]);
+  assert.equal(configured.availableFilters.some((facet) => facet.key === "id"), false);
 });
 test("deriveAvailableLenses ignores noisy keys and respects configured domains", () => {
   const lenses = deriveAvailableLenses({

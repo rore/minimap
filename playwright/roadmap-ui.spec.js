@@ -47,6 +47,7 @@ async function makeLargeRoadmapFixture() {
   await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({
     roadmapPath: "roadmap",
     defaultLens: "lane",
+    filters: { fields: ["release_train"] },
     lenses: { fields: {
       lane: { order: lanes, values: lanes, draggable: true },
       milestone: { order: milestones, values: milestones },
@@ -62,7 +63,7 @@ async function makeLargeRoadmapFixture() {
     const lane = i < 66 ? lanes[0] : i % 13 === 0 ? "" : lanes[1 + ((i - 66) % (lanes.length - 1))];
     const milestone = i % 17 === 0 ? "" : milestones[i % milestones.length];
     const status = ["queued", "in-progress", "blocked", "done"][i % 4];
-    await fs.writeFile(path.join(root, "roadmap", "features", `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\npriority: ${i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low"}\ncommitment: committed\n${lane ? `lane: ${lane}\n` : ""}${milestone ? `milestone: ${milestone}\n` : ""}---\n\n## Summary\n\n${overview}\n`, "utf8");
+    await fs.writeFile(path.join(root, "roadmap", "features", `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\npriority: ${i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low"}\ncommitment: committed\nrelease_train: train-${String((i % 10) + 1).padStart(2, "0")}\nresolved_by: ${i % 2 === 0 ? "automated-cleanup" : "manual-follow-up"}\nshipped_at: 2026-0${(i % 3) + 6}-01\n${lane ? `lane: ${lane}\n` : ""}${milestone ? `milestone: ${milestone}\n` : ""}---\n\n## Summary\n\n${overview}\n`, "utf8");
   }
   return root;
 }
@@ -451,6 +452,7 @@ test("edit mode stacks sections in one clean column and autosizes long content",
   await expect(page.locator('[data-mode-pane="structured"]')).toBeVisible();
 
   const sectionLabels = page.locator('.structured-section-field');
+  await expect(sectionLabels.nth(1)).toBeVisible();
   expect(await sectionLabels.count()).toBeGreaterThanOrEqual(2);
   const firstBox = await sectionLabels.nth(0).boundingBox();
   const secondBox = await sectionLabels.nth(1).boundingBox();
@@ -662,7 +664,9 @@ test("renders nested and wrapped markdown list content in read mode", async ({ p
 });
 test("prompts before discarding unsaved structured changes when switching items from the board", async ({ page }) => {
   await page.goto(repoUrl("/#item=feature-setup-guidance&mode=structured"));
+  await expect(page.locator("#editor-title")).toContainText("Setup guidance");
   await openMetadataDetails(page);
+  await expect(page.locator("#field-title")).toHaveValue("Setup guidance and empty-state workflow");
   await page.locator('#field-title').fill('Unsaved setup title');
 
   page.once('dialog', async (dialog) => {
@@ -994,6 +998,7 @@ test("status columns keep empty built-in lanes visible in columns mode", async (
 });
 test("dragging an item in the status lens updates the canonical frontmatter", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
 
@@ -1041,7 +1046,7 @@ test("keeps list-mode board controls compact and non-overlapping", async ({ page
 });
 
 test("uses a board-first columns layout when many groups are visible", async ({ page }) => {
-  const sixGroupBoard = `# Backlog\n\n- feature-edit-board-and-scope\n\n# Next\n\n- feature-setup-guidance\n\n# Ready\n\n- feature-search-and-filters\n\n# Working\n\n- feature-card-preview-and-overview\n\n# Verify\n\n- feature-derived-roadmap-lenses\n\n# Ideas\n\n- idea-create-items\n`;
+  const sixGroupBoard = `# Backlog\n\n- feature-edit-board-and-scope\n\n# Next\n\n- feature-setup-guidance\n\n# Ready\n\n- feature-search-and-filters\n\n# Working\n\n- feature-card-preview-and-overview\n\n# Verify\n\n- feature-derived-roadmap-lenses\n\n# done\n\n- idea-create-items\n`;
   await fs.writeFile(boardPath, sixGroupBoard, "utf8");
 
   await page.setViewportSize({ width: 1180, height: 1100 });
@@ -1060,6 +1065,39 @@ test("uses a board-first columns layout when many groups are visible", async ({ 
   }));
 
   expect(boardMetrics.scrollWidth).toBeGreaterThan(boardMetrics.clientWidth + 80);
+
+  const workingColumn = page.locator(".board-column", { has: page.locator('.board-column-name[title="Working"]') });
+  const initialColumnWidth = (await workingColumn.boundingBox()).width;
+  const initialDescriptionWidth = (await workingColumn.locator(".board-item-overview").boundingBox()).width;
+  for (const name of ["Backlog", "Next", "Ready", "Verify", "done"]) {
+    await page.getByRole("button", { name: `Collapse ${name} column`, exact: true }).click();
+  }
+
+  await expect(page.locator(".board-column-collapsed")).toHaveCount(5);
+  await expect(page.getByRole("button", { name: "Expand done column", exact: true })).toBeFocused();
+  const widenedColumnWidth = (await workingColumn.boundingBox()).width;
+  const widenedDescriptionWidth = (await workingColumn.locator(".board-item-overview").boundingBox()).width;
+  expect(widenedColumnWidth).toBeGreaterThan(initialColumnWidth + 120);
+  expect(widenedDescriptionWidth).toBeGreaterThan(initialDescriptionWidth + 120);
+
+  const collapsedBacklog = page.locator(".board-column", { has: page.locator('.board-column-name[title="Backlog"]') });
+  expect((await collapsedBacklog.boundingBox()).width).toBeLessThanOrEqual(50);
+  await expect(collapsedBacklog.locator(".board-column-list")).toBeHidden();
+  const expandBacklog = page.getByRole("button", { name: "Expand Backlog column", exact: true });
+  await expect(expandBacklog).toHaveAttribute("aria-expanded", "false");
+  await expandBacklog.focus();
+  await page.keyboard.press("Enter");
+  await expect(collapsedBacklog).not.toHaveClass(/board-column-collapsed/);
+  await expect(collapsedBacklog.locator(".board-column-list")).toBeVisible();
+  const collapseBacklog = page.getByRole("button", { name: "Collapse Backlog column", exact: true });
+  await expect(collapseBacklog).toHaveAttribute("aria-expanded", "true");
+  await expect(collapseBacklog).toBeFocused();
+
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="status"]').click();
+  const statusDone = page.locator(".board-column", { has: page.locator('.board-column-name[title="done"]') });
+  await expect(statusDone).not.toHaveClass(/board-column-collapsed/);
+  await expect(page.getByRole("button", { name: "Collapse done column", exact: true })).toHaveAttribute("aria-expanded", "true");
 });
 
 test("opens a card in an overlay from columns and keeps the full title as a tooltip", async ({ page }) => {
@@ -1257,6 +1295,41 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     await expect(page.locator(".board-group").first()).toBeVisible();
     expect(await page.locator(".board-group").count()).toBeGreaterThanOrEqual(8);
     await page.locator("#board-filter-toggle").click();
+    await expect(page.locator('[data-filter-key="resolved_by"]')).toHaveCount(0);
+    await expect(page.locator('[data-filter-key="shipped_at"]')).toHaveCount(0);
+    await expect(page.locator('[data-filter-key="release_train"][data-filter-value="train-10"]')).toBeVisible();
+    const filterGeometry = await page.evaluate(() => {
+      const search = document.querySelector("#board-search").getBoundingClientRect();
+      const toggle = document.querySelector("#board-filter-toggle").getBoundingClientRect();
+      const panel = document.querySelector("#board-filters").getBoundingClientRect();
+      return {
+        searchWidth: search.width,
+        controlGap: toggle.left - search.right,
+        panelHeight: panel.height,
+      };
+    });
+    expect(filterGeometry.searchWidth).toBeLessThanOrEqual(550);
+    expect(filterGeometry.controlGap).toBeLessThanOrEqual(10);
+    expect(filterGeometry.panelHeight).toBeLessThan(240);
+    const compactFilters = await page.evaluate(() => {
+      const panel = document.querySelector("#board-filters");
+      const groups = [...panel.querySelectorAll(".filter-group")].map((group) => group.getBoundingClientRect());
+      const sameRowGaps = groups.flatMap((group, index) => {
+        const next = groups[index + 1];
+        return next && Math.abs(next.top - group.top) < 2 ? [next.left - group.right] : [];
+      });
+      const statusRow = panel.querySelector('[data-filter-key="status"]')?.closest(".filter-chip-row");
+      return {
+        panelOverflow: panel.scrollWidth - panel.clientWidth,
+        groupsInsidePanel: groups.every((group) => group.right <= panel.getBoundingClientRect().right + 1),
+        maxSameRowGap: Math.max(0, ...sameRowGaps),
+        statusOverflow: statusRow ? statusRow.scrollWidth - statusRow.clientWidth : 0,
+      };
+    });
+    expect(compactFilters.panelOverflow).toBeLessThanOrEqual(2);
+    expect(compactFilters.groupsInsidePanel).toBe(true);
+    expect(compactFilters.maxSameRowGap).toBeLessThanOrEqual(26);
+    expect(compactFilters.statusOverflow).toBeLessThanOrEqual(2);
     const milestoneFilter = page.locator('[data-filter-key="milestone"]').first();
     const selectedMilestone = await milestoneFilter.getAttribute("data-filter-value");
     await milestoneFilter.click();
@@ -1396,7 +1469,9 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     await expect(page.locator("#editor-title")).toHaveText(lastCardTitle);
 
     await page.setViewportSize({ width: 1440, height: 820 });
+    const firstDenseTitle = await denseCards.first().getAttribute("title");
     await denseCards.first().click();
+    await expect(page.locator("#editor-title")).toHaveText(firstDenseTitle);
     await page.locator("#tab-structured").click();
     await openMetadataDetails(page);
     await page.locator("#field-title").fill("Unsaved dense-board draft A");
@@ -1459,6 +1534,28 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     expect(columnMetrics.scrollWidth).toBeGreaterThan(columnMetrics.clientWidth);
     await page.locator(".board-columns").evaluate((root) => { root.scrollLeft = root.scrollWidth; });
     expect(await page.locator(".board-columns").evaluate((root) => root.scrollLeft)).toBeGreaterThan(0);
+
+    await page.setViewportSize({ width: 1440, height: 820 });
+    const laneWidthBeforeCollapse = (await laneColumn.boundingBox()).width;
+    await expect(laneColumn.locator(".board-item-overview").first()).toBeHidden();
+    const laneNames = (await page.locator(".board-column-name").allTextContents()).map((name) => name.trim());
+    const firstCollapsedLane = laneNames.find((name) => name === "lane-03");
+    const laneList = laneColumn.locator(".board-column-list");
+    await page.locator(".board-columns").evaluate((root) => { root.scrollLeft = 120; });
+    await laneList.evaluate((list) => { list.scrollTop = 240; });
+    const horizontalScrollBeforeCollapse = await page.locator(".board-columns").evaluate((root) => root.scrollLeft);
+    const verticalScrollBeforeCollapse = await laneList.evaluate((list) => list.scrollTop);
+    await page.getByRole("button", { name: `Collapse ${firstCollapsedLane} column`, exact: true }).click();
+    expect(await page.locator(".board-columns").evaluate((root) => root.scrollLeft)).toBe(horizontalScrollBeforeCollapse);
+    expect(await laneList.evaluate((list) => list.scrollTop)).toBe(verticalScrollBeforeCollapse);
+    await expect(page.getByRole("button", { name: `Expand ${firstCollapsedLane} column`, exact: true })).toBeFocused();
+    for (const name of laneNames.filter((name) => name !== "lane-01" && name !== firstCollapsedLane)) {
+      await page.getByRole("button", { name: `Collapse ${name} column`, exact: true }).click();
+    }
+    await expect(page.locator(".board-column-collapsed")).toHaveCount(laneNames.length - 1);
+    expect((await laneColumn.boundingBox()).width).toBeGreaterThan(laneWidthBeforeCollapse + 100);
+    await expect(laneColumn.locator(".board-item-overview").first()).toBeVisible();
+    expect((await laneColumn.locator(".board-item-overview").first().boundingBox()).width).toBeGreaterThan(180);
 
     await page.locator("#board-view-toggle").click();
     await page.locator('[data-lens-key="milestone"]').click();

@@ -28,6 +28,7 @@ const DEFAULT_LENS_FIELD_ORDER = {
   status: ["queued", "in-progress", "blocked", "done"],
 };
 const DEFAULT_DRAGGABLE_LENS_FIELDS = new Set(["status", "commitment", "priority", "kind"]);
+const DEFAULT_FILTER_FIELDS = new Set(["commitment", "kind", "labels", "lane", "milestone", "priority", "status"]);
 const FILTER_FACET_EXCLUDED_KEYS = new Set(["id", "title"]);
 const LENS_EXCLUDED_KEYS = new Set(["id", "title", "labels"]);
 const MAX_FILTER_VALUES = 8;
@@ -392,6 +393,7 @@ function makeMissingBoardItemSummary(itemId, groupName) {
 }
 
 function buildAvailableFilters(itemSummaries, workspaceConfig) {
+  const configuredFields = new Set(workspaceConfig?.filters?.fields || []);
   const facets = new Map();
 
   for (const summary of Object.values(itemSummaries)) {
@@ -417,7 +419,13 @@ function buildAvailableFilters(itemSummaries, workspaceConfig) {
       key,
       values: Array.from(values).sort((left, right) => left.localeCompare(right)),
     }))
-    .filter((facet) => facet.values.length > 1 && (facet.values.length <= MAX_FILTER_VALUES || getConfiguredLensField(workspaceConfig, facet.key)) && !FILTER_FACET_EXCLUDED_KEYS.has(facet.key))
+    .filter((facet) => {
+      const configured = configuredFields.has(facet.key) || Boolean(getConfiguredLensField(workspaceConfig, facet.key));
+      return facet.values.length > 1
+        && (DEFAULT_FILTER_FIELDS.has(facet.key) || configured)
+        && (facet.values.length <= MAX_FILTER_VALUES || configured)
+        && !FILTER_FACET_EXCLUDED_KEYS.has(facet.key);
+    })
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
@@ -465,6 +473,15 @@ function normalizeLensConfig(config) {
   return {
     fields: normalizeLensFieldConfig(config?.lenses?.fields),
   };
+}
+
+function normalizeFilterConfig(config) {
+  const fields = Array.isArray(config?.filters?.fields)
+    ? uniqueValuesInOrder(config.filters.fields)
+      .filter((field) => isFrontmatterKeyName(field) && !FILTER_FACET_EXCLUDED_KEYS.has(field))
+    : [];
+
+  return { fields };
 }
 
 function normalizeDefaultLens(config) {
@@ -984,6 +1001,7 @@ async function readRoadmapConfig(repoRoot) {
     roadmapPath: configuredPath,
     resolvedPath,
     lenses: normalizeLensConfig(parsedConfig),
+    filters: normalizeFilterConfig(parsedConfig),
     defaultLens: normalizeDefaultLens(parsedConfig),
     configText,
     configRevision: hasConfig ? contentRevision(configText) : null,
