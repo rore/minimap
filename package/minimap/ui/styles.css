@@ -2296,22 +2296,14 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   min-width: 0;
 }
 
-.board-item-order-actions,
+
 .board-column-order-actions {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 3px;
   align-self: center;
 }
 
-.board-item-order-actions {
-  grid-template-columns: 28px;
-}
-
-.board-column-order-actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.board-item-order-actions .order-button,
 .board-column-order-actions .order-button {
   min-width: 28px;
   padding-inline: 5px;
@@ -2319,8 +2311,7 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   background: var(--bg);
 }
 
-.board-item {
-  width: 100%;
+.board-item {  width: 100%;
   padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: 6px;
