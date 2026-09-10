@@ -52,7 +52,7 @@ const SAFE_NAMES = new Set([
   "active", "isActive", "isFile", "isResolved", "isReplying", "isReviewing",
   "isCollapsed", "collapsedResolved", "isViewer", "isExpanded", "isOpen",
   "isClosed", "isMissing", "selected", "disabled",
-  "pulseAttr", "activeClass", "placementAttributes", "reorderAttributes", "orderAttributes",
+  "pulseAttr", "activeClass", "placementAttributes", "reorderAttributes", "orderAttributes", "itemOrderDropAttributes",
   "dropAttributes", "actionsAttr",
   // Pure numeric / known-safe values
   "open", "pending", "orphan", "count", "total", "overflow", "level",

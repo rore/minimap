@@ -2690,6 +2690,19 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   box-shadow: inset 0 0 0 1px rgba(44, 108, 255, 0.22);
 }
 
+[data-item-order-drop-id][data-order-drop-placement="inside"] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+[data-item-order-drop-id][data-order-drop-placement="before"] {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+[data-item-order-drop-id][data-order-drop-placement="after"] {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
 .board-item-id {
   display: block;
   margin-bottom: 5px;
