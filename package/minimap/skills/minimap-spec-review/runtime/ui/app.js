@@ -2272,12 +2272,25 @@ function canReorderRelative(itemId, anchorItemId) {
 }
 
 function restoreOrderActionFocus(kind, key, placement) {
-  const buttons = [...boardGroupsElement.querySelectorAll(kind === "item" ? "[data-move-item]" : "[data-move-lens-group]")]
+  const buttons = [...boardGroupsElement.querySelectorAll(kind === "item" ? "[data-item-id-order]" : "[data-move-lens-group]")]
     .filter((button) => (kind === "item" ? button.dataset.itemIdOrder : button.dataset.lensGroupValue) === key);
   const target = buttons.find((button) => button.dataset.placement === placement && !button.disabled)
     || buttons.find((button) => !button.disabled)
     || buttons[0];
   target?.focus();
+}
+
+function bindItemOrderShortcuts() {
+  for (const button of boardGroupsElement.querySelectorAll("[data-item-id-order]")) {
+    button.addEventListener("keydown", (event) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const placement = event.key === "ArrowUp" ? "before" : event.key === "ArrowDown" ? "after" : "";
+      const anchorItemId = placement === "before" ? button.dataset.orderPreviousId : button.dataset.orderNextId;
+      if (!placement || !anchorItemId) return;
+      event.preventDefault();
+      void persistMetadataOrder(button.dataset.itemIdOrder, anchorItemId, placement, button);
+    });
+  }
 }
 
 async function persistMetadataOrder(itemId, anchorItemId, placement, triggerButton) {
@@ -2367,18 +2380,15 @@ function renderBoardColumnsMode() {
       }
       const activeClass = item.id === state.selectedItemId && state.editorOverlayOpen ? " board-column-card-active" : "";
       const dragHandle = allowColumnDrag
-        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}">::</span>`
+        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}${allowItemReorder ? ". Keyboard: Alt+Up or Alt+Down." : ""}">::</span>`
         : "";
       const previous = group.items[itemIndex - 1];
       const next = group.items[itemIndex + 1];
       const canMoveUp = Boolean(previous && canReorderRelative(item.id, previous.id));
       const canMoveDown = Boolean(next && canReorderRelative(item.id, next.id));
-      const orderActions = allowItemReorder ? `
-        <div class="board-column-order-actions">
-          <button class="order-button" data-move-item="up" data-item-id-order="${escapeHtml(item.id)}" data-anchor-item-id="${escapeHtml(previous?.id || "")}" data-placement="before" type="button" aria-label="Move ${escapeHtml(item.title)} up" ${canMoveUp ? "" : "disabled"}>↑</button>
-          <button class="order-button" data-move-item="down" data-item-id-order="${escapeHtml(item.id)}" data-anchor-item-id="${escapeHtml(next?.id || "")}" data-placement="after" type="button" aria-label="Move ${escapeHtml(item.title)} down" ${canMoveDown ? "" : "disabled"}>↓</button>
-        </div>
-      ` : "";
+      const orderAttributes = allowItemReorder
+        ? `data-item-id-order="${escapeHtml(item.id)}" data-order-previous-id="${escapeHtml(canMoveUp ? previous.id : "")}" data-order-next-id="${escapeHtml(canMoveDown ? next.id : "")}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-description="Press Alt+ArrowUp or Alt+ArrowDown to reorder."`
+        : "";
       const placementAttributes = boardGrouping && allowColumnDrag
         ? `data-board-drop-group-index="${group.originalIndex}" data-board-drop-before-id="${escapeHtml(item.id)}"`
         : "";
@@ -2389,9 +2399,8 @@ function renderBoardColumnsMode() {
             ${buildBoardCardBodyMarkup(item, activeLens?.key)}
           </div>
           <div class="board-column-card-actions">
-            <button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}">Open</button>
+            <button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" ${orderAttributes}>Open</button>
             ${dragHandle}
-            ${orderActions}
           </div>
         </article>
       `;
@@ -2443,11 +2452,7 @@ function renderBoardColumnsMode() {
     button.addEventListener("click", () => toggleColumn(button.dataset.groupToggle));
   }
 
-  for (const button of boardGroupsElement.querySelectorAll("[data-move-item]")) {
-    button.addEventListener("click", () => {
-      void persistMetadataOrder(button.dataset.itemIdOrder, button.dataset.anchorItemId, button.dataset.placement, button);
-    });
-  }
+  bindItemOrderShortcuts();
 
   for (const button of boardGroupsElement.querySelectorAll("[data-move-lens-group]")) {
     button.addEventListener("click", () => {
@@ -2668,27 +2673,20 @@ function renderBoardReadMode() {
       }
       const active = item.id === state.selectedItemId ? " board-item-active" : "";
       const dragHandle = allowDerivedDrag
-        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}">::</span>`
+        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}${allowItemReorder ? ". Keyboard: Alt+Up or Alt+Down." : ""}">::</span>`
         : "";
       const previous = group.items[itemIndex - 1];
       const next = group.items[itemIndex + 1];
       const canMoveUp = Boolean(previous && canReorderRelative(item.id, previous.id));
       const canMoveDown = Boolean(next && canReorderRelative(item.id, next.id));
-      const upTitle = previous && !canMoveUp ? "Cannot cross board.md groups; use one neutral Items group." : `Move ${item.title} up`;
-      const downTitle = next && !canMoveDown ? "Cannot cross board.md groups; use one neutral Items group." : `Move ${item.title} down`;
-      const orderActions = allowItemReorder ? `
-        <div class="board-item-order-actions" aria-label="Priority order for ${escapeHtml(item.title)}">
-          ${dragHandle}
-          <button class="order-button" data-move-item="up" data-item-id-order="${escapeHtml(item.id)}" data-anchor-item-id="${escapeHtml(previous?.id || "")}" data-placement="before" type="button" aria-label="Move ${escapeHtml(item.title)} up" title="${escapeHtml(upTitle)}" ${canMoveUp ? "" : "disabled"}>↑</button>
-          <button class="order-button" data-move-item="down" data-item-id-order="${escapeHtml(item.id)}" data-anchor-item-id="${escapeHtml(next?.id || "")}" data-placement="after" type="button" aria-label="Move ${escapeHtml(item.title)} down" title="${escapeHtml(downTitle)}" ${canMoveDown ? "" : "disabled"}>↓</button>
-        </div>
-      ` : "";
+      const orderAttributes = allowItemReorder
+        ? `data-item-id-order="${escapeHtml(item.id)}" data-order-previous-id="${escapeHtml(canMoveUp ? previous.id : "")}" data-order-next-id="${escapeHtml(canMoveDown ? next.id : "")}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-description="Press Alt+ArrowUp or Alt+ArrowDown to reorder."`
+        : "";
       return `
         <div class="board-item-row">
-          <button class="board-item${active}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}">
-            ${buildBoardCardBodyMarkup(item, activeLens?.key)}
+          <button class="board-item${active}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes}>
+            ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle)}
           </button>
-          ${orderActions}
         </div>
       `;
     }).join("");
@@ -2757,11 +2755,7 @@ function renderBoardReadMode() {
     });
   }
 
-  for (const button of boardGroupsElement.querySelectorAll("[data-move-item]")) {
-    button.addEventListener("click", () => {
-      void persistMetadataOrder(button.dataset.itemIdOrder, button.dataset.anchorItemId, button.dataset.placement, button);
-    });
-  }
+  bindItemOrderShortcuts();
 
   for (const button of boardGroupsElement.querySelectorAll("[data-move-lens-group]")) {
     button.addEventListener("click", () => {

@@ -773,6 +773,7 @@ test("edits scope from the UI and saves markdown back to scope.md", async ({ pag
 
 test("edits board groups, moves items, and saves the updated board", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
 
   await page.locator("#board-edit-button").click();
   await page.locator('[data-board-group-name="0"]').fill("Ready");
@@ -1280,7 +1281,7 @@ test("dragging between status columns uses the handle and updates the canonical 
   }
 });
 
-test("list view uses the column drag handle without making the open card draggable", async ({ page }) => {
+test("list view keeps one drag grip inside the card and no visible reorder arrows", async ({ page }) => {
   const fixture = await makeDragRoadmapFixture();
   const featureDir = path.join(fixture, "roadmap", "features");
   try {
@@ -1292,11 +1293,13 @@ test("list view uses the column drag handle without making the open card draggab
     await expect(handle).toHaveText("::");
     await expect(handle).toHaveAttribute("aria-label", "Move Drag source");
     await expect(handle).toHaveAttribute("draggable", "true");
-    await expect(handle).not.toHaveAttribute("role", "button");
-    await expect(handle).not.toHaveAttribute("tabindex", "0");
-    await expect(card).not.toHaveAttribute("draggable", "true");
     await expect(card).toHaveAttribute("aria-label", "Open Drag source");
+    await expect(card).toHaveAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+    await expect(card).toHaveAttribute("aria-description", "Press Alt+ArrowUp or Alt+ArrowDown to reorder.");
+    await expect(handle).toHaveAttribute("title", /Keyboard: Alt\+Up or Alt\+Down/);
+    await expect(page.locator("[data-move-item]")).toHaveCount(0);
     await expect(page.getByText("Move", { exact: true })).toHaveCount(0);
+    expect(await handle.evaluate((element) => element.closest('[data-item-id="drag-source"]') !== null)).toBe(true);
 
     await card.click();
     await expect(page.locator("#editor-title")).toHaveText("Drag source");
@@ -1309,7 +1312,6 @@ test("list view uses the column drag handle without making the open card draggab
     await fs.rm(fixture, { recursive: true, force: true });
   }
 });
-
 test("stress-tests large metadata boards in list and columns views", async ({ page }) => {
   test.setTimeout(90_000);
   const fixture = await makeLargeRoadmapFixture();
@@ -1384,11 +1386,12 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
         const headerBox = await header.boundingBox();
         const cardBox = await card.boundingBox();
         const titleBox = await card.locator(".board-item-title").boundingBox();
-        const actionsBox = await card.locator("xpath=..").locator(".board-item-order-actions").boundingBox();
-        if (!headerBox || !cardBox || !titleBox || !actionsBox) continue;
+        const handleBox = await card.locator(".board-column-card-drag").boundingBox();
+        if (!headerBox || !cardBox || !titleBox || !handleBox) continue;
         expect(cardBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
         expect(titleBox.width).toBeGreaterThan(64);
-        expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(actionsBox.x + 1);
+        expect(handleBox.x).toBeGreaterThanOrEqual(cardBox.x - 1);
+        expect(handleBox.x + handleBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
         await expect(card).toHaveAttribute("aria-label", /^Open /);
       }
     }
@@ -1415,13 +1418,13 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     expect(await fs.readFile(boardPath, "utf8")).toBe(boardBeforeGroupOrder);
 
     await page.locator("#board-search").fill("usable title");
-    const firstMove = page.locator("[data-move-item='down']:not([disabled])").first();
+    const firstMove = page.locator('[data-item-id-order][data-order-next-id]:not([data-order-next-id=""])').first();
     await expect(firstMove).toBeVisible();
     const movedId = await firstMove.getAttribute("data-item-id-order");
-    const anchorId = await firstMove.getAttribute("data-anchor-item-id");
+    const anchorId = await firstMove.getAttribute("data-order-next-id");
     const beforeOrder = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
     await firstMove.focus();
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Alt+ArrowDown");
     await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
     const afterOrder = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
     expect(afterOrder.indexOf(movedId)).toBe(afterOrder.indexOf(anchorId) + 1);
@@ -1458,35 +1461,37 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
         const group = element.closest(".board-group")?.getBoundingClientRect();
         const row = element.parentElement?.getBoundingClientRect();
         const title = element.querySelector(".board-item-title")?.getBoundingClientRect();
-        const actions = element.parentElement?.querySelector(".board-item-order-actions")?.getBoundingClientRect();
+        const handle = element.querySelector(".board-column-card-drag")?.getBoundingClientRect();
         const previous = element.parentElement?.previousElementSibling?.querySelector("[data-item-id]")?.getBoundingClientRect();
         return {
           card: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
           group: group && { left: group.left, right: group.right },
           row: row && { top: row.top, bottom: row.bottom },
           title: title && { left: title.left, right: title.right, top: title.top, bottom: title.bottom, width: title.width, height: title.height },
-          actions: actions && { left: actions.left, top: actions.top, bottom: actions.bottom },
+          handle: handle && { left: handle.left, right: handle.right, top: handle.top, bottom: handle.bottom },
           previous: previous && { bottom: previous.bottom },
         };
       });
       expect(geometry.card.left).toBeGreaterThanOrEqual(geometry.group.left - 1);
       expect(geometry.card.right).toBeLessThanOrEqual(geometry.group.right + 1);
       expect(geometry.title.width).toBeGreaterThan(64);
-      expect(geometry.title.right).toBeLessThanOrEqual(geometry.actions.left + 1);
+      expect(geometry.handle.left).toBeGreaterThanOrEqual(geometry.card.left - 1);
+      expect(geometry.handle.right).toBeLessThanOrEqual(geometry.card.right + 1);
       expect(geometry.title.height).toBeGreaterThanOrEqual(16);
       expect(geometry.title.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
       expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
-      expect(geometry.actions.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
-      expect(geometry.actions.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
+      expect(geometry.handle.top).toBeGreaterThanOrEqual(geometry.row.top - 1);
+      expect(geometry.handle.bottom).toBeLessThanOrEqual(geometry.row.bottom + 1);
       if (geometry.previous) expect(geometry.card.top).toBeGreaterThanOrEqual(geometry.previous.bottom - 1);
     }
 
-    const middleMove = denseCards.nth(33).locator("xpath=..").locator('[data-move-item="up"]');
+    const middleMove = denseCards.nth(33);
+    const middleMovedId = await middleMove.getAttribute("data-item-id-order");
     await middleMove.scrollIntoViewIfNeeded();
     await middleMove.focus();
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Alt+ArrowUp");
     await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
-    await expect(page.locator('[data-move-item="up"]:focus')).toBeVisible();
+    await expect(page.locator(`[data-item-id-order="${middleMovedId}"]:focus`)).toBeVisible();
 
     const lastCard = denseCards.last();
     await lastCard.scrollIntoViewIfNeeded();
@@ -1501,13 +1506,13 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     await page.locator("#tab-structured").click();
     await openMetadataDetails(page);
     await page.locator("#field-title").fill("Unsaved dense-board draft A");
-    const otherMove = denseCards.nth(10).locator("xpath=..").locator('[data-move-item="up"]');
+    const otherMove = denseCards.nth(10);
     const otherMovedId = await otherMove.getAttribute("data-item-id-order");
     await otherMove.focus();
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Alt+ArrowUp");
     await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
     await expect(page.locator("#field-title")).toHaveValue("Unsaved dense-board draft A");
-    await expect(page.locator(`[data-item-id-order="${otherMovedId}"][data-move-item="up"]:focus`)).toBeVisible();
+    await expect(page.locator(`[data-item-id-order="${otherMovedId}"]:focus`)).toBeVisible();
     await page.setViewportSize({ width: 760, height: 700 });
     await page.goto(repoUrlFor(fixture, "/#layout=columns"));
     await page.reload();
@@ -1519,12 +1524,13 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     const columns = await page.locator(".board-column").count();
     expect(columns).toBeGreaterThanOrEqual(8);
     const laneColumn = page.locator(".board-column").filter({ hasText: "lane-01" }).first();
-    const columnMove = laneColumn.locator('[data-move-item="down"]:not([disabled])').first();
+    const columnMove = laneColumn.locator('[data-item-id-order][data-order-next-id]:not([data-order-next-id=""])').first();
+    const columnMovedId = await columnMove.getAttribute("data-item-id-order");
     await columnMove.focus();
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Alt+ArrowDown");
     await expect(page.locator("#status-banner")).toContainText(/saved|updated/i);
     await expect(page.locator("#editor-overlay")).toBeHidden();
-    await expect(page.locator('[data-move-item="down"]:focus')).toBeVisible();
+    await expect(page.locator(`[data-item-id-order="${columnMovedId}"]:focus`)).toBeVisible();
     const columnCards = laneColumn.locator(".board-column-card");
     await expect(columnCards).toHaveCount(66);
     for (const index of [0, 33, 65]) {
