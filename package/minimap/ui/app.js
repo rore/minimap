@@ -2367,7 +2367,7 @@ function renderBoardColumnsMode() {
       }
       const activeClass = item.id === state.selectedItemId && state.editorOverlayOpen ? " board-column-card-active" : "";
       const dragHandle = allowColumnDrag
-        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" role="button" tabindex="0" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}">::</span>`
+        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}">::</span>`
         : "";
       const previous = group.items[itemIndex - 1];
       const next = group.items[itemIndex + 1];
@@ -2667,7 +2667,9 @@ function renderBoardReadMode() {
         return renderMissingBoardCardRead(item);
       }
       const active = item.id === state.selectedItemId ? " board-item-active" : "";
-      const dragHint = allowDerivedDrag ? '<span class="board-item-drag">Move</span>' : "";
+      const dragHandle = allowDerivedDrag
+        ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}">::</span>`
+        : "";
       const previous = group.items[itemIndex - 1];
       const next = group.items[itemIndex + 1];
       const canMoveUp = Boolean(previous && canReorderRelative(item.id, previous.id));
@@ -2676,14 +2678,15 @@ function renderBoardReadMode() {
       const downTitle = next && !canMoveDown ? "Cannot cross board.md groups; use one neutral Items group." : `Move ${item.title} down`;
       const orderActions = allowItemReorder ? `
         <div class="board-item-order-actions" aria-label="Priority order for ${escapeHtml(item.title)}">
+          ${dragHandle}
           <button class="order-button" data-move-item="up" data-item-id-order="${escapeHtml(item.id)}" data-anchor-item-id="${escapeHtml(previous?.id || "")}" data-placement="before" type="button" aria-label="Move ${escapeHtml(item.title)} up" title="${escapeHtml(upTitle)}" ${canMoveUp ? "" : "disabled"}>↑</button>
           <button class="order-button" data-move-item="down" data-item-id-order="${escapeHtml(item.id)}" data-anchor-item-id="${escapeHtml(next?.id || "")}" data-placement="after" type="button" aria-label="Move ${escapeHtml(item.title)} down" title="${escapeHtml(downTitle)}" ${canMoveDown ? "" : "disabled"}>↓</button>
         </div>
       ` : "";
       return `
         <div class="board-item-row">
-          <button class="board-item${active}${allowDerivedDrag ? " board-item-draggable" : ""}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${allowDerivedDrag ? 'draggable="true"' : ""}>
-            ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHint)}
+          <button class="board-item${active}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}">
+            ${buildBoardCardBodyMarkup(item, activeLens?.key)}
           </button>
           ${orderActions}
         </div>
@@ -2769,9 +2772,9 @@ function renderBoardReadMode() {
     return;
   }
 
-  for (const button of boardGroupsElement.querySelectorAll("[data-item-id]")) {
-    button.addEventListener("dragstart", (event) => {
-      const itemId = button.dataset.itemId || "";
+  for (const handle of boardGroupsElement.querySelectorAll("[data-drag-item-id]")) {
+    handle.addEventListener("dragstart", (event) => {
+      const itemId = handle.dataset.dragItemId || "";
       if (!itemId) {
         event.preventDefault();
         return;
@@ -2784,7 +2787,7 @@ function renderBoardReadMode() {
 
       state.dragItemId = itemId;
       state.dragClickSuppressUntil = Date.now() + 350;
-      button.classList.add("is-dragging");
+      handle.classList.add("is-dragging");
       event.dataTransfer?.setData("text/plain", itemId);
       event.dataTransfer?.setData("application/x-minimap-item-id", itemId);
       if (event.dataTransfer) {
@@ -2792,10 +2795,10 @@ function renderBoardReadMode() {
       }
     });
 
-    button.addEventListener("dragend", () => {
-      button.classList.remove("is-dragging");
+    handle.addEventListener("dragend", () => {
+      handle.classList.remove("is-dragging");
       state.dragClickSuppressUntil = Date.now() + 350;
-      if (!state.dragItemId || state.dragItemId === button.dataset.itemId) {
+      if (!state.dragItemId || state.dragItemId === handle.dataset.dragItemId) {
         clearBoardDragState();
       }
     });

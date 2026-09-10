@@ -8,7 +8,6 @@ const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
 const featurePath = path.join(process.cwd(), "roadmap", "features", "feature-setup-guidance.md");
 const searchFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-search-and-filters.md");
 const ideaCreatePath = path.join(process.cwd(), "roadmap", "ideas", "idea-create-items.md");
-const derivedLensesFeaturePath = path.join(process.cwd(), "roadmap", "features", "feature-derived-roadmap-lenses.md");
 const configPath = path.join(process.cwd(), "roadmap.config.json");
 const setupSandboxPath = path.join(process.cwd(), "playwright-setup-roadmap");
 
@@ -65,6 +64,19 @@ async function makeLargeRoadmapFixture() {
     const status = ["queued", "in-progress", "blocked", "done"][i % 4];
     await fs.writeFile(path.join(root, "roadmap", "features", `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\npriority: ${i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low"}\ncommitment: committed\nrelease_train: train-${String((i % 10) + 1).padStart(2, "0")}\nresolved_by: ${i % 2 === 0 ? "automated-cleanup" : "manual-follow-up"}\nshipped_at: 2026-0${(i % 3) + 6}-01\n${lane ? `lane: ${lane}\n` : ""}${milestone ? `milestone: ${milestone}\n` : ""}---\n\n## Summary\n\n${overview}\n`, "utf8");
   }
+  return root;
+}
+
+async function makeDragRoadmapFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-drag-roadmap-"));
+  const featureDir = path.join(root, "roadmap", "features");
+  await fs.mkdir(featureDir, { recursive: true });
+  await fs.mkdir(path.join(root, "roadmap", "ideas"), { recursive: true });
+  await fs.writeFile(path.join(root, "roadmap", "board.md"), "# Items\n- drag-source\n- drag-target\n", "utf8");
+  await fs.writeFile(path.join(root, "roadmap", "scope.md"), "Drag interaction fixture.\n", "utf8");
+  await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({ roadmapPath: "roadmap", defaultLens: "status", lenses: { fields: { status: { order: ["queued", "done"], draggable: true } } } }), "utf8");
+  await fs.writeFile(path.join(featureDir, "drag-source.md"), "---\nid: drag-source\ntitle: Drag source\nstatus: done\npriority: high\ncommitment: committed\n---\n\n## Summary\n\nMove me with the drag handle.\n", "utf8");
+  await fs.writeFile(path.join(featureDir, "drag-target.md"), "---\nid: drag-target\ntitle: Drag target\nstatus: queued\npriority: medium\ncommitment: committed\n---\n\n## Summary\n\nKeep the destination visible.\n", "utf8");
   return root;
 }
 function extractHeadings(boardText) {
@@ -152,19 +164,24 @@ async function openMetadataDetails(page) {
 }
 
 async function dragRoadmapElement(page, sourceSelector, targetSelector) {
-  await page.evaluate(({ sourceSelector, targetSelector }) => {
-    const source = document.querySelector(sourceSelector);
-    const target = document.querySelector(targetSelector);
-    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
-      throw new Error(`Drag targets were not found: ${sourceSelector} -> ${targetSelector}`);
-    }
+  const sourceLocator = page.locator(sourceSelector);
+  const targetLocator = page.locator(targetSelector);
+  await sourceLocator.scrollIntoViewIfNeeded();
+  await targetLocator.scrollIntoViewIfNeeded();
+  const sourceBox = await sourceLocator.boundingBox();
+  const targetBox = await targetLocator.boundingBox();
+  if (!sourceBox || !targetBox) {
+    throw new Error(`Drag targets were not visible: ${sourceSelector} -> ${targetSelector}`);
+  }
 
-    const dataTransfer = new DataTransfer();
-    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
-    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
-    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
-    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
-  }, { sourceSelector, targetSelector });
+  const source = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
+  const target = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };
+  await page.mouse.move(source.x, source.y);
+  await page.mouse.down();
+  await page.mouse.move(source.x + 8, source.y + 8, { steps: 4 });
+  await page.mouse.move(target.x - 2, target.y - 2, { steps: 16 });
+  await page.mouse.move(target.x, target.y, { steps: 2 });
+  await page.mouse.up();
 }
 
 test.describe.configure({ mode: "serial" });
@@ -866,7 +883,6 @@ test("search filters the grouped board by item body text and persists in the URL
   await fs.writeFile(searchFeaturePath, nextText, "utf8");
 
   await page.goto(repoUrl());
-  await page.locator("#refresh-button").click();
   await page.locator("#board-search").fill("lighthouse review");
 
   await expect(page.locator('[data-item-id="feature-search-and-filters"]')).toBeVisible();
@@ -948,7 +964,6 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
   await page.goto(repoUrl());
-  await page.locator("#refresh-button").click();
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="milestone"]').click();
 
@@ -971,6 +986,7 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
 test("anchors the group-by chooser to the trigger instead of the far board edge", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
 
@@ -984,6 +1000,7 @@ test("anchors the group-by chooser to the trigger instead of the far board edge"
 });
 test("status columns keep empty built-in lanes visible in columns mode", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="status"]').click();
@@ -995,32 +1012,6 @@ test("status columns keep empty built-in lanes visible in columns mode", async (
   await expect(page.locator(".board-column").nth(3)).toContainText("done");
   await expect(page.locator(".board-column").nth(1).locator(".board-column-empty")).toContainText("No visible items.");
   await expect(page.locator(".board-column").nth(2).locator(".board-column-empty")).toContainText("No visible items.");
-});
-test("dragging an item in the status lens updates the canonical frontmatter", async ({ page }) => {
-  await page.goto(repoUrl());
-  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
-  await page.locator('#board-view-toggle').click();
-  await page.locator('[data-lens-key="status"]').click();
-
-  await page.evaluate(() => {
-    const source = document.querySelector('[data-item-id="feature-derived-roadmap-lenses"]');
-    const target = document.querySelector('[data-lens-drop-value="done"]');
-    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
-      throw new Error("Derived lens drag targets were not found.");
-    }
-
-    const dataTransfer = new DataTransfer();
-    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
-    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
-    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
-    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
-  });
-
-  await expect(page.locator("#status-banner")).toContainText("Status updated.");
-  await expect(page.locator('[data-item-id="feature-derived-roadmap-lenses"]')).toHaveCount(1);
-
-  const updatedFeatureText = await fs.readFile(derivedLensesFeaturePath, "utf8");
-  expect(updatedFeatureText).toContain("status: done");
 });
 test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
@@ -1051,7 +1042,7 @@ test("uses a board-first columns layout when many groups are visible", async ({ 
 
   await page.setViewportSize({ width: 1180, height: 1100 });
   await page.goto(repoUrl());
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
 
   await expect(page).toHaveURL(/layout=columns/);
@@ -1105,7 +1096,7 @@ test("opens a card in an overlay from columns and keeps the full title as a tool
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, longTitle), "utf8");
 
   await page.goto(repoUrl());
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
 
   const cardBody = page.locator('[data-item-dblopen="feature-setup-guidance"]').first();
@@ -1132,7 +1123,7 @@ test("overlay scroll locks the page background and scrolls the item instead", as
 
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto(repoUrl());
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
 
@@ -1170,6 +1161,7 @@ test("overlay scroll locks the page background and scrolls the item instead", as
 });
 test("overlay edit mode shows cancel beside save and returns to read mode", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
 
@@ -1190,6 +1182,7 @@ test("overlay edit mode shows cancel beside save and returns to read mode", asyn
 test("switches to columns layout, keeps the lens, and restores from the URL", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
 
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
@@ -1221,11 +1214,12 @@ test("switches to columns layout, keeps the lens, and restores from the URL", as
 
 test("dragging between board columns rewrites the canonical board groups", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await expect(page.locator('[data-drag-item-id="idea-parent-grouping-overview"]')).toBeVisible();
   await expect(page.locator('[data-board-drop-group-index="1"]').first()).toBeVisible();
 
-  await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '[data-board-drop-group-index="1"]');
+  await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '.board-column-list[data-board-drop-group-index="1"]');
 
   await expect(page.locator("#status-banner")).toContainText("Board updated.");
   await expect(page.locator('.board-column').nth(1)).toContainText("Parent grouping overview");
@@ -1237,6 +1231,7 @@ test("dragging between board columns rewrites the canonical board groups", async
 });
 
 test("dragging within a board column reprioritizes items in canonical board order", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
   const customBoard = `# Now
 - feature-search-and-filters
 - feature-setup-guidance
@@ -1252,7 +1247,7 @@ test("dragging within a board column reprioritizes items in canonical board orde
   await fs.writeFile(boardPath, customBoard, "utf8");
 
   await page.goto(repoUrl());
-  await page.locator("#refresh-button").click();
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await expect(page.locator('[data-drag-item-id="feature-setup-guidance"]')).toBeVisible();
   await expect(page.locator('[data-board-drop-before-id="feature-search-and-filters"]')).toBeVisible();
@@ -1268,20 +1263,51 @@ test("dragging within a board column reprioritizes items in canonical board orde
 });
 
 test("dragging between status columns uses the handle and updates the canonical frontmatter", async ({ page }) => {
-  await page.goto(repoUrl());
-  await page.locator("#board-layout-columns").click();
-  await page.locator("#board-view-toggle").click();
-  await page.locator('[data-lens-key="status"]').click();
-  await expect(page.locator('[data-drag-item-id="idea-parent-grouping-overview"]')).toBeVisible();
-  await expect(page.locator('[data-lens-drop-value="done"]').first()).toBeVisible();
+  const fixture = await makeDragRoadmapFixture();
+  try {
+    await page.goto(repoUrlFor(fixture, "/#layout=columns"));
+    await expect(page.locator('[data-drag-item-id="drag-source"]')).toBeVisible();
+    await expect(page.locator('[data-lens-drop-value="queued"]')).toBeVisible();
 
-  await dragRoadmapElement(page, '[data-drag-item-id="idea-parent-grouping-overview"]', '[data-lens-drop-value="done"]');
+    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-lens-drop-value="queued"]');
 
-  await expect(page.locator("#status-banner")).toContainText("Status updated.");
-  await expect(page.locator("#editor-overlay")).toBeHidden();
-  await expect(page).not.toHaveURL(/item=/);
-  const updatedIdeaText = await fs.readFile(path.join(process.cwd(), "roadmap", "ideas", "idea-parent-grouping-overview.md"), "utf8");
-  expect(updatedIdeaText).toContain("status: done");
+    await expect(page.locator("#status-banner")).toContainText("Status updated.");
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await expect(page).not.toHaveURL(/item=/);
+    expect(await fs.readFile(path.join(fixture, "roadmap", "features", "drag-source.md"), "utf8")).toContain("status: queued");
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("list view uses the column drag handle without making the open card draggable", async ({ page }) => {
+  const fixture = await makeDragRoadmapFixture();
+  const featureDir = path.join(fixture, "roadmap", "features");
+  try {
+    await page.goto(repoUrlFor(fixture));
+    const handle = page.locator('[data-drag-item-id="drag-source"]');
+    const card = page.locator('[data-item-id="drag-source"]');
+    await expect(handle).toBeVisible();
+    await expect(handle).toHaveClass(/board-column-card-drag/);
+    await expect(handle).toHaveText("::");
+    await expect(handle).toHaveAttribute("aria-label", "Move Drag source");
+    await expect(handle).toHaveAttribute("draggable", "true");
+    await expect(handle).not.toHaveAttribute("role", "button");
+    await expect(handle).not.toHaveAttribute("tabindex", "0");
+    await expect(card).not.toHaveAttribute("draggable", "true");
+    await expect(card).toHaveAttribute("aria-label", "Open Drag source");
+    await expect(page.getByText("Move", { exact: true })).toHaveCount(0);
+
+    await card.click();
+    await expect(page.locator("#editor-title")).toHaveText("Drag source");
+    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-lens-drop-value="queued"]');
+
+    await expect(page.locator("#status-banner")).toContainText("Status updated.");
+    await expect(page.locator('[data-lens-drop-value="queued"]').locator("xpath=../..")).toContainText("Drag source");
+    expect(await fs.readFile(path.join(featureDir, "drag-source.md"), "utf8")).toContain("status: queued");
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
 });
 
 test("stress-tests large metadata boards in list and columns views", async ({ page }) => {
@@ -1570,7 +1596,6 @@ test("milestone columns stay browse-only without drag handles", async ({ page })
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
   await page.goto(repoUrl("/#layout=columns"));
-  await page.locator("#refresh-button").click();
   await expect(page.locator("#board-layout-columns")).toBeVisible();
   await expect(page.locator(".board-columns")).toBeVisible();
   await page.locator("#board-view-toggle").click();
@@ -1638,6 +1663,7 @@ test("keeps long milestone labels and cards inside columns while list remains re
 test("lets a crowded desktop column scroll inside the lane", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 720 });
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
 
   const doneColumn = page.locator(".board-column").filter({ has: page.locator(".board-column-name", { hasText: "Done" }) }).first();
@@ -1700,6 +1726,7 @@ test("mobile list view keeps board mode and search rows stacked cleanly", async 
 test("mobile columns view stays usable for grouping and opening items", async ({ page }) => {
   await page.setViewportSize({ width: 540, height: 900 });
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="status"]').click();
@@ -1727,6 +1754,7 @@ test("mobile columns view stays usable for grouping and opening items", async ({
 
 test("uses restrained semantic badge tones without coloring every field", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-layout-columns").click();
   await page.locator("#board-view-toggle").click();
   await page.locator('[data-lens-key="priority"]').click();
@@ -2206,6 +2234,7 @@ test("rendered spec view finds anchored quotes that include markdown syntax", as
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
@@ -2269,6 +2298,7 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
@@ -2320,7 +2350,8 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
     selectionInfo.renderedText,
   );
 
-  await page.locator("#spec-comment-text").fill("auto test - duplicate phrase");
+  const commentText = `auto test - duplicate phrase ${Date.now()}`;
+  await page.locator("#spec-comment-text").fill(commentText);
   await page.locator("#spec-comment-form button[type='submit']").click();
 
   // Form must accept (no error banner).
@@ -2338,7 +2369,7 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
     const response = await fetch(`/api/spec-sessions/by-file/context?path=${encodeURIComponent(file)}`);
     return response.json();
   }, { file: targetFile });
-  const comments = (ctx.comments || []).filter((c) => c.anchor && c.anchor.quote === "DUPLICATE_PHRASE_ABC");
+  const comments = (ctx.comments || []).filter((c) => c.text === commentText && c.anchor?.quote === "DUPLICATE_PHRASE_ABC");
   expect(comments.length, "expected exactly one DUPLICATE_PHRASE_ABC comment").toBe(1);
   const newComment = comments[0];
 
@@ -2463,6 +2494,7 @@ test("trimming a paragraph quote down to a duplicate substring still anchors to 
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
@@ -2501,6 +2533,7 @@ test("live-selecting one of two same-line duplicates anchors to the chosen occur
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
@@ -2552,6 +2585,7 @@ test("live-selecting a duplicate phrase on different lines anchors to the chosen
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
@@ -2601,6 +2635,7 @@ test("comment composer closes after a successful submit", async ({ page }) => {
   // posting. Same bug existed for the suggestion composer.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2695,6 +2730,7 @@ A second paragraph in the same section.
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
@@ -2754,6 +2790,7 @@ test("rendered spec body stamps each block with its source line", async ({ page 
   // attributes => the line-based pipeline silently degrades to text matching.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -2794,6 +2831,7 @@ key: value
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -2851,6 +2889,7 @@ test("legacy comment without anchorStatus.lineStart still anchors via text-match
   // additive — when it misses, anchorTargetElement falls through.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -2893,6 +2932,7 @@ The whole sentence here that mentions key phrase inside it.
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -2982,6 +3022,7 @@ A second paragraph for layout.
 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
+  await expect(page).toHaveURL(/item=idea-create-items/);
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
