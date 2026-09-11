@@ -72,11 +72,13 @@ async function makeDragRoadmapFixture() {
   const featureDir = path.join(root, "roadmap", "features");
   await fs.mkdir(featureDir, { recursive: true });
   await fs.mkdir(path.join(root, "roadmap", "ideas"), { recursive: true });
-  await fs.writeFile(path.join(root, "roadmap", "board.md"), "# Items\n- drag-source\n- drag-target\n", "utf8");
+  await fs.writeFile(path.join(root, "roadmap", "board.md"), "# Items\n- drag-source\n- drag-target\n- drag-third\n- drag-unassigned\n", "utf8");
   await fs.writeFile(path.join(root, "roadmap", "scope.md"), "Drag interaction fixture.\n", "utf8");
-  await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({ roadmapPath: "roadmap", defaultLens: "status", lenses: { fields: { status: { order: ["queued", "done"], draggable: true } } } }), "utf8");
-  await fs.writeFile(path.join(featureDir, "drag-source.md"), "---\nid: drag-source\ntitle: Drag source\nstatus: done\npriority: high\ncommitment: committed\n---\n\n## Summary\n\nMove me with the drag handle.\n", "utf8");
-  await fs.writeFile(path.join(featureDir, "drag-target.md"), "---\nid: drag-target\ntitle: Drag target\nstatus: queued\npriority: medium\ncommitment: committed\n---\n\n## Summary\n\nKeep the destination visible.\n", "utf8");
+  await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({ roadmapPath: "roadmap", defaultLens: "status", lenses: { fields: { status: { order: ["queued", "done"], draggable: true }, lane: { order: ["alpha"], draggable: true } } } }), "utf8");
+  await fs.writeFile(path.join(featureDir, "drag-source.md"), "---\nid: drag-source\ntitle: Drag source\nstatus: done\npriority: high\ncommitment: committed\nlane: alpha\n---\n\n## Summary\n\nMove me with the drag handle.\n", "utf8");
+  await fs.writeFile(path.join(featureDir, "drag-target.md"), "---\nid: drag-target\ntitle: Drag target\nstatus: queued\npriority: medium\ncommitment: committed\nlane: beta\n---\n\n## Summary\n\nKeep the destination visible.\n", "utf8");
+  await fs.writeFile(path.join(featureDir, "drag-third.md"), "---\nid: drag-third\ntitle: Drag third\nstatus: queued\npriority: low\ncommitment: committed\n---\n\n## Summary\n\nUse me as an ordering target.\n", "utf8");
+  await fs.writeFile(path.join(featureDir, "drag-unassigned.md"), "---\nid: drag-unassigned\ntitle: Drag unassigned\nstatus: queued\npriority: low\ncommitment: committed\n---\n\n## Summary\n\nRequired metadata is intentionally blank.\n", "utf8");
   return root;
 }
 function extractHeadings(boardText) {
@@ -156,6 +158,11 @@ async function restoreFixture(file, contents) {
   }
 }
 
+async function currentSpecFile(page) {
+  await expect(page).toHaveURL(/file=/);
+  return page.evaluate(() => decodeURIComponent(window.location.hash.match(/file=([^&]+)/)[1]));
+}
+
 async function openMetadataDetails(page) {
   const details = page.locator(".metadata-details");
   if ((await details.getAttribute("open")) === null) {
@@ -163,11 +170,13 @@ async function openMetadataDetails(page) {
   }
 }
 
-async function dragRoadmapElement(page, sourceSelector, targetSelector) {
+async function dragRoadmapElement(page, sourceSelector, targetSelector, { targetYRatio = 0.5, scrollTargets = true } = {}) {
   const sourceLocator = page.locator(sourceSelector);
   const targetLocator = page.locator(targetSelector);
-  await sourceLocator.scrollIntoViewIfNeeded();
-  await targetLocator.scrollIntoViewIfNeeded();
+  if (scrollTargets) {
+    await sourceLocator.scrollIntoViewIfNeeded();
+    await targetLocator.scrollIntoViewIfNeeded();
+  }
   const sourceBox = await sourceLocator.boundingBox();
   const targetBox = await targetLocator.boundingBox();
   if (!sourceBox || !targetBox) {
@@ -175,7 +184,7 @@ async function dragRoadmapElement(page, sourceSelector, targetSelector) {
   }
 
   const source = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
-  const target = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };
+  const target = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height * targetYRatio };
   await page.mouse.move(source.x, source.y);
   await page.mouse.down();
   await page.mouse.move(source.x + 8, source.y + 8, { steps: 4 });
@@ -965,6 +974,7 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
 
   await page.goto(repoUrl());
+  await page.getByRole("button", { name: "Refresh" }).click();
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="milestone"]').click();
 
@@ -1281,10 +1291,11 @@ test("dragging between status columns uses the handle and updates the canonical 
   }
 });
 
-test("list view keeps one drag grip inside the card and no visible reorder arrows", async ({ page }) => {
+test("list view opens cards and supports moving and ordering with its in-card drag grip", async ({ page }) => {
   const fixture = await makeDragRoadmapFixture();
   const featureDir = path.join(fixture, "roadmap", "features");
   try {
+    await page.setViewportSize({ width: 1280, height: 1100 });
     await page.goto(repoUrlFor(fixture));
     const handle = page.locator('[data-drag-item-id="drag-source"]');
     const card = page.locator('[data-item-id="drag-source"]');
@@ -1301,13 +1312,33 @@ test("list view keeps one drag grip inside the card and no visible reorder arrow
     await expect(page.getByText("Move", { exact: true })).toHaveCount(0);
     expect(await handle.evaluate((element) => element.closest('[data-item-id="drag-source"]') !== null)).toBe(true);
 
-    await card.click();
-    await expect(page.locator("#editor-title")).toHaveText("Drag source");
-    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-lens-drop-value="queued"]');
+    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-item-order-drop-id="drag-target"]');
 
     await expect(page.locator("#status-banner")).toContainText("Status updated.");
     await expect(page.locator('[data-lens-drop-value="queued"]').locator("xpath=../..")).toContainText("Drag source");
     expect(await fs.readFile(path.join(featureDir, "drag-source.md"), "utf8")).toContain("status: queued");
+    await expect(card).toHaveAttribute("data-item-order-drop-id", "drag-source");
+    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-item-order-drop-id="drag-third"]', { targetYRatio: 0.2 });
+    await expect(page.locator("#status-banner")).toContainText("Shared item order saved.");
+    let boardText = await fs.readFile(path.join(fixture, "roadmap", "board.md"), "utf8");
+    expect(boardText.match(/^- (.+)$/gm)?.map((line) => line.slice(2))).toEqual(["drag-target", "drag-source", "drag-third", "drag-unassigned"]);
+
+    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-item-order-drop-id="drag-third"]', { targetYRatio: 0.8 });
+    await expect(page.locator("#status-banner")).toContainText("Shared item order saved.");
+    boardText = await fs.readFile(path.join(fixture, "roadmap", "board.md"), "utf8");
+    expect(boardText.match(/^- (.+)$/gm)?.map((line) => line.slice(2))).toEqual(["drag-target", "drag-third", "drag-source", "drag-unassigned"]);
+
+    await page.locator("#board-view-toggle").click();
+    await page.locator('[data-lens-key="lane"]').click();
+    const unassignedTarget = page.locator('[data-item-order-drop-id="drag-unassigned"]');
+    await expect(unassignedTarget).toBeVisible();
+    await expect(unassignedTarget).not.toHaveAttribute("data-item-order-drop-value", "");
+    await dragRoadmapElement(page, '[data-drag-item-id="drag-source"]', '[data-item-order-drop-id="drag-unassigned"]');
+    await expect(page.locator("#status-banner")).toContainText("Lane updated.");
+    expect(await fs.readFile(path.join(featureDir, "drag-source.md"), "utf8")).not.toMatch(/^lane:/m);
+
+    await card.click();
+    await expect(page.locator("#editor-title")).toHaveText("Drag source");
   } finally {
     await fs.rm(fixture, { recursive: true, force: true });
   }
@@ -1577,6 +1608,30 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     await laneList.evaluate((list) => { list.scrollTop = 240; });
     const horizontalScrollBeforeCollapse = await page.locator(".board-columns").evaluate((root) => root.scrollLeft);
     const verticalScrollBeforeCollapse = await laneList.evaluate((list) => list.scrollTop);
+    const visibleDropIds = await laneList.locator("[data-item-order-drop-id]").evaluateAll((cards) => {
+      const viewport = cards[0]?.closest(".board-column-list")?.getBoundingClientRect();
+      return viewport
+        ? cards.filter((card) => {
+            const bounds = card.getBoundingClientRect();
+            return bounds.top >= viewport.top + 4 && bounds.bottom <= viewport.bottom - 4;
+          }).slice(0, 2).map((card) => card.dataset.itemOrderDropId)
+        : [];
+    });
+    expect(visibleDropIds).toHaveLength(2);
+    const [denseTargetId, denseSourceId] = visibleDropIds;
+    const denseOrderBefore = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
+    await dragRoadmapElement(
+      page,
+      `[data-drag-item-id="${denseSourceId}"]`,
+      `[data-item-order-drop-id="${denseTargetId}"]`,
+      { targetYRatio: 0.2, scrollTargets: false },
+    );
+    await expect(page.locator("#status-banner")).toContainText("Shared item order saved.");
+    expect(await page.locator(".board-columns").evaluate((root) => root.scrollLeft)).toBe(horizontalScrollBeforeCollapse);
+    expect(await laneList.evaluate((list) => list.scrollTop)).toBe(verticalScrollBeforeCollapse);
+    const denseOrderAfter = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
+    expect(denseOrderAfter.indexOf(denseSourceId)).toBe(denseOrderAfter.indexOf(denseTargetId) - 1);
+    expect(denseOrderAfter.filter((id) => id !== denseSourceId)).toEqual(denseOrderBefore.filter((id) => id !== denseSourceId));
     await page.getByRole("button", { name: `Collapse ${firstCollapsedLane} column`, exact: true }).click();
     expect(await page.locator(".board-columns").evaluate((root) => root.scrollLeft)).toBe(horizontalScrollBeforeCollapse);
     expect(await laneList.evaluate((list) => list.scrollTop)).toBe(verticalScrollBeforeCollapse);
@@ -1869,8 +1924,7 @@ test("board badge appears on items with an active spec session", async ({ page }
   // Easier path: hit the API directly with the active repo header.
   const repoPath = process.cwd();
   // Find the spec session targetFile from the spec list.
-  const sessionRow = page.locator("[data-spec-session-path]").first();
-  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
   await page.evaluate(async (file) => {
     await fetch("/api/spec-sessions/by-file/comments", {
       method: "POST",
@@ -2245,7 +2299,7 @@ test("rendered spec view finds anchored quotes that include markdown syntax", as
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
-  const targetFile = await page.locator("[data-spec-session-path]").first().getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   // Save two comments via the API: one anchored on a heading-prefixed quote,
   // one anchored on a backtick-bracketed code span. Both quotes carry markdown
@@ -2309,7 +2363,7 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
-  const targetFile = await page.locator("[data-spec-session-path]").first().getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   // The body must contain BOTH occurrences (rendered).
   const body = page.locator(".spec-body-markdown");
@@ -2343,18 +2397,12 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    return { ok: true, renderedText: String(sel.toString()) };
+    const renderedText = String(sel.toString());
+    window.__minimapSpec.openCommentComposerWithSelection(renderedText);
+    return { ok: true, renderedText };
   });
   expect(selectionInfo.ok, `selection setup failed: ${selectionInfo.reason}`).toBe(true);
   expect(selectionInfo.renderedText).toBe("DUPLICATE_PHRASE_ABC");
-
-  // Drive the same code path the floating toolbar does — captureSpecSelectedQuote
-  // populated state.spec.selectedQuoteLineRange already, but the test hook
-  // re-resolves it explicitly so it matches what an interactive flow does.
-  await page.evaluate(
-    (rendered) => window.__minimapSpec.openCommentComposerWithSelection(rendered),
-    selectionInfo.renderedText,
-  );
 
   const commentText = `auto test - duplicate phrase ${Date.now()}`;
   await page.locator("#spec-comment-text").fill(commentText);
@@ -2741,8 +2789,7 @@ A second paragraph in the same section.
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
-  const sessionRow = page.locator("[data-spec-session-path]").first();
-  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   // Three suggestions covering the cases the cheap fallback should handle:
   //   - heading + code fence (multi-block)
@@ -2841,8 +2888,7 @@ key: value
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
-  const sessionRow = page.locator("[data-spec-session-path]").first();
-  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   // Submit a multi-block suggestion. The server records lineStart at the
   // heading line; the UI should resolve the card to the heading via
@@ -2899,8 +2945,7 @@ test("legacy comment without anchorStatus.lineStart still anchors via text-match
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
-  const sessionRow = page.locator("[data-spec-session-path]").first();
-  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   await page.evaluate(async (file) => {
     await fetch("/api/spec-sessions/by-file/comments", {
@@ -2942,8 +2987,7 @@ The whole sentence here that mentions key phrase inside it.
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
-  const sessionRow = page.locator("[data-spec-session-path]").first();
-  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   // Comment on the substring; suggestion replaces the whole sentence.
   const seeded = await page.evaluate(async (file) => {
@@ -3032,8 +3076,7 @@ A second paragraph for layout.
   await page.locator("#open-in-spec-button").click();
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
-  const sessionRow = page.locator("[data-spec-session-path]").first();
-  const targetFile = await sessionRow.getAttribute("data-spec-session-path");
+  const targetFile = await currentSpecFile(page);
 
   // Seed a comment whose quote doesn't exist in the file but whose
   // lineStart points at a real paragraph. The anchorStatus comes back
