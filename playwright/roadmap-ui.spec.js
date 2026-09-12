@@ -570,7 +570,7 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await details.locator("summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
   await expect(page.locator("#item-participants-list")).toContainText("codex");
-  await expect(page.locator("#item-participants-list .badge")).toHaveCount(4);
+  await expect(page.locator("#item-participants-list .badge")).toHaveText(["codex", "Association: active", "Lifecycle: recent", "Destination: active"]);
   await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
   await expect(page.locator("#item-participants-list a")).toHaveCount(0);
   await expect(page.locator("#item-participants-scope")).toHaveText("roadmap:v1:git:github.com/rore/minimap#roadmap");
