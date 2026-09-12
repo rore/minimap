@@ -1,7 +1,7 @@
 # Now
 
 # Next
-- add-pallium-work-item-participants
+- fix-shared-server-registry-test-isolation
 - add-work-item-dependencies
 
 # Ideas
@@ -24,3 +24,4 @@
 - feature-column-board-view
 - idea-parent-grouping-overview
 - add-metadata-first-grouping-and-ordering
+- add-pallium-work-item-participants
