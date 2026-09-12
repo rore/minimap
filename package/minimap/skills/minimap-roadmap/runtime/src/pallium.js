@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -10,7 +11,12 @@ const MAX_TOTAL_BYTES = 256 * 1024;
 const LOOKUP_TIMEOUT_MS = 2000;
 const CONTRACT = "relay-session-work-associations/v1";
 const REFERENCE_CONTRACT = "minimap-roadmap-item/v1";
-const SECRET_RE = /(?:gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|(?:token|password|secret|api[_-]?key)=)/i;
+const WORK_REF_SECRET_RE = /(?:\bgh[pousr]_[A-Za-z0-9]{30,255}\b|\bxox(?:[abpr]-\d{6,20}-\d{6,20}-[A-Za-z0-9]{20,64}|[a-z]-[A-Za-z0-9-]{20,255})\b|\bsk-(?:(?:ant-api\d{2}|proj)-)?[A-Za-z0-9_-]{20,255}\b|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b)/i;
+const REDACTABLE_SECRET_RE = /(?:Bearer\s+\S+|(?:PASSWORD|SECRET|TOKEN|KEY|AUTH)\s*=\s*\S+|-----BEGIN [A-Z ]+KEY-----.*?-----END[^\n]*|(?:mongodb|postgres|mysql|redis):\/\/\S+|(?:Authorization|Cookie):\s*.+)/is;
+
+function containsSensitive(value) {
+  return String(value).includes("[REDACTED") || WORK_REF_SECRET_RE.test(value) || REDACTABLE_SECRET_RE.test(value);
+}
 
 class LookupError extends Error {
   constructor(code) {
@@ -42,7 +48,7 @@ function validateReadablePart(value, { local = false } = {}) {
   if (/^[ \t\n\r\f\v]|[ \t\n\r\f\v]$/.test(value)) return false;
   if (Buffer.byteLength(value, "utf8") > 512) return false;
   if (local && [...value].length > 128) return false;
-  if (value.includes("[REDACTED") || SECRET_RE.test(value)) return false;
+  if (containsSensitive(value)) return false;
   return true;
 }
 
@@ -59,7 +65,7 @@ function hasInvalidPathSegment(value) {
 export function canonicalGitRemote(value) {
   if (typeof value !== "string" || !value.trim()) return null;
   const raw = value.trim();
-  if (raw.includes("\\") || hasUnsafeUnicode(raw) || SECRET_RE.test(raw)) return null;
+  if (raw.includes("\\") || hasUnsafeUnicode(raw) || containsSensitive(raw)) return null;
 
   let host;
   let port = "";
@@ -76,17 +82,31 @@ export function canonicalGitRemote(value) {
     let parsed;
     try {
       const authority = raw.match(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/]+)/)?.[1] || "";
-      if ([...authority].some((character) => character.charCodeAt(0) > 127)) return null;
-      const rawPath = raw.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/, "").split(/[?#]/, 1)[0];
+      const hostPort = authority.split("@").at(-1);
+      if (
+        !authority
+        || [...authority].some((character) => character.charCodeAt(0) > 127)
+        || authority.includes("%")
+        || hostPort.endsWith(":")
+      ) return null;
+      const withoutAuthority = raw.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/, "");
+      if (/%(?![0-9A-Fa-f]{2})/.test(withoutAuthority)) return null;
+      const rawPath = withoutAuthority.split(/[?#]/, 1)[0];
       const decodedRawPath = decodeURIComponent(rawPath);
       if (hasInvalidPathSegment(decodedRawPath.replace(/^\/+|\/+$/g, ""))) return null;
       parsed = new URL(raw);
+      const suffix = decodeURIComponent(
+        [parsed.search.slice(1), parsed.hash.slice(1)].filter(Boolean).join("&"),
+      );
+      if (suffix && containsSensitive(suffix)) return null;
+      const hasUserinfo = authority.includes("@");
+      const rawUserinfo = hasUserinfo ? authority.slice(0, authority.lastIndexOf("@")) : "";
+      if (parsed.password || (hasUserinfo && (!parsed.username || parsed.protocol !== "ssh:" || rawUserinfo.includes(":")))) return null;
+      if (hasUserinfo && !/^[A-Za-z0-9._-]+$/.test(parsed.username)) return null;
     } catch {
       return null;
     }
     if (!["https:", "ssh:"].includes(parsed.protocol) || !parsed.hostname) return null;
-    if (parsed.password || (parsed.username && parsed.protocol !== "ssh:")) return null;
-    if (parsed.username && !/^[A-Za-z0-9._-]+$/.test(parsed.username)) return null;
     scheme = parsed.protocol.slice(0, -1);
     host = parsed.hostname;
     port = parsed.port;
@@ -105,7 +125,7 @@ export function canonicalGitRemote(value) {
 
   let normalizedPath = String(remotePath || "").normalize("NFC").replace(/^\/+|\/+$/g, "");
   if (normalizedPath.endsWith(".git")) normalizedPath = normalizedPath.slice(0, -4);
-  if (!normalizedPath || hasInvalidPathSegment(normalizedPath) || SECRET_RE.test(normalizedPath) || hasUnsafeUnicode(normalizedPath)) return null;
+  if (!normalizedPath || hasInvalidPathSegment(normalizedPath) || containsSensitive(normalizedPath) || hasUnsafeUnicode(normalizedPath)) return null;
   if (normalizedHost === "github.com") normalizedPath = normalizedPath.toLowerCase();
   return "git:" + authority + "/" + normalizedPath;
 }
@@ -190,13 +210,14 @@ function encodedRoadmapRoot(gitRoot, roadmapRoot) {
 
 export async function resolveRoadmapItemReference(repoRoot, roadmapPath, itemId, options = {}) {
   const git = options.runGit || runGit;
+  const realpath = options.realpath || fs.realpath;
   try {
-    const gitRoot = path.resolve(await git(["rev-parse", "--show-toplevel"], repoRoot));
+    const gitRoot = await realpath(path.resolve(await git(["rev-parse", "--show-toplevel"], repoRoot)));
     const remote = await git(["remote", "get-url", "origin"], gitRoot);
     const repositoryRef = canonicalGitRemote(remote);
     if (!repositoryRef) return null;
 
-    const roadmapRoot = path.resolve(repoRoot, roadmapPath);
+    const roadmapRoot = await realpath(path.resolve(repoRoot, roadmapPath));
     const encodedRoot = encodedRoadmapRoot(gitRoot, roadmapRoot);
     if (encodedRoot === null) return null;
 

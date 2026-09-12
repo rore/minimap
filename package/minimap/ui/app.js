@@ -3219,7 +3219,7 @@ function renderItemParticipants() {
 
   const rows = participants.map((participant) => {
     const name = participant.alias || participant.title || participant.session_ref;
-    const availability = [participant.state, participant.lifecycle, participant.destination_health].filter(Boolean);
+    const availability = [["Session", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
     const origins = participant.association?.origins || [];
     return `
       <article class="item-participant" role="listitem">
@@ -3229,7 +3229,7 @@ function renderItemParticipants() {
         </div>
         <div class="item-participant-reference-row"><span class="muted">Session</span><code>${escapeHtml(participant.session_ref)}</code></div>
         <div class="item-participant-reference-row"><span class="muted">Container</span><code>${escapeHtml(participant.container_ref)}</code></div>
-        <div class="item-participant-badges">${availability.map((value) => `<span class="badge">${escapeHtml(value)}</span>`).join("")}</div>
+        <div class="item-participant-badges">${availability.map(([label, value]) => `<span class="badge">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}</div>
         <p class="muted item-participant-freshness" title="Last seen: ${escapeHtml(participant.last_seen_at)}; association updated: ${escapeHtml(participant.association?.updated_at || "")}">
           Seen ${escapeHtml(formatParticipantTime(participant.last_seen_at))} · association updated ${escapeHtml(formatParticipantTime(participant.association?.updated_at))}
           ${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}

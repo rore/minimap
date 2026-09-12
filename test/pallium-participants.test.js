@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   canonicalGitRemote,
@@ -65,29 +67,56 @@ test("canonical Git identity and reference encoding match published vectors", ()
     ["ssh://git@github.com:22/User/Repo.git", "git:github.com/user/repo"],
     ["git@github.com:User/Repo.git", "git:github.com/user/repo"],
     ["git@source.example.test:Systems/Repo.git", "git:source.example.test/Systems/Repo"],
+    ["https://git.example.test/Team/café.git", "git:git.example.test/Team/café"],
     ["https://git.example.test/Team/cafe%CC%81.git", "git:git.example.test/Team/café"],
     ["ssh://builder@git.example.test:2222/Team/Repo.git", "git:git.example.test:2222/Team/Repo"],
+    ["https://git.example.test:8443/Team/Repo.git", "git:git.example.test:8443/Team/Repo"],
+    ["https://git.example.test/Team/Repo.git?ref=main#ignored", "git:git.example.test/Team/Repo"],
   ]);
   for (const [input, expected] of vectors) assert.equal(canonicalGitRemote(input), expected);
-  for (const invalid of [
-    "file:///tmp/repo",
-    "C:/repo",
+
+  const invalid = [
+    "", "file:///tmp/repo", "C:/repo", "../repo",
     "https://user:password@example.test/repo.git",
     "https://user@example.test/repo.git",
-    "https://example.test/repo.git?token=secret",
+    "https://example.test:0/repo.git",
+    "https://example.test:65536/repo.git",
+    "https://example.test:ambiguous/repo.git",
+    "https://example.test/repo.git?token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "https://example.test/ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/repo.git",
+    "https://example.test/repo/../other.git",
     "https://git.example.test/Team/%2e%2e/Repo.git",
+    "https://git.example.test/Team/%2E./Repo.git",
+    "https://git.example.test:/Team/Repo.git",
+    "https://git.example.test/Team/%ZZ/Repo.git",
     "git@source example.test:Systems/Repo.git",
-  ]) {
-    assert.equal(canonicalGitRemote(invalid), null);
-  }
+    "git@exa%mple.test:team/repo.git",
+    "git@example.test:", "example.test:repo",
+    "https://münich.example/repo.git",
+    "https://git%2eexample.test/Team/Repo.git",
+    "https://git.example.test/Team\\Repo.git",
+    "https://example.test/Team/AKIAABCDEFGHIJKLMNOP/repo.git",
+    ["https://example.test/Team/", "xo", "xb", "-", "1234567890", "-", "9876543210", "-", "a".repeat(30), "/repo.git"].join(""),
+    "https://example.test/Team/key=supersecretvalue/repo.git",
+    "https://example.test/Team/Bearer%20abc123abc123abc123abc123/repo.git",
+    "https://example.test/Team/repo.git?note=Bearer%20abc123abc123abc123abc123",
+    "https://example.test/Team/Authorization:%20Basic%20Zm9vYmFy/repo.git",
+    "https://example.test/Team/repo.git?note=Cookie:%20session%3Dabc",
+    "https://example.test/Team/repo.git?note=mongodb%3A%2F%2Fuser%3Apass%40host",
+    "https://example.test/Team/repo.git?note=-----BEGIN%20PRIVATE%20KEY-----%0Aabc%0A-----END%20PRIVATE%20KEY-----",
+    "https://@example.test/repo.git",
+    "ssh://@example.test/repo.git",
+    "ssh://git:@example.test/repo.git",
+  ];
+  for (const remote of invalid) assert.equal(canonicalGitRemote(remote), null, remote);
   assert.equal(encodeReferencePart("e\u0301 space/子"), "%C3%A9%20space%2F%E5%AD%90");
 });
-
 test("roadmap item references are stable across worktrees and distinct across tracker roots", async () => {
   const remote = "https://github.com/Owner/Repo.git";
   const resolve = async (repoRoot, gitRoot, roadmapPath, itemId = "é item") => (
     resolveRoadmapItemReference(repoRoot, roadmapPath, itemId, {
       runGit: async (args) => args[0] === "rev-parse" ? gitRoot : remote,
+      realpath: async (value) => path.resolve(value),
     })
   );
 
@@ -101,14 +130,37 @@ test("roadmap item references are stable across worktrees and distinct across tr
   assert.notEqual(first.scope_ref, other.scope_ref);
 });
 
+test("physical roadmap roots keep references stable across path casing and junction aliases", async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-physical-ref-"));
+  const gitRoot = path.join(temp, "Repo");
+  const repoRoot = path.join(gitRoot, "apps", "product");
+  await fs.mkdir(path.join(repoRoot, "roadmap"), { recursive: true });
+  const alias = path.join(temp, "product-alias");
+  try {
+    await fs.symlink(repoRoot, alias, process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    t.skip(`Directory alias unavailable: ${error.code || error.message}`);
+    return;
+  }
+  const options = {
+    runGit: async (args) => args[0] === "rev-parse" ? gitRoot : "https://github.com/Owner/Repo.git",
+  };
+  const canonical = await resolveRoadmapItemReference(repoRoot, "roadmap", "feature", options);
+  assert.deepEqual(await resolveRoadmapItemReference(alias, "roadmap", "feature", options), canonical);
+  if (process.platform === "win32") {
+    assert.deepEqual(await resolveRoadmapItemReference(repoRoot.toUpperCase(), "roadmap", "feature", options), canonical);
+  }
+});
 test("unsafe or missing repository identity is explicitly unavailable", async () => {
   const missing = await resolveRoadmapItemReference("C:/work/repo", "roadmap", "feature", {
     runGit: async (args) => args[0] === "rev-parse" ? "C:/work/repo" : "https://user:password@example.test/repo.git",
+    realpath: async (value) => path.resolve(value),
   });
   assert.equal(missing, null);
 
   const tooLong = await resolveRoadmapItemReference("C:/work/repo", "roadmap", "😀".repeat(100), {
     runGit: async (args) => args[0] === "rev-parse" ? "C:/work/repo" : "https://example.test/repo.git",
+    realpath: async (value) => path.resolve(value),
   });
   assert.equal(tooLong, null);
 });
