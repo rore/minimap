@@ -43,6 +43,17 @@ The agent uses the skills below to start the bundled server (or reuse a running 
 
 A single running server is shared across both modes and across any number of repos. Switching repos is just a URL change — no restart.
 
+### Optional Pallium participants
+
+When `MINIMAP_PALLIUM_ENDPOINT` is set to an explicit loopback HTTP origin, such as `http://127.0.0.1:19836`, a selected roadmap item can show a lazy, read-only list of associated Pallium sessions. Leaving it unset makes no Pallium requests and changes none of Minimap's normal board or editing behavior.
+
+Agents can obtain the same authoritative work selector without enabling the HTTP integration:
+
+```bash
+minimap roadmap item-ref <item-id> --repo /abs/path/to/repo --json
+```
+
+The command derives identity from the canonical Git origin, repository-relative roadmap root, and item ID. If that identity cannot be derived safely, it reports it as unavailable instead of substituting a machine-local path.
 ## Install
 
 Each mode is a Claude Code skill — a folder containing a `SKILL.md` file plus its bundled runtime. Claude Code picks up skills from two places:

@@ -33,7 +33,43 @@ function repoUrlFor(repoRoot, suffix = "") {
   return suffix.startsWith("/#") ? `/#${repo}&${suffix.slice(2)}` : `${suffix}#${repo}`;
 }
 
-async function makeLargeRoadmapFixture() {
+function participantPayload(itemId, alias = "minimap-dev", count = 1) {
+  const scopeRef = "roadmap:v1:git:github.com/rore/minimap#roadmap";
+  const localRef = "item:v1:" + encodeURIComponent(itemId);
+  return {
+    status: "ok",
+    reference: {
+      contract: "minimap-roadmap-item/v1",
+      scope_ref: scopeRef,
+      local_ref: localRef,
+    },
+    participants: Array.from({ length: count }, (_, index) => ({
+      endpoint_id: "relay-session-" + String(index).padStart(32, "0"),
+      runtime: index % 2 ? "claude-code" : "codex",
+      session_ref: "session-" + index,
+      container_ref: "git:github.com/rore/minimap",
+      title: "Minimap delivery " + index,
+      alias: index === 0 ? alias : "worker-" + index,
+      state: "active",
+      lifecycle: index % 2 ? "dormant" : "recent",
+      destination_health: "active",
+      first_seen_at: "2026-09-12T08:00:00.000Z",
+      last_seen_at: "2026-09-12T08:30:00.000Z",
+      closed_at: null,
+      scope_generation: 1,
+      association: {
+        work_ref: "work:v1:" + "a".repeat(64),
+        scope_ref: scopeRef,
+        local_ref: localRef,
+        origins: ["explicit"],
+        created_at: "2026-09-12T08:00:00.000Z",
+        updated_at: "2026-09-12T08:30:00.000Z",
+      },
+    })),
+    partial: count === 200,
+    refreshedAt: "2026-09-12T08:30:00.000Z",
+  };
+}async function makeLargeRoadmapFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-large-roadmap-"));
   await fs.mkdir(path.join(root, "roadmap", "features"), { recursive: true });
   await fs.mkdir(path.join(root, "roadmap", "ideas"), { recursive: true });
@@ -74,7 +110,7 @@ async function makeDragRoadmapFixture() {
   await fs.mkdir(path.join(root, "roadmap", "ideas"), { recursive: true });
   await fs.writeFile(path.join(root, "roadmap", "board.md"), "# Items\n- drag-source\n- drag-target\n- drag-third\n- drag-unassigned\n", "utf8");
   await fs.writeFile(path.join(root, "roadmap", "scope.md"), "Drag interaction fixture.\n", "utf8");
-  await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({ roadmapPath: "roadmap", defaultLens: "status", lenses: { fields: { status: { order: ["queued", "done"], draggable: true }, lane: { order: ["alpha"], draggable: true } } } }), "utf8");
+  await fs.writeFile(path.join(root, "roadmap.config.json"), JSON.stringify({ roadmapPath: "roadmap", defaultLens: "status", lenses: { fields: { status: { order: ["queued", "done", "blocked"], draggable: true }, lane: { order: ["alpha"], draggable: true } } } }), "utf8");
   await fs.writeFile(path.join(featureDir, "drag-source.md"), "---\nid: drag-source\ntitle: Drag source\nstatus: done\npriority: high\ncommitment: committed\nlane: alpha\n---\n\n## Summary\n\nMove me with the drag handle.\n", "utf8");
   await fs.writeFile(path.join(featureDir, "drag-target.md"), "---\nid: drag-target\ntitle: Drag target\nstatus: queued\npriority: medium\ncommitment: committed\nlane: beta\n---\n\n## Summary\n\nKeep the destination visible.\n", "utf8");
   await fs.writeFile(path.join(featureDir, "drag-third.md"), "---\nid: drag-third\ntitle: Drag third\nstatus: queued\npriority: low\ncommitment: committed\n---\n\n## Summary\n\nUse me as an ordering target.\n", "utf8");
@@ -517,6 +553,121 @@ test("opens another board item in read mode before entering edit mode", async ({
 });
 
 
+test("shows the same lazy participant details in List and Columns without per-card requests", async ({ page }) => {
+  const participantRequests = [];
+  await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
+    participantRequests.push(itemId);
+    await route.fulfill({ json: participantPayload(itemId) });
+  });
+
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  const details = page.locator("#item-participants");
+  await expect(details).toBeVisible();
+  await expect(page.locator("#item-participants-status")).toHaveText("1 participant");
+  expect(participantRequests).toEqual(["feature-setup-guidance"]);
+
+  await details.locator("summary").click();
+  await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  await expect(page.locator("#item-participants-list")).toContainText("codex");
+  await expect(page.locator("#item-participants-list .badge")).toHaveCount(4);
+  await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
+  await expect(page.locator("#item-participants-list a")).toHaveCount(0);
+  await expect(page.locator("#item-participants-scope")).toHaveText("roadmap:v1:git:github.com/rore/minimap#roadmap");
+
+  await page.locator("#board-layout-columns").click();
+  await page.locator('[data-item-open="feature-setup-guidance"]').click();
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
+});
+
+test("keeps a 200-session participant result scrollable without squeezing the item pane", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 820 });
+  await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
+    await route.fulfill({ json: participantPayload(itemId, "minimap-dev", 200) });
+  });
+
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  const details = page.locator("#item-participants");
+  await details.locator("summary").click();
+  await expect(page.locator(".item-participant")).toHaveCount(200);
+  let geometry = await page.evaluate(() => ({
+    participantClientHeight: document.querySelector(".item-participants-body").clientHeight,
+    participantScrollHeight: document.querySelector(".item-participants-body").scrollHeight,
+    itemClientHeight: document.querySelector(".editor-panels").clientHeight,
+  }));
+  expect(geometry.participantScrollHeight).toBeGreaterThan(geometry.participantClientHeight);
+  expect(geometry.itemClientHeight).toBeGreaterThan(180);
+
+  await page.locator("#board-layout-columns").click();
+  await page.locator('[data-item-open="feature-setup-guidance"]').click();
+  await expect(page.locator("#editor-overlay")).toBeVisible();
+  await expect(page.locator(".item-participant")).toHaveCount(200);
+  geometry = await page.evaluate(() => ({
+    participantClientHeight: document.querySelector(".item-participants-body").clientHeight,
+    participantScrollHeight: document.querySelector(".item-participants-body").scrollHeight,
+    itemClientHeight: document.querySelector(".editor-panels").clientHeight,
+  }));
+  expect(geometry.participantScrollHeight).toBeGreaterThan(geometry.participantClientHeight);
+  expect(geometry.itemClientHeight).toBeGreaterThan(180);
+});
+test("keeps participant lookup invisible and ordinary editing usable when Pallium is not configured", async ({ page }) => {
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
+
+  await expect(page.locator("#item-participants")).toBeHidden();
+  await page.locator("#tab-structured").click();
+  await openMetadataDetails(page);
+  await expect(page.locator("#field-title")).toBeEditable();
+  await expect(page.locator("#field-title")).toHaveValue("Setup guidance and empty-state workflow");
+});
+
+test("does not let a stale item response replace the latest selection", async ({ page }) => {
+  await page.goto(repoUrl());
+  await page.route(/\/api\/items\/feature-setup-guidance$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      await route.continue();
+    } catch {
+      // The newer selection intentionally aborts this request.
+    }
+  });
+
+  await page.locator('[data-item-id="feature-setup-guidance"]').click();
+  await page.locator('[data-item-id="feature-search-and-filters"]').click();
+  await expect(page.locator("#editor-title")).toContainText("Search");
+  await page.waitForTimeout(400);
+  await expect(page.locator("#editor-title")).toContainText("Search");
+});
+
+test("does not let an in-flight participant response replace the latest selection", async ({ page }) => {
+  let markSlowStarted;
+  const slowStarted = new Promise((resolve) => { markSlowStarted = resolve; });
+  await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
+    if (itemId === "feature-setup-guidance") {
+      markSlowStarted();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    try {
+      await route.fulfill({ json: participantPayload(itemId, itemId === "feature-setup-guidance" ? "stale-session" : "current-session") });
+    } catch {
+      // The newer selection intentionally aborts this request.
+    }
+  });
+
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  await slowStarted;
+  await page.locator('[data-item-id="feature-search-and-filters"]').click();
+  await expect(page.locator("#editor-title")).toContainText("Search");
+  await expect(page.locator("#item-participants")).toBeVisible();
+  await page.locator("#item-participants summary").click();
+  await expect(page.locator("#item-participants-list")).toContainText("current-session");
+  await page.waitForTimeout(400);
+  await expect(page.locator("#item-participants-list")).not.toContainText("stale-session");
+});
+
 test("keeps the selected item in the URL so refresh returns to it", async ({ page }) => {
   await page.goto(repoUrl());
 
@@ -906,6 +1057,7 @@ test("search filters the grouped board by item body text and persists in the URL
 
 test("generic metadata filters render from file frontmatter and combine with search", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
 
   await page.locator("#board-filter-toggle").click();
   await expect(page.locator('[data-filter-key="commitment"][data-filter-value="committed"]')).toBeVisible();
@@ -1009,20 +1161,19 @@ test("anchors the group-by chooser to the trigger instead of the far board edge"
   expect(Math.abs((chooserBox?.x ?? 0) - (triggerBox?.x ?? 0))).toBeLessThan(40);
   expect((chooserBox?.y ?? 0)).toBeGreaterThan((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) - 6);
 });
-test("status columns keep empty built-in lanes visible in columns mode", async ({ page }) => {
-  await page.goto(repoUrl());
-  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
-  await page.locator("#board-layout-columns").click();
-  await page.locator("#board-view-toggle").click();
-  await page.locator('[data-lens-key="status"]').click();
+test("status columns keep configured empty lanes visible in columns mode", async ({ page }) => {
+  const fixture = await makeDragRoadmapFixture();
+  try {
+    await page.goto(repoUrlFor(fixture, "/#layout=columns"));
 
-  await expect(page.locator(".board-column")).toHaveCount(4);
-  await expect(page.locator(".board-column").nth(0)).toContainText("queued");
-  await expect(page.locator(".board-column").nth(1)).toContainText("in-progress");
-  await expect(page.locator(".board-column").nth(2)).toContainText("blocked");
-  await expect(page.locator(".board-column").nth(3)).toContainText("done");
-  await expect(page.locator(".board-column").nth(1).locator(".board-column-empty")).toContainText("No visible items.");
-  await expect(page.locator(".board-column").nth(2).locator(".board-column-empty")).toContainText("No visible items.");
+    await expect(page.locator(".board-column")).toHaveCount(3);
+    await expect(page.locator(".board-column").nth(0)).toContainText("queued");
+    await expect(page.locator(".board-column").nth(1)).toContainText("done");
+    await expect(page.locator(".board-column").nth(2)).toContainText("blocked");
+    await expect(page.locator(".board-column").nth(2).locator(".board-column-empty")).toContainText("No visible items.");
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
 });
 test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 1100 });

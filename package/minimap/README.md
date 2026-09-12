@@ -55,6 +55,11 @@ http://localhost:4312/#repo=/abs/path/to/repo&view=board
 
 Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
 
+### Optional Pallium participants
+
+Set `MINIMAP_PALLIUM_ENDPOINT` to an explicit loopback HTTP origin to show a lazy, read-only participant list for the selected roadmap item. When it is unset, Minimap makes no Pallium requests and ordinary board and editing behavior is unchanged.
+
+`minimap roadmap item-ref <item-id> --repo /abs/path/to/repo --json` returns the same authoritative selector for agent MCP participation without requiring the HTTP integration. It uses canonical Git identity and fails closed when no safe identity exists.
 ## Metadata-first roadmap setup
 
 Keep lane, milestone, status, and similar classifications in item frontmatter. Keep one shared manual order in `board.md`; use a neutral `# Items` group when prioritization must work across every metadata group.

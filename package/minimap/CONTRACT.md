@@ -64,6 +64,17 @@ Filters are intentionally curated. Common planning fields (`status`, `priority`,
 
 `defaultLens` is optional. A valid URL `lens` wins, including explicit `lens=board`; otherwise a valid configured default is used, then Board. Unknown URL or config values fall back safely and should be reported as warnings.
 
+## Optional live participants
+
+Pallium integration is optional and read-only. Minimap never stores live participants or work-reference associations in roadmap files. With no explicitly configured local Pallium endpoint, normal board, item, and editing behavior makes no Pallium HTTP request.
+
+An item's public work-reference selector is derived by Minimap and copied unchanged by the UI, CLI, and agent skill:
+
+- `scope_ref` is `roadmap:v1:<canonical-credential-free-git-identity>#<repository-relative-roadmap-root>`, with each root segment NFC-normalized and RFC 3986 percent-encoded;
+- `local_ref` is `item:v1:<item-id>`, with the item id NFC-normalized and RFC 3986 percent-encoded.
+
+The actual Git top-level anchors the roadmap-root path, so the value is stable across worktrees and distinct for nested trackers. Unsafe or missing canonical Git identity makes the selector unavailable; Minimap does not guess from local paths or branch names. Successful empty participant results are distinct from disabled, unsupported, unreachable, timed-out, invalid, and bounded-partial lookup states.
+
 ## Board Contract
 
 `board.md` is a simple grouped list of item ids.
