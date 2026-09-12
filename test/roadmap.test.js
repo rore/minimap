@@ -2824,6 +2824,11 @@ test("roadmap item-ref CLI stays authoritative while the disabled participant ro
   assert.equal(cli.exitCode, 0, cli.stderr);
   const expected = JSON.parse(cli.stdout);
   assert.equal(expected.contract, "minimap-roadmap-item/v1");
+  for (const inheritedId of ["__proto__", "constructor", "toString"]) {
+    const rejected = await runCli(["roadmap", "item-ref", inheritedId, "--repo", projectRoot, "--json"]);
+    assert.notEqual(rejected.exitCode, 0, inheritedId);
+    assert.match(rejected.stderr, /Unknown roadmap item id/);
+  }
 
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const child = await startServerOnPort(4442, {

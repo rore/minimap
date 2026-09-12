@@ -3219,7 +3219,7 @@ function renderItemParticipants() {
 
   const rows = participants.map((participant) => {
     const name = participant.alias || participant.title || participant.session_ref;
-    const availability = [["Association", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
+    const availability = [["Session", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
     const origins = participant.association?.origins || [];
     return `
       <article class="item-participant" role="listitem">

@@ -260,7 +260,7 @@ async function main(argv) {
     }
     const repoRoot = valueAfter(rest, "--repo") || process.cwd();
     const workspace = await loadWorkspace(repoRoot);
-    if (!workspace.items?.[itemId]) {
+    if (!Object.hasOwn(workspace.items || {}, itemId)) {
       throw new AppError(`Unknown roadmap item id "${itemId}".`, 404, "not_found");
     }
     const reference = await resolveRoadmapItemReference(repoRoot, workspace.roadmapPath, itemId);
