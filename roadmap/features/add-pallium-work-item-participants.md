@@ -1,7 +1,7 @@
 ---
 id: add-pallium-work-item-participants
 title: Show Pallium participants on roadmap items
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -76,3 +76,17 @@ The accepted design uses an explicit loopback-only `MINIMAP_PALLIUM_ENDPOINT`, o
 Clean-context design review initially blocked on inbound request admission, nested-workspace identity collisions, and stale item responses. The corrected design requires loopback/same-origin admission before repo or network work, derives tracker paths from the actual Git top-level, and starts selection cancellation/generation guards before the item fetch. The clean re-review approved with no remaining blockers.
 
 Final independent result review found and verified fixes for bounded 200-participant scrolling, complete upstream response validation (including cross-page canonical work-reference consistency), and genuinely in-flight item/participant cancellation coverage.
+
+## Live Acceptance Evidence
+
+- Core implementation merged through PR #11; security and UX corrections merged through PR #13 at `9742bd7b7d1fd29757267fce6dde6e9df21bb013` after independent review found no remaining blockers.
+- Repository checks passed with 249 tests, 0 failures, and 2 documented Windows signal skips. The participant-focused suite passed 10/10. Broad Playwright coverage passed 95/96; the one unrelated spec-anchor flake and the shared List/Columns participant case both passed immediately in focused reruns.
+- On 2026-09-12, an independent reviewer opened the same Pallium activation item in Columns and List. Both `@minimap-dev` and `@astra-reviewer` rendered with the exact shared work reference and distinct repository containers. Closing the Columns modal, switching to List, and reopening preserved the result.
+- The reviewer then removed one explicit association and reopened the same item through another Pallium worktree. The reference remained stable and the panel showed exactly the one remaining participant, proving cross-worktree identity and live detach behavior. The reviewer captured `minimap-two-participants-columns.png` and `minimap-two-participants-list.png` in Pallium's local build output.
+- No Pallium roadmap item or other versioned Pallium project data was modified during the witness.
+
+## Installed Acceptance
+
+Pallium PR #177 copied the complete packaged roadmap skill from Minimap source pin `9742bd7b7d1fd29757267fce6dde6e9df21bb013` and merged at `df407c27f624e19c737f12cdcd5b31aabc1126f0`. Both tracked Pallium installations contain the same 38-file Git subtree with no missing or extra files; working-tree differences are limited to Windows line endings.
+
+The installed packaged CLI produced the exact activation-item reference. An isolated installed-runtime smoke opened the unchanged real Pallium item and correctly showed zero participants after association cleanup, then stopped cleanly. The stable preview on port 4312 remained healthy, and Pallium's installed wrapper health, embedding provider, ingestion, and queue checks passed. No Pallium roadmap files were manually edited.
