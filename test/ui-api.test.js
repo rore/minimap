@@ -27,6 +27,16 @@ test("loadWorkspace calls /api/workspace and returns the parsed body", async () 
   assert.deepEqual(result, { items: {}, boardGroups: [] });
 });
 
+test("item participant reads use the exact roadmap endpoint and forward cancellation", async () => {
+  const f = fakeFetch([{ body: { status: "disabled", participants: [] } }]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/repo" });
+  const controller = new AbortController();
+  await api.readItemParticipants("item / é", { signal: controller.signal });
+  assert.equal(f.calls[0].url, "/api/items/item%20%2F%20%C3%A9/participants");
+  assert.equal(f.calls[0].opts.signal, controller.signal);
+  assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/repo");
+});
+
 test("non-2xx response throws a normalized error carrying code and statusCode", async () => {
   const f = fakeFetch([{ ok: false, status: 422, body: { error: { code: "anchor_orphaned", message: "no match" } } }]);
   const api = createApi({ fetch: f });

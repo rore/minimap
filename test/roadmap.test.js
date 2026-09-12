@@ -2815,6 +2815,133 @@ test("server falls back to cwd when no X-Minimap-Repo header is present", async 
   }
 });
 
+test("roadmap item-ref CLI stays authoritative while the disabled participant route stays inert", async () => {
+  const cli = await runCli([
+    "roadmap", "item-ref", "add-pallium-work-item-participants",
+    "--repo", projectRoot,
+    "--json",
+  ]);
+  assert.equal(cli.exitCode, 0, cli.stderr);
+  const expected = JSON.parse(cli.stdout);
+  assert.equal(expected.contract, "minimap-roadmap-item/v1");
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const child = await startServerOnPort(4442, {
+    cwd: projectRoot,
+    env: { MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: "" },
+  });
+
+  try {
+    const response = await fetch("http://localhost:4442/api/items/add-pallium-work-item-participants/participants", {
+      headers: { "X-Minimap-Repo": projectRoot },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.status, "disabled");
+    assert.equal(body.reference, null);
+    assert.deepEqual(body.participants, []);
+
+    const rejected = await fetch("http://localhost:4442/api/items/add-pallium-work-item-participants/participants", {
+      headers: {
+        Origin: "http://example.test:4442",
+        "X-Minimap-Repo": path.join(projectRoot, "definitely-missing"),
+      },
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal((await rejected.json()).error.code, "forbidden");
+  } finally {
+    await stopServer(child);
+  }
+});
+
+test("participant route uses the exact local Pallium contract and sanitizes responses", async () => {
+  const requests = [];
+  let upstreamMode = "ok";
+  const upstream = http.createServer((request, response) => {
+    const url = new URL(request.url, "http://127.0.0.1");
+    requests.push(url);
+    if (upstreamMode === "unsupported") {
+      response.writeHead(404).end();
+      return;
+    }
+    if (upstreamMode === "invalid") {
+      response.writeHead(200, { "Content-Type": "application/json" }).end('{"contract":"wrong"}');
+      return;
+    }
+    const scopeRef = url.searchParams.get("scope_ref");
+    const localRef = url.searchParams.get("local_ref");
+    response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
+      contract: "relay-session-work-associations/v1",
+      work_ref: "work:v1:" + "a".repeat(64),
+      history_guidance: "Use the existing exact History search.",
+      scope_ref: scopeRef,
+      local_ref: localRef,
+      offset: Number(url.searchParams.get("offset")),
+      limit: Number(url.searchParams.get("limit")),
+      participants: [{
+        endpoint_id: "relay-session-0123456789abcdef0123456789abcdef",
+        runtime: "codex",
+        session_ref: "01a08203-7a73-7b91-a24f-2f271889fe16",
+        alias: "minimap-dev",
+        title: "Minimap delivery",
+        container_ref: "git:github.com/rore/minimap",
+        state: "active",
+        lifecycle: "recent",
+        destination_health: "active",
+        first_seen_at: "2026-09-12T08:00:00.000Z",
+        last_seen_at: "2026-09-12T08:30:00.000Z",
+        closed_at: null,
+        scope_generation: 1,
+        secret_should_not_escape: "private",
+        association: {
+          work_ref: "work:v1:" + "a".repeat(64),
+          scope_ref: scopeRef,
+          local_ref: localRef,
+          origins: ["explicit"],
+          created_at: "2026-09-12T08:00:00.000Z",
+          updated_at: "2026-09-12T08:30:00.000Z",
+        },
+      }],
+    }));
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const upstreamPort = upstream.address().port;
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const child = await startServerOnPort(4445, {
+    cwd: projectRoot,
+    env: {
+      MINIMAP_HOME: home,
+      MINIMAP_PALLIUM_ENDPOINT: "http://127.0.0.1:" + upstreamPort,
+    },
+  });
+  const endpoint = "http://localhost:4445/api/items/add-pallium-work-item-participants/participants";
+  const headers = { "X-Minimap-Repo": projectRoot };
+
+  try {
+    const response = await fetch(endpoint, { headers });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.status, "ok");
+    assert.equal(body.participants[0].alias, "minimap-dev");
+    assert.equal(body.participants[0].secret_should_not_escape, undefined);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].pathname, "/relay/work-refs/participants");
+    assert.equal(requests[0].searchParams.get("offset"), "0");
+    assert.equal(requests[0].searchParams.get("limit"), "50");
+    assert.equal(requests[0].searchParams.get("include_closed"), "false");
+    assert.equal(requests[0].searchParams.has("container_ref"), false);
+    assert.equal(requests[0].searchParams.get("scope_ref"), body.reference.scope_ref);
+    assert.equal(requests[0].searchParams.get("local_ref"), body.reference.local_ref);
+
+    upstreamMode = "unsupported";
+    assert.equal((await (await fetch(endpoint, { headers })).json()).status, "unsupported");
+    upstreamMode = "invalid";
+    assert.equal((await (await fetch(endpoint, { headers })).json()).status, "invalid-response");
+  } finally {
+    await stopServer(child);
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+});
 test("server rejects X-Minimap-Repo pointing at a non-existent path", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const child = await startServerOnPort(4421, { env: { MINIMAP_HOME: home } });

@@ -1,7 +1,7 @@
 ---
 id: add-pallium-work-item-participants
 title: Show Pallium participants on roadmap items
-status: queued
+status: in-progress
 priority: high
 commitment: committed
 labels:
@@ -24,7 +24,7 @@ The board shows what work exists but not which sessions are participating in it.
 - add agent-skill instructions to attach that exact item reference through Pallium when taking work and detach it when leaving; attachment is always explicit and never inferred from the current file, branch, board column, prompt, or Minimap UI
 - apply that guidance only when Pallium tools are available; unavailability never blocks Minimap work, and the skill must not claim an attachment succeeded when it did not
 - let the Minimap server, when configured with an approved local Pallium endpoint, request participants for one exact item reference
-- show every returned participant's session, container, availability, reference origin (explicit or discovered), and freshness in item detail; associations do not claim ownership, activity, acceptance, or completion
+- show every returned participant's session, container, availability, reference origin (explicit or structural), and freshness in item detail; associations do not claim ownership, activity, acceptance, or completion
 - keep separate references separate: references attached to the same session are not aliases, and Minimap never expands or unions them
 - distinguish a successful empty result from Pallium being disabled, unsupported, unreachable, timed out, or returning an invalid response while leaving the ordinary board usable
 - link to Pallium's existing Relay inspection/filter view only when Pallium publishes a supported deep-link contract; omit the link otherwise
@@ -66,3 +66,13 @@ Implementation discovery starts at:
 - `playwright/roadmap-ui.spec.js`: caller-visible roadmap journeys
 
 Follow the mirror workflow in `AGENTS.md` for package behavior changes. Extend the existing workspace response or add the smallest item-detail read after measuring payload and latency; do not fetch Pallium separately for every board card.
+
+## Accepted Design Record
+
+Manager acceptance: 2026-09-12. Agent Workflow was evaluated from its installed-source instructions and is not applicable because this repository has no `agent-workflow.yaml`; no Work Record was created.
+
+The accepted design uses an explicit loopback-only `MINIMAP_PALLIUM_ENDPOINT`, one selected-item endpoint, an authoritative local CLI reference read that remains available without Pallium transport, the versioned identity above, one overall bounded multi-page deadline, and a shared List/Columns item-detail section. Ordinary board loading never fans out per card. Missing Pallium remains a quiet, zero-network state.
+
+Clean-context design review initially blocked on inbound request admission, nested-workspace identity collisions, and stale item responses. The corrected design requires loopback/same-origin admission before repo or network work, derives tracker paths from the actual Git top-level, and starts selection cancellation/generation guards before the item fetch. The clean re-review approved with no remaining blockers.
+
+Final independent result review found and verified fixes for bounded 200-participant scrolling, complete upstream response validation (including cross-page canonical work-reference consistency), and genuinely in-flight item/participant cancellation coverage.
