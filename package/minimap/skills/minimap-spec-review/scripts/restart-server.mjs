@@ -12,7 +12,8 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readServerRegistry, deleteServerRegistry } from "../runtime/src/server-registry.js";
+import { readServerRegistry, deleteServerRegistry, readPalliumPreference, writePalliumPreference, clearPalliumPreference } from "../runtime/src/server-registry.js";
+import { parsePalliumEndpoint, palliumConfigId } from "../runtime/src/pallium.js";
 import { probePort, probeRunningServer } from "./health-check.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +23,26 @@ const requestedPort = Number(process.env.PORT || 4312);
 const STOP_WAIT_TIMEOUT_MS = 5000;
 const START_WAIT_TIMEOUT_MS = 10000;
 const POLL_INTERVAL_MS = 100;
+
+const explicit = Object.hasOwn(process.env, "MINIMAP_PALLIUM_ENDPOINT");
+const storedEndpoint = explicit ? null : await readPalliumPreference();
+let rawEndpoint = explicit ? process.env.MINIMAP_PALLIUM_ENDPOINT : (storedEndpoint || "");
+let palliumConfig = parsePalliumEndpoint(rawEndpoint);
+if (palliumConfig.configured && !palliumConfig.endpoint) {
+  if (explicit) {
+    process.stderr.write("Invalid MINIMAP_PALLIUM_ENDPOINT; use a loopback HTTP origin or an empty value.\n");
+    process.exit(1);
+  }
+  process.stderr.write("Ignoring an invalid stored Pallium endpoint; Participants remain disabled.\n");
+  rawEndpoint = "";
+  palliumConfig = parsePalliumEndpoint(rawEndpoint);
+}
+const expectedConfigId = palliumConfigId(palliumConfig);
+const childEnv = { ...process.env, PORT: String(requestedPort) };
+if (!explicit) {
+  if (palliumConfig.endpoint) childEnv.MINIMAP_PALLIUM_ENDPOINT = palliumConfig.endpoint;
+  else delete childEnv.MINIMAP_PALLIUM_ENDPOINT;
+}
 // Port range we sweep for stray minimap servers before starting a new one.
 // The bundled server's listenOnAvailablePort falls forward across this range
 // when its preferred port is in TIME_WAIT, so a previous session that exited
@@ -142,7 +163,7 @@ await sweepStrayMinimaps();
 const bundledServer = path.join(__dirname, "..", "runtime", "server.js");
 const child = spawn(process.execPath, [bundledServer], {
   cwd: process.cwd(),
-  env: { ...process.env, PORT: String(requestedPort) },
+  env: childEnv,
   detached: true,
   stdio: "ignore",
 });
@@ -163,6 +184,14 @@ while (Date.now() < startDeadline) {
 if (!alive) {
   process.stderr.write(`New server did not come up within ${START_WAIT_TIMEOUT_MS}ms.\n`);
   process.exit(1);
+}
+if (alive.participantConfigId !== expectedConfigId) {
+  process.stderr.write("Restarted server did not report the requested Participants configuration.\n");
+  process.exit(1);
+}
+if (explicit) {
+  if (palliumConfig.endpoint) await writePalliumPreference(palliumConfig.endpoint);
+  else await clearPalliumPreference();
 }
 
 const portNote = alive.port === requestedPort ? "" : ` (requested ${requestedPort})`;

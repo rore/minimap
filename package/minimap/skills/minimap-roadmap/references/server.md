@@ -23,9 +23,11 @@ The server is repo-agnostic. Every roadmap request carries its own repo identity
 
 ## Optional Pallium participants
 
-Set `MINIMAP_PALLIUM_ENDPOINT` before starting or restarting Minimap to enable read-only participant lookup. The value must be an explicit local HTTP origin such as `http://127.0.0.1:19836`; Minimap rejects remote, credential-bearing, redirected, or path-bearing endpoints. When unset, Minimap makes no Pallium HTTP requests and all normal roadmap behavior remains available.
+Set `MINIMAP_PALLIUM_ENDPOINT` on a supported start or restart command to enable read-only participant lookup. The value must be an explicit local HTTP origin such as `http://127.0.0.1:19836`; Minimap rejects remote, credential-bearing, redirected, or path-bearing endpoints before changing a running server or its saved preference. A successful command saves the validated origin under `$MINIMAP_HOME`, so later starts and restarts with the variable absent preserve the opt-in. Set the variable to an explicit empty value to disable lookup and clear that preference.
 
-The configured upstream URL and upstream errors never reach the browser. The public item reference remains available through `minimap roadmap item-ref` even when participant transport is disabled, so optional Pallium MCP participation does not depend on this server setting.
+If `start-server.mjs` finds a healthy server and the requested or saved effective setting does not exactly match the server's verified effective setting, or a legacy server cannot verify its identity, it exits with restart guidance instead of silently reusing it. `status.mjs` reports Participants as enabled, disabled, or unknown without exposing the origin. Do not edit the private preference file by hand; use the lifecycle scripts and environment variable.
+
+When disabled, Minimap makes no Pallium HTTP requests and all normal roadmap behavior remains available. The server setting controls only the read-only item panel: the public `minimap roadmap item-ref` command and already-available Pallium MCP work-reference tools remain independent.
 
 ## URL
 

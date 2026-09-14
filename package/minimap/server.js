@@ -37,6 +37,7 @@ import {
   isTrustedParticipantRequest,
   lookupPalliumParticipants,
   parsePalliumEndpoint,
+  palliumConfigId,
   resolveRoadmapItemReference,
 } from "./src/pallium.js";
 
@@ -195,7 +196,7 @@ async function buildSpecSessionsByItemId(repoRoot, workspace) {
 // ---------------------------------------------------------------------------
 
 async function handleHealth(request, response) {
-  sendJson(response, 200, { ok: true });
+  sendJson(response, 200, { ok: true, participants: { mode: palliumConfig.endpoint ? "enabled" : "disabled", configId: palliumConfigId(palliumConfig) } });
 }
 
 async function handleShutdown(request, response) {
@@ -577,6 +578,8 @@ async function startServer() {
       port: boundPort,
       startedAt: new Date().toISOString(),
       version: serverVersion,
+      participantMode: palliumConfig.endpoint ? "enabled" : "disabled",
+      participantConfigId: palliumConfigId(palliumConfig),
     });
     process.stdout.write(`Minimap running at http://localhost:${boundPort}${fallbackNote}\n`);
   } catch (error) {

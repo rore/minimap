@@ -582,6 +582,71 @@ test("shows the same lazy participant details in List and Columns without per-ca
   expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
 });
 
+test("keeps participants usable for selected items on dense List and Columns boards", async ({ page }) => {
+  test.setTimeout(60_000);
+  const fixture = await makeLargeRoadmapFixture();
+  const selectedId = "large-item-01";
+  const selectedTitle = "A deliberately long roadmap title for large-item-01 that must remain reachable without card overlap or hidden open controls";
+  const participantRoute = /\/api\/items\/([^/]+)\/participants$/;
+  const cases = [
+    { key: "empty", result: { ...participantPayload(selectedId), participants: [] }, status: "0 participants", message: "No sessions are associated with this item." },
+    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), status: "2 participants", message: "dense-session" },
+    { key: "unreachable", result: { ...participantPayload(selectedId), status: "unreachable", participants: [] }, status: "Pallium unavailable", message: "could not be reached" },
+  ];
+
+  try {
+    for (const layout of ["list", "columns"]) {
+      for (const scenario of cases) {
+        const participantRequests = [];
+        const handler = async (route) => {
+          const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
+          participantRequests.push(itemId);
+          await route.fulfill({ json: scenario.result });
+        };
+        await page.route(participantRoute, handler);
+        try {
+          await page.goto(repoUrlFor(fixture, "/?participantCase=" + scenario.key + "-" + layout)
+            + "&layout=" + layout + "&item=" + selectedId);
+          const selectedCard = layout === "columns"
+            ? page.locator('#board-groups .board-column-card-main[data-item-dblopen="' + selectedId + '"]')
+            : page.locator('#board-groups .board-item[data-item-id="' + selectedId + '"]');
+          await expect(selectedCard).toBeVisible();
+          await expect(selectedCard.locator(".board-item-title")).toBeVisible();
+          const groupsOrColumns = page.locator("#board-groups .board-group, #board-groups .board-column");
+          expect(await groupsOrColumns.count()).toBeGreaterThanOrEqual(8);
+          await expect(page.locator("#editor-title")).toHaveText(selectedTitle);
+          await expect(page.locator("#item-preview")).toContainText("Long overview");
+          await expect.poll(() => page.evaluate(({ currentLayout, itemId }) => {
+            const selector = currentLayout === "columns"
+              ? `#board-groups .board-column-card-main[data-item-dblopen="${itemId}"]`
+              : `#board-groups .board-item[data-item-id="${itemId}"]`;
+            const card = document.querySelector(selector)?.getBoundingClientRect();
+            const title = document.querySelector(`${selector} .board-item-title`)?.getBoundingClientRect();
+            const board = document.querySelector("#board-panel")?.getBoundingClientRect();
+            return {
+              titleReadable: Boolean(title && title.width > 64),
+              cardContained: Boolean(card && board && card.left >= board.left - 1 && card.right <= board.right + 1),
+            };
+          }, { currentLayout: layout, itemId: selectedId })).toEqual({ titleReadable: true, cardContained: true });
+          const details = page.locator("#item-participants");
+          await expect(details).toBeVisible();
+          await expect(page.locator("#item-participants-status")).toHaveText(scenario.status);
+          await details.locator("summary").click();
+          await expect(page.locator("#item-participants-list")).toContainText(scenario.message);
+          const participantBox = await page.locator(".item-participants-body").boundingBox();
+          expect(participantBox?.width).toBeGreaterThan(120);
+          expect(participantRequests).toEqual([selectedId]);
+        } finally {
+          await page.unroute(participantRoute, handler);
+        }
+      }
+    }
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+
 test("keeps a 200-session participant result scrollable without squeezing the item pane", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 820 });
   await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {

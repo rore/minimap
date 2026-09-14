@@ -15,8 +15,12 @@ export async function probePort(port, entry = null) {
     const response = await fetch(`http://localhost:${port}/health`, { signal: controller.signal });
     if (!response.ok) return null;
     const payload = await response.json();
-    if (payload && payload.ok === true) return entry || { port };
-    return null;
+    if (!payload || payload.ok !== true) return null;
+    return {
+      ...(entry || { port }),
+      participantMode: payload.participants?.mode || null,
+      participantConfigId: payload.participants?.configId || null,
+    };
   } catch {
     return null;
   } finally {

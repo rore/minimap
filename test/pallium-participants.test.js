@@ -8,9 +8,16 @@ import {
   encodeReferencePart,
   isTrustedParticipantRequest,
   lookupPalliumParticipants,
+  palliumConfigId,
   parsePalliumEndpoint,
   resolveRoadmapItemReference,
 } from "../package/minimap/src/pallium.js";
+import {
+  clearPalliumPreference,
+  palliumPreferencePath,
+  readPalliumPreference,
+  writePalliumPreference,
+} from "../package/minimap/src/server-registry.js";
 
 const WORK_REF = "work:v1:" + "a".repeat(64);
 
@@ -190,6 +197,25 @@ test("Pallium endpoint and inbound route admission are loopback-only", () => {
   assert.equal(isTrustedParticipantRequest(request("127.0.0.1", "localhost:4312", "http://evil.test")), false);
 });
 
+test("Pallium config IDs distinguish exact origins and disable cleanly", () => {
+  const first = parsePalliumEndpoint("http://127.0.0.1:19836");
+  const second = parsePalliumEndpoint("http://127.0.0.1:19837");
+  assert.equal(palliumConfigId(parsePalliumEndpoint("")), "disabled");
+  assert.notEqual(palliumConfigId(first), palliumConfigId(second));
+  assert.equal(palliumConfigId(first), palliumConfigId({ configured: true, endpoint: first.endpoint }));
+});
+
+test("Pallium preference round-trips, clears, and safely disables malformed data", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  await writePalliumPreference("http://127.0.0.1:19836", { minimapHome: home });
+  assert.equal(await readPalliumPreference({ minimapHome: home }), "http://127.0.0.1:19836");
+  await clearPalliumPreference({ minimapHome: home });
+  assert.equal(await readPalliumPreference({ minimapHome: home }), null);
+  await fs.writeFile(palliumPreferencePath(home), "{broken", "utf8");
+  assert.equal(await readPalliumPreference({ minimapHome: home }), null);
+  await fs.writeFile(palliumPreferencePath(home), JSON.stringify({ palliumEndpoint: "" }), "utf8");
+  assert.equal(await readPalliumPreference({ minimapHome: home }), null);
+});
 test("disabled lookup returns the authoritative reference with zero network calls", async () => {
   let calls = 0;
   const result = await lookupPalliumParticipants({ configured: false, endpoint: null }, reference, {

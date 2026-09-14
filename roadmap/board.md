@@ -25,3 +25,4 @@
 - idea-parent-grouping-overview
 - add-metadata-first-grouping-and-ordering
 - add-pallium-work-item-participants
+- harden-pallium-participant-guidance-config

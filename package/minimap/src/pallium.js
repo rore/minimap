@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -138,6 +139,12 @@ function isIpv4Loopback(hostname) {
 export function isLoopbackHost(hostname) {
   const normalized = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
   return normalized === "localhost" || normalized === "::1" || isIpv4Loopback(normalized);
+}
+
+export function palliumConfigId(config) {
+  if (!config?.configured) return "disabled";
+  if (!config.endpoint) return null;
+  return `sha256:${createHash("sha256").update(config.endpoint).digest("hex")}`;
 }
 
 export function parsePalliumEndpoint(rawValue) {
