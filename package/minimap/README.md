@@ -94,6 +94,8 @@ Each skill exposes the same four scripts under `scripts/`. Agents use these only
 
 The launcher detects an already-running instance via `$MINIMAP_HOME/server.json` and reuses it — one server serves both skills and any number of repos.
 
+Optional roadmap Participants lookup is configured separately from agent MCP availability. A validated loopback `MINIMAP_PALLIUM_ENDPOINT` supplied to a successful start or restart command is remembered locally; an explicit empty value clears it. Reuse verifies the exact effective setting, and `status.mjs` reports only enabled, disabled, or unknown.
+
 ## Agent hookup
 
 Add a short pointer to the host repo's `AGENTS.md` (or equivalent). Use whichever skill matches the work — see [`AGENTS_SNIPPET.md`](AGENTS_SNIPPET.md) for ready-to-paste text.

@@ -1032,7 +1032,7 @@ test("self-contained spec-review skill runs when copied outside the repo", async
     });
 
     const health = await fetch(`http://localhost:${serverPort}/health`);
-    assert.deepEqual(await health.json(), { ok: true });
+    assert.deepEqual(await health.json(), { ok: true, participants: { mode: "disabled", configId: "disabled" } });
   } finally {
     server.kill();
   }
@@ -2635,6 +2635,75 @@ test("start-server.mjs reuses a running server instead of spawning a second one"
   }
 });
 
+test("start-server rejects a legacy healthy server whose Participants identity is unknown", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const port = 4443;
+  const legacy = http.createServer((request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => legacy.listen(port, "127.0.0.1", resolve));
+  await writeServerRegistry({ pid: process.pid, port, startedAt: new Date().toISOString(), version: "legacy" }, { minimapHome: home });
+
+  try {
+    const result = await new Promise((resolve) => {
+      const proc = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs")], {
+        cwd: repoRoot,
+        env: { ...process.env, PORT: String(port), MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: "http://127.0.0.1:19836" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stderr = "";
+      proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+      proc.on("exit", (code) => resolve({ code, stderr }));
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /different or unknown Participants configuration/);
+    assert.equal((await fetch(`http://localhost:${port}/health`).then((response) => response.json())).ok, true);
+    await assert.rejects(() => fs.readFile(path.join(home, "pallium-preference.json"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await new Promise((resolve) => legacy.close(resolve));
+  }
+});
+
+test("launchers racing with different Participants identities never silently reuse the winner", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const port = 4444;
+  const launcher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs");
+  const launch = (endpoint) => spawn(process.execPath, [launcher], {
+    cwd: repoRoot,
+    env: { ...process.env, PORT: String(port), MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: endpoint },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const a = launch("http://127.0.0.1:19836");
+  const b = launch("http://127.0.0.1:19837");
+  const collect = (child) => new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    child.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  try {
+    const firstExit = await Promise.race([
+      collect(a),
+      collect(b),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Different-config launcher race did not settle.")), 5000)),
+    ]);
+    assert.equal(firstExit.code, 1);
+    assert.match(firstExit.stderr, /different or unknown Participants configuration/);
+    assert.doesNotMatch(firstExit.stdout, /4445/, "must not fall forward to another port");
+    const live = await fetch(`http://localhost:${port}/health`).then((response) => response.json());
+    assert.equal(live.participants.mode, "enabled");
+    assert.match(live.participants.configId, /^sha256:[a-f0-9]{64}$/);
+  } finally {
+    try { await fetch(`http://localhost:${port}/api/shutdown`, { method: "POST" }); } catch {}
+    a.kill("SIGTERM");
+    b.kill("SIGTERM");
+  }
+});
 test("two launchers racing for the same port: only one server ends up running", async () => {
   // Race: both launchers see no registry, both try to bind. The loser's
   // EADDRINUSE on the first attempt must NOT fall forward to a different port —
@@ -3273,6 +3342,97 @@ async function runStatusScript(home) {
   });
 }
 
+test("Participants endpoint opt-in persists safely across supported lifecycle operations", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const scripts = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts");
+  const port = "4442";
+  const endpoint = "http://127.0.0.1:19836";
+  const otherEndpoint = "http://127.0.0.1:19837";
+  const envFor = (value) => {
+    const env = { ...process.env, PORT: port, MINIMAP_HOME: home };
+    delete env.MINIMAP_PALLIUM_ENDPOINT;
+    if (value !== undefined) env.MINIMAP_PALLIUM_ENDPOINT = value;
+    return env;
+  };
+  const run = (name, value) => new Promise((resolve) => {
+    const proc = spawn(process.execPath, [path.join(scripts, name)], {
+      cwd: repoRoot,
+      env: envFor(value),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+  const health = () => fetch(`http://localhost:${port}/health`).then((response) => response.json());
+  const preference = () => fs.readFile(path.join(home, "pallium-preference.json"), "utf8").then(JSON.parse);
+
+  try {
+    let result = await run("restart-server.mjs", endpoint);
+    assert.equal(result.code, 0, result.stderr);
+    const firstHealth = await health();
+    assert.equal(firstHealth.participants.mode, "enabled");
+    assert.match(firstHealth.participants.configId, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(firstHealth.participants.endpoint, undefined);
+    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+
+    result = await run("restart-server.mjs");
+    assert.equal(result.code, 0, result.stderr);
+    const restartedHealth = await health();
+    assert.deepEqual(restartedHealth.participants, firstHealth.participants);
+    const runningRegistry = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8"));
+    assert.equal(runningRegistry.palliumEndpoint, undefined);
+
+    result = await run("restart-server.mjs", "https://example.com");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Invalid MINIMAP_PALLIUM_ENDPOINT/);
+    assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
+    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+
+    result = await run("start-server.mjs", otherEndpoint);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /different or unknown Participants configuration/);
+    assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
+    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+
+    result = await run("stop-server.mjs");
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+
+    const foreground = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+      cwd: repoRoot,
+      env: envFor(undefined),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Saved-preference start did not become ready.")), 10_000);
+      foreground.stdout.on("data", (chunk) => {
+        if (!String(chunk).includes("Minimap running at")) return;
+        clearTimeout(timeout);
+        resolve();
+      });
+      foreground.stderr.on("data", (chunk) => {
+        clearTimeout(timeout);
+        reject(new Error(String(chunk)));
+      });
+      foreground.on("exit", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`Saved-preference start exited early with ${code}.`));
+      });
+    });
+    assert.deepEqual((await health()).participants, firstHealth.participants);
+
+    result = await run("restart-server.mjs", "");
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual((await health()).participants, { mode: "disabled", configId: "disabled" });
+    await assert.rejects(() => fs.readFile(path.join(home, "pallium-preference.json"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await run("stop-server.mjs");
+  }
+});
 test("status.mjs exits 0 with port/pid/version when server is running", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
