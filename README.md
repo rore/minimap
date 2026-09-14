@@ -7,6 +7,8 @@ Minimap is a single-developer workbench for working on repo content together wit
 
 Both modes run from the same local server. There is no hosted service, no database. Files stay canonical, the UI is a lens.
 
+> Part of the [Rore collection](https://github.com/rore/rore-collection): three local tools for developers working with coding agents.
+
 ## Spec sessions
 
 ![Spec sessions](docs/images/minimap-spec-session.png)
