@@ -29,7 +29,7 @@ const reference = {
 
 function participant(index = 0) {
   return {
-    endpoint_id: `relay-session-${index}`,
+    endpoint_id: `relay-session-${index.toString(16).padStart(32, "0")}`,
     runtime: "codex",
     session_ref: `session-${index}`,
     container_ref: index % 2 ? "git:github.com/owner/repo-worktree" : "git:github.com/owner/repo",
@@ -246,6 +246,7 @@ test("lookup distinguishes empty success and returns only validated participant 
   );
   assert.equal(found.status, "ok");
   assert.equal(found.participants[0].alias, "minimap-dev");
+  assert.equal(found.participants[0].session_url, "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000");
   assert.equal(Object.hasOwn(found.participants[0], "secret"), false);
 });
 
@@ -313,6 +314,16 @@ test("unsupported, malformed, and oversized responses stay distinct and safe", a
       fetchImpl: async () => page(0, [], overrides),
     })).status, "invalid-response");
   }
+
+  const invalidEndpoint = participant(1);
+  invalidEndpoint.endpoint_id = "relay-session-not-canonical";
+  const mixedEndpoints = await lookupPalliumParticipants(config, reference, {
+    fetchImpl: async () => page(0, [participant(), invalidEndpoint]),
+  });
+  assert.equal(mixedEndpoints.status, "ok");
+  assert.equal(mixedEndpoints.participants.length, 2);
+  assert.equal(typeof mixedEndpoints.participants[0].session_url, "string");
+  assert.equal(Object.hasOwn(mixedEndpoints.participants[1], "session_url"), false);
 
   const mismatched = participant();
   mismatched.association.work_ref = "work:v1:" + "b".repeat(64);

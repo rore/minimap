@@ -259,6 +259,7 @@ function timestamp(value, optional = false) {
 
 function validateParticipant(row, reference) {
   if (!row || typeof row !== "object" || Array.isArray(row)) throw new LookupError("invalid-response");
+  const endpointId = boundedString(row.endpoint_id, 128);
   const state = boundedString(row.state, 32);
   const lifecycle = boundedString(row.lifecycle, 32);
   const health = row.destination_health === null ? null : boundedString(row.destination_health, 32, true);
@@ -281,7 +282,7 @@ function validateParticipant(row, reference) {
   }
 
   return {
-    endpoint_id: boundedString(row.endpoint_id, 128),
+    endpoint_id: endpointId,
     runtime: boundedString(row.runtime, 64),
     session_ref: boundedString(row.session_ref, 255),
     container_ref: boundedString(row.container_ref, 512),
@@ -413,7 +414,13 @@ export async function lookupPalliumParticipants(config, reference, options = {})
       }
 
       canonicalWorkRef ||= page.work_ref;
-      const rows = page.participants.map((row) => validateParticipant(row, reference));
+      const rows = page.participants.map((row) => {
+        const participant = validateParticipant(row, reference);
+        if (!/^relay-session-[0-9a-f]{32}$/.test(participant.endpoint_id)) return participant;
+        const sessionUrl = new URL("/dashboard", config.endpoint);
+        sessionUrl.hash = `relay?session=${encodeURIComponent(participant.endpoint_id)}`;
+        return { ...participant, session_url: sessionUrl.href };
+      });
       if (rows.some((row) => row.association.work_ref !== canonicalWorkRef)) {
         throw new LookupError("invalid-response");
       }

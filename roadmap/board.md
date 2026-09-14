@@ -1,4 +1,5 @@
 # Now
+- link-pallium-participant-sessions
 
 # Next
 - fix-shared-server-registry-test-isolation

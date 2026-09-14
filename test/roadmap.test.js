@@ -2997,6 +2997,7 @@ test("participant route uses the exact local Pallium contract and sanitizes resp
     const body = await response.json();
     assert.equal(body.status, "ok");
     assert.equal(body.participants[0].alias, "minimap-dev");
+    assert.equal(body.participants[0].session_url, `http://127.0.0.1:${upstreamPort}/dashboard#relay?session=relay-session-0123456789abcdef0123456789abcdef`);
     assert.equal(body.participants[0].secret_should_not_escape, undefined);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].pathname, "/relay/work-refs/participants");
