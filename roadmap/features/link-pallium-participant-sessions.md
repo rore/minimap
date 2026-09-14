@@ -1,7 +1,7 @@
 ---
 id: link-pallium-participant-sessions
 title: Link participant names to exact Pallium Relay sessions
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -39,4 +39,4 @@ Alias-based routing, new configuration, service discovery, automatic Pallium cal
 
 ## Notes
 
-Agent Workflow and Redline are not applicable because this repository has neither governing YAML file. Pallium owns the final dashboard route contract; Minimap must not implement the tentative route before that review completes.
+Agent Workflow and Redline are not applicable because this repository has neither governing YAML file. Pallium shipped the reviewed exact-session route in PR #184 at `6a014892`. Live Playwright QA on 2026-09-14 opened `astra-reviewer` from Minimap, selected canonical endpoint `relay-session-5bc31cf243f0496d9a57b281dbb9ad84`, preserved the selection across reload and back navigation, and observed zero non-GET Pallium requests. The full unit and UI suites passed.

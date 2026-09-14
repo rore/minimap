@@ -1,5 +1,4 @@
 # Now
-- link-pallium-participant-sessions
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- link-pallium-participant-sessions
 - foundation-local-server
 - foundation-board-editor
 - foundation-parse-safety
