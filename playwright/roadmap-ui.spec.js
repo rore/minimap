@@ -45,6 +45,7 @@ function participantPayload(itemId, alias = "minimap-dev", count = 1) {
     },
     participants: Array.from({ length: count }, (_, index) => ({
       endpoint_id: "relay-session-" + String(index).padStart(32, "0"),
+      session_url: "http://127.0.0.1:19836/dashboard#relay?session=relay-session-" + String(index).padStart(32, "0"),
       runtime: index % 2 ? "claude-code" : "codex",
       session_ref: "session-" + index,
       container_ref: "git:github.com/rore/minimap",
@@ -572,7 +573,12 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(page.locator("#item-participants-list")).toContainText("codex");
   await expect(page.locator("#item-participants-list .badge")).toHaveText(["codex", "Session: active", "Lifecycle: recent", "Destination: active"]);
   await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
-  await expect(page.locator("#item-participants-list a")).toHaveCount(0);
+  const sessionLink = page.locator("#item-participants-list a");
+  await expect(sessionLink).toHaveAttribute("href", "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000");
+  await expect(sessionLink).toHaveAttribute("target", "_blank");
+  await expect(sessionLink).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(sessionLink).toHaveAttribute("aria-label", "Open minimap-dev session in Pallium");
+  await expect(sessionLink).toHaveAttribute("title", "Open session in Pallium");
   await expect(page.locator("#item-participants-scope")).toHaveText("roadmap:v1:git:github.com/rore/minimap#roadmap");
 
   await page.locator("#board-layout-columns").click();
@@ -582,6 +588,22 @@ test("shows the same lazy participant details in List and Columns without per-ca
   expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
 });
 
+test("escapes linked participant names and keeps unlinked participants as plain text", async ({ page }) => {
+  await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
+    const payload = participantPayload(itemId, "<unsafe participant>", 2);
+    delete payload.participants[1].session_url;
+    await route.fulfill({ json: payload });
+  });
+
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  await page.locator("#item-participants summary").click();
+  const cards = page.locator(".item-participant");
+  await expect(cards.nth(0).locator("a")).toHaveText("<unsafe participant>");
+  await expect(cards.nth(0).locator("unsafe")).toHaveCount(0);
+  await expect(cards.nth(1).locator("a")).toHaveCount(0);
+  await expect(cards.nth(1).locator("strong")).toHaveText("worker-1");
+});
 test("keeps participants usable for selected items on dense List and Columns boards", async ({ page }) => {
   test.setTimeout(60_000);
   const fixture = await makeLargeRoadmapFixture();

@@ -57,7 +57,7 @@ Each request carries its own repo identity via the `X-Minimap-Repo` header — t
 
 ### Optional Pallium participants
 
-Set `MINIMAP_PALLIUM_ENDPOINT` to an explicit loopback HTTP origin to show a lazy, read-only participant list for the selected roadmap item. When it is unset, Minimap makes no Pallium requests and ordinary board and editing behavior is unchanged.
+Set `MINIMAP_PALLIUM_ENDPOINT` to an explicit loopback HTTP origin to show a lazy, read-only participant list for the selected roadmap item. When it is unset, Minimap makes no Pallium requests and ordinary board and editing behavior is unchanged. A participant name with a validated canonical endpoint opens that exact session in the local Pallium dashboard; otherwise the name remains plain text.
 
 `minimap roadmap item-ref <item-id> --repo /abs/path/to/repo --json` returns the same authoritative selector for agent MCP participation without requiring the HTTP integration. It uses canonical Git identity and fails closed when no safe identity exists.
 ## Metadata-first roadmap setup

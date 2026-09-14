@@ -3174,6 +3174,11 @@ function formatParticipantTime(value) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function buildParticipantNameHtml(participant, name) {
+  if (!participant.session_url) return escapeHtml(name);
+  return `<a href="${escapeHtml(participant.session_url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(`Open ${name} session in Pallium`)}" title="Open session in Pallium">${escapeHtml(name)}</a>`;
+}
+
 function renderItemParticipants() {
   if (!itemParticipantsElement) return;
   const result = state.itemParticipants;
@@ -3221,10 +3226,11 @@ function renderItemParticipants() {
     const name = participant.alias || participant.title || participant.session_ref;
     const availability = [["Session", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
     const origins = participant.association?.origins || [];
+
     return `
       <article class="item-participant" role="listitem">
         <div class="item-participant-heading">
-          <strong>${escapeHtml(name)}</strong>
+          <strong>${buildParticipantNameHtml(participant, name)}</strong>
           <span class="badge">${escapeHtml(participant.runtime)}</span>
         </div>
         <div class="item-participant-reference-row"><span class="muted">Session</span><code>${escapeHtml(participant.session_ref)}</code></div>
