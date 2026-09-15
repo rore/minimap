@@ -6,7 +6,7 @@ import path from "node:path";
 import {
   canonicalGitRemote,
   encodeReferencePart,
-  isTrustedParticipantRequest,
+  isTrustedLocalRequest,
   lookupPalliumParticipants,
   palliumConfigId,
   parsePalliumConfig,
@@ -173,7 +173,7 @@ test("unsafe or missing repository identity is explicitly unavailable", async ()
   assert.equal(tooLong, null);
 });
 
-test("Pallium endpoint and inbound route admission are loopback-only", () => {
+test("Pallium endpoint and local API admission are loopback-only", () => {
   assert.deepEqual(parsePalliumEndpoint(""), { configured: false, endpoint: null });
   assert.deepEqual(parsePalliumEndpoint("http://127.0.0.1:19836"), { configured: true, endpoint: "http://127.0.0.1:19836" });
   assert.deepEqual(parsePalliumEndpoint("http://[::1]:19836/"), { configured: true, endpoint: "http://[::1]:19836" });
@@ -191,11 +191,11 @@ test("Pallium endpoint and inbound route admission are loopback-only", () => {
     socket: { remoteAddress },
     headers: { host, ...(origin === undefined ? {} : { origin }) },
   });
-  assert.equal(isTrustedParticipantRequest(request("::1")), true);
-  assert.equal(isTrustedParticipantRequest(request("::ffff:127.0.0.1", "127.0.0.1:4312", "http://127.0.0.1:4312")), true);
-  assert.equal(isTrustedParticipantRequest(request("10.0.0.2")), false);
-  assert.equal(isTrustedParticipantRequest(request("127.0.0.1", "example.test:4312")), false);
-  assert.equal(isTrustedParticipantRequest(request("127.0.0.1", "localhost:4312", "http://evil.test")), false);
+  assert.equal(isTrustedLocalRequest(request("::1")), true);
+  assert.equal(isTrustedLocalRequest(request("::ffff:127.0.0.1", "127.0.0.1:4312", "http://127.0.0.1:4312")), true);
+  assert.equal(isTrustedLocalRequest(request("10.0.0.2")), false);
+  assert.equal(isTrustedLocalRequest(request("127.0.0.1", "example.test:4312")), false);
+  assert.equal(isTrustedLocalRequest(request("127.0.0.1", "localhost:4312", "http://evil.test")), false);
 });
 
 test("Pallium config IDs distinguish exact origins and disable cleanly", () => {

@@ -7,6 +7,8 @@ Minimap is a single-developer workbench for working on repo content together wit
 
 Both modes run from the same local server. There is no hosted service, no database. Files stay canonical, the UI is a lens.
 
+The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must come from a loopback peer and carry a loopback `Host`; when a browser supplies `Origin`, it must exactly match that request origin. Foreign origins are rejected before route work, while origin-less local CLI and lifecycle requests remain supported.
+
 > Part of the [Rore collection](https://github.com/rore/rore-collection): three local tools for developers working with coding agents.
 
 ## Spec sessions

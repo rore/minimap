@@ -40,4 +40,4 @@ The product needs a reliable local-only runtime before the roadmap files and UI 
 
 ## Notes
 
-This is implemented and covered by tests.
+Hardened for v0.3.5: the server binds only to IPv4 loopback; every API route rejects non-loopback peers, non-loopback Host values, and mismatched browser origins before route work. Lifecycle clients use literal 127.0.0.1 so IPv6-first DNS cannot misclassify the server. The CLI help now points HTTP users to the skill that ships the reference. Covered by focused security, lifecycle, packaging, full unit/integration, and full browser tests.

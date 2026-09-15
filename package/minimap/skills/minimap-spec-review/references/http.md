@@ -2,6 +2,8 @@
 
 The minimap server exposes a JSON HTTP API on `localhost`. Every operation the CLI performs is a thin wrapper over one of these routes — the server applies the same anchor cascades and markdown tolerance regardless of which path you take.
 
+The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must come from a loopback peer and carry a loopback `Host`; when a browser supplies `Origin`, it must exactly match that request origin. Foreign origins are rejected before route work, while origin-less local CLI and lifecycle requests remain supported.
+
 ## When to use HTTP vs the CLI
 
 The CLI ([cli.md](cli.md)) and HTTP routes reach the same server code. Pick whichever fits the surface you're already in:

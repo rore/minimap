@@ -12,8 +12,8 @@
 - idea-timeline-view
 
 # Done
-- link-pallium-participant-sessions
 - foundation-local-server
+- link-pallium-participant-sessions
 - foundation-board-editor
 - foundation-parse-safety
 - feature-agent-file-rules

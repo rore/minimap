@@ -571,9 +571,24 @@ test("server endpoints return workspace and allow board, scope, structured, and 
     assert.equal(lensOrderResponse.status, 200);
     assert.equal((await lensOrderResponse.json()).availableLenses.find((lens) => lens.key === "status").values[0], "done");
 
+    const rejectedScopeResponse = await fetch("http://localhost:4412/api/scope", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://example.test:4412",
+      },
+      body: JSON.stringify({ scopeText: "cross-origin write" }),
+    });
+    assert.equal(rejectedScopeResponse.status, 403);
+    assert.equal((await rejectedScopeResponse.json()).error.code, "forbidden");
+    assert.equal(await fs.readFile(path.join(repoRoot, "roadmap", "scope.md"), "utf8"), "Current focus.\n");
+
     const scopeResponse = await fetch("http://localhost:4412/api/scope", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:4412",
+      },
       body: JSON.stringify({ scopeText: "# Current focus\n\n- use the UI for scope edits" }),
     });
 
@@ -813,6 +828,29 @@ test("server exposes global spec-session attach, list, and context APIs", async 
   }
 });
 
+test("server binds only to IPv4 loopback", async () => {
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4420, { cwd: repoRoot });
+
+  try {
+    const health = await fetch("http://127.0.0.1:4420/health");
+    assert.equal(health.status, 200);
+
+    const externalAddress = Object.values(os.networkInterfaces())
+      .flat()
+      .find((entry) => entry?.family === "IPv4" && !entry.internal);
+    if (!externalAddress) return;
+
+    await assert.rejects(
+      fetch(`http://${externalAddress.address}:4420/health`, {
+        signal: AbortSignal.timeout(750),
+      }),
+    );
+  } finally {
+    await stopServer(child);
+  }
+});
+
 test("server falls forward to the next free port when requested port is busy", async () => {
   const repoRoot = await makeTempRepo();
   const blocker = http.createServer((_request, response) => {
@@ -820,7 +858,7 @@ test("server falls forward to the next free port when requested port is busy", a
     response.end("blocked");
   });
 
-  await new Promise((resolve) => blocker.listen(4510, resolve));
+  await new Promise((resolve) => blocker.listen(4510, "127.0.0.1", resolve));
 
   const child = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "server.js")], {
     cwd: repoRoot,
@@ -957,6 +995,13 @@ test("portable minimap package includes app, skills, and starter templates", asy
       "utf8",
     );
     assert.equal(roadmapScript, specScript, `Bundled roadmap ${scriptName} is stale vs spec-review`);
+    if (["health-check.mjs", "stop-server.mjs", "restart-server.mjs"].includes(scriptName)) {
+      assert.doesNotMatch(specScript, /fetch\(`http:\/\/localhost:/);
+      assert.match(specScript, /http:\/\/127\.0\.0\.1:/);
+    }
+    if (scriptName === "restart-server.mjs") {
+      assert.match(specScript, /tester\.listen\(port, "127\.0\.0\.1"\)/);
+    }
   }
 });
 
@@ -1909,6 +1954,12 @@ test("moveFileSession rejects conflicts with another attached file", async () =>
   );
 });
 
+test("CLI help points HTTP users at the skill that ships the HTTP reference", async () => {
+  const result = await runCli(["--help"]);
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /minimap-spec-review skill/);
+  assert.doesNotMatch(result.stdout, /references\/http\.md/);
+});
 test("minimap CLI attaches files and returns JSON context", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-repo-"));
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-cli-home-"));
@@ -3135,9 +3186,8 @@ test("launcher times out and self-heals when /health hangs forever", async () =>
 
 test("launcher rejects when port is held by a non-minimap HTTP server", async () => {
   // Port held by a stranger that responds 200 but with the wrong shape.
-  // Bind on the same interface the minimap server uses (0.0.0.0 default), so
-  // the launcher's listenOnce() will hit EADDRINUSE — otherwise on Windows a
-  // 127.0.0.1 stranger and 0.0.0.0 minimap can coexist on the same port.
+  // Bind on the same IPv4 loopback interface as Minimap so listenOnce()
+  // deterministically receives EADDRINUSE on every platform.
   const stranger = http.createServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ service: "not-minimap" }));
@@ -3145,7 +3195,7 @@ test("launcher rejects when port is held by a non-minimap HTTP server", async ()
   await new Promise((resolve, reject) => {
     stranger.once("listening", resolve);
     stranger.once("error", reject);
-    stranger.listen(4431);
+    stranger.listen(4431, "127.0.0.1");
   });
 
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
@@ -3326,14 +3376,14 @@ test("stop-server.mjs cleans up stale registry pointing at a dead server", async
   await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
 
-async function runStatusScript(home) {
+async function runStatusScript(home, extraEnv = {}) {
   const statusScript = path.join(
     projectRoot,
     "package", "minimap", "skills", "minimap-spec-review", "scripts", "status.mjs",
   );
   return new Promise((resolve) => {
     const proc = spawn(process.execPath, [statusScript], {
-      env: { ...process.env, MINIMAP_HOME: home },
+      env: { ...process.env, ...extraEnv, MINIMAP_HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -3453,13 +3503,17 @@ test("Participants endpoint opt-in persists safely across supported lifecycle op
     await run("stop-server.mjs");
   }
 });
-test("status.mjs exits 0 with port/pid/version when server is running", async () => {
+test("status.mjs reaches the IPv4-only server with IPv6-first DNS and no family fallback", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
   const child = await startServerOnPort(4436, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
 
   try {
-    const result = await runStatusScript(home);
+    const result = await runStatusScript(home, {
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv6first", "--no-network-family-autoselection"]
+        .filter(Boolean)
+        .join(" "),
+    });
     assert.equal(result.code, 0, `status expected 0, got ${result.code} (stderr: ${result.stderr})`);
     assert.match(result.stdout, /Minimap is running/i);
     assert.match(result.stdout, /port:\s*4436/);
