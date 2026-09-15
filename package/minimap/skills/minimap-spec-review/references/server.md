@@ -21,9 +21,9 @@ The running server transparently serves spec sessions and any roadmap that reque
 
 ## Optional Pallium participants
 
-The shared server may also expose the roadmap item's read-only Participants panel. Set `MINIMAP_PALLIUM_ENDPOINT` on a supported start or restart command to opt in with one validated loopback HTTP origin. A successful command saves that choice under `$MINIMAP_HOME`; later starts and restarts preserve it when the variable is absent. An explicit empty value disables and clears it, while an invalid value is rejected without changing the running server or saved preference.
+The shared server may also expose the roadmap item's read-only Participants panel. Set `MINIMAP_PALLIUM_ENDPOINT` on a supported start or restart command to opt in with one validated loopback HTTP origin. Exact-session participant links require the separate `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`, set only for a reviewed compatible dashboard. Successful commands save both settings under `$MINIMAP_HOME`; an explicit empty dashboard value disables links while retaining lookup, and an explicit empty lookup value clears both. Invalid values are rejected without changing the running server or saved preference.
 
-A requested or saved effective setting that differs from a healthy server's verified effective setting—or whose identity cannot be verified on a legacy server—is not silently ignored: `start-server.mjs` exits with restart guidance. `status.mjs` reports enabled, disabled, or unknown without exposing the origin. This server setting is independent of whether an agent has Pallium skills or MCP tools, and disabled mode makes no Pallium requests.
+A requested or saved effective setting that differs from a healthy server's verified effective setting—or whose identity cannot be verified on a legacy server—is not silently ignored: `start-server.mjs` exits with restart guidance. `status.mjs` reports lookup and link state independently as enabled, disabled, or unknown without exposing either origin. This server setting is independent of whether an agent has Pallium skills or MCP tools, and disabled mode makes no Pallium requests.
 
 ## URL
 

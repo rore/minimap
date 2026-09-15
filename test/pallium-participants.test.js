@@ -9,6 +9,7 @@ import {
   isTrustedParticipantRequest,
   lookupPalliumParticipants,
   palliumConfigId,
+  parsePalliumConfig,
   parsePalliumEndpoint,
   resolveRoadmapItemReference,
 } from "../package/minimap/src/pallium.js";
@@ -203,12 +204,21 @@ test("Pallium config IDs distinguish exact origins and disable cleanly", () => {
   assert.equal(palliumConfigId(parsePalliumEndpoint("")), "disabled");
   assert.notEqual(palliumConfigId(first), palliumConfigId(second));
   assert.equal(palliumConfigId(first), palliumConfigId({ configured: true, endpoint: first.endpoint }));
+  const linked = parsePalliumConfig(first.endpoint, first.endpoint);
+  assert.notEqual(palliumConfigId(first), palliumConfigId(linked));
+  assert.equal(linked.dashboardEndpoint, first.endpoint);
 });
 
 test("Pallium preference round-trips, clears, and safely disables malformed data", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
-  await writePalliumPreference("http://127.0.0.1:19836", { minimapHome: home });
-  assert.equal(await readPalliumPreference({ minimapHome: home }), "http://127.0.0.1:19836");
+  await writePalliumPreference({
+    palliumEndpoint: "http://127.0.0.1:19836",
+    palliumDashboardEndpoint: "http://127.0.0.1:19836",
+  }, { minimapHome: home });
+  assert.deepEqual(await readPalliumPreference({ minimapHome: home }), {
+    palliumEndpoint: "http://127.0.0.1:19836",
+    palliumDashboardEndpoint: "http://127.0.0.1:19836",
+  });
   await clearPalliumPreference({ minimapHome: home });
   assert.equal(await readPalliumPreference({ minimapHome: home }), null);
   await fs.writeFile(palliumPreferencePath(home), "{broken", "utf8");
@@ -239,8 +249,15 @@ test("lookup distinguishes empty success and returns only validated participant 
 
   const row = participant();
   row.secret = "do-not-copy";
-  const found = await lookupPalliumParticipants(
+  const unlinked = await lookupPalliumParticipants(
     { configured: true, endpoint: "http://127.0.0.1:19836" },
+    reference,
+    { fetchImpl: async () => page(0, [row]) },
+  );
+  assert.equal(Object.hasOwn(unlinked.participants[0], "session_url"), false);
+
+  const found = await lookupPalliumParticipants(
+    parsePalliumConfig("http://127.0.0.1:19836", "http://127.0.0.1:19836"),
     reference,
     { fetchImpl: async () => page(0, [row]) },
   );
@@ -297,7 +314,7 @@ test("one overall deadline spans every page", async () => {
 });
 
 test("unsupported, malformed, and oversized responses stay distinct and safe", async () => {
-  const config = { configured: true, endpoint: "http://127.0.0.1:19836" };
+  const config = parsePalliumConfig("http://127.0.0.1:19836", "http://127.0.0.1:19836");
   assert.equal((await lookupPalliumParticipants(config, reference, {
     fetchImpl: async () => new Response("", { status: 404 }),
   })).status, "unsupported");

@@ -36,7 +36,7 @@ import { matchRoute } from "./src/router.js";
 import {
   isTrustedParticipantRequest,
   lookupPalliumParticipants,
-  parsePalliumEndpoint,
+  parsePalliumConfig,
   palliumConfigId,
   resolveRoadmapItemReference,
 } from "./src/pallium.js";
@@ -52,7 +52,10 @@ const staticRoot = path.join(__dirname, "ui");
 const cwdFallback = process.cwd();
 const requestedPort = Number(process.env.PORT || 4312);
 const maxPortAttempts = 20;
-const palliumConfig = parsePalliumEndpoint(process.env.MINIMAP_PALLIUM_ENDPOINT);
+const palliumConfig = parsePalliumConfig(
+  process.env.MINIMAP_PALLIUM_ENDPOINT,
+  process.env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT,
+);
 
 const packageJsonPath = path.join(__dirname, "package.json");
 const serverVersion = JSON.parse(await fs.readFile(packageJsonPath, "utf8")).version || "0.0.0";
@@ -196,7 +199,11 @@ async function buildSpecSessionsByItemId(repoRoot, workspace) {
 // ---------------------------------------------------------------------------
 
 async function handleHealth(request, response) {
-  sendJson(response, 200, { ok: true, participants: { mode: palliumConfig.endpoint ? "enabled" : "disabled", configId: palliumConfigId(palliumConfig) } });
+  sendJson(response, 200, { ok: true, participants: {
+    mode: palliumConfig.endpoint ? "enabled" : "disabled",
+    links: palliumConfig.dashboardEndpoint ? "enabled" : "disabled",
+    configId: palliumConfigId(palliumConfig),
+  } });
 }
 
 async function handleShutdown(request, response) {

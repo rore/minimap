@@ -47,7 +47,7 @@ A single running server is shared across both modes and across any number of rep
 
 ### Optional Pallium participants
 
-When `MINIMAP_PALLIUM_ENDPOINT` is set to an explicit loopback HTTP origin, such as `http://127.0.0.1:19836`, a selected roadmap item can show a lazy, read-only list of associated Pallium sessions. Leaving it unset makes no Pallium requests and changes none of Minimap's normal board or editing behavior. A participant name with a validated canonical endpoint opens that exact session in the local Pallium dashboard; otherwise the name remains plain text.
+When `MINIMAP_PALLIUM_ENDPOINT` is set to an explicit loopback HTTP origin, such as `http://127.0.0.1:19836`, a selected roadmap item can show a lazy, read-only list of associated Pallium sessions. Leaving it unset makes no Pallium requests and changes none of Minimap's normal board or editing behavior. Session links are a separate compatibility opt-in: set `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT` to the reviewed dashboard origin only when that Pallium server supports exact session deep links. Without it, participant names remain plain text.
 
 Agents can obtain the same authoritative work selector without enabling the HTTP integration:
 

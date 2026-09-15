@@ -494,6 +494,10 @@ test("uses the tabs as the only mode chrome in the editor header", async ({ page
 });
 
 test("edit mode starts with details collapsed so content shows earlier", async ({ page }) => {
+  await page.route(/\/api\/workspace$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await route.continue();
+  });
   await page.goto(repoUrl());
   await page.locator('[data-editor-mode="structured"]').click();
 

@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readServerRegistry, deleteServerRegistry, readPalliumPreference, writePalliumPreference, clearPalliumPreference } from "../runtime/src/server-registry.js";
-import { parsePalliumEndpoint, palliumConfigId } from "../runtime/src/pallium.js";
+import { parsePalliumConfig, palliumConfigId } from "../runtime/src/pallium.js";
 import { probePort, probeRunningServer } from "./health-check.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,25 +24,48 @@ const STOP_WAIT_TIMEOUT_MS = 5000;
 const START_WAIT_TIMEOUT_MS = 10000;
 const POLL_INTERVAL_MS = 100;
 
-const explicit = Object.hasOwn(process.env, "MINIMAP_PALLIUM_ENDPOINT");
-const storedEndpoint = explicit ? null : await readPalliumPreference();
-let rawEndpoint = explicit ? process.env.MINIMAP_PALLIUM_ENDPOINT : (storedEndpoint || "");
-let palliumConfig = parsePalliumEndpoint(rawEndpoint);
+const endpointExplicit = Object.hasOwn(process.env, "MINIMAP_PALLIUM_ENDPOINT");
+const dashboardExplicit = Object.hasOwn(process.env, "MINIMAP_PALLIUM_DASHBOARD_ENDPOINT");
+const stored = await readPalliumPreference();
+let rawEndpoint = endpointExplicit ? process.env.MINIMAP_PALLIUM_ENDPOINT : (stored?.palliumEndpoint || "");
+let rawDashboardEndpoint = dashboardExplicit
+  ? process.env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT
+  : (endpointExplicit ? "" : (stored?.palliumDashboardEndpoint || ""));
+if (endpointExplicit && !String(rawEndpoint || "").trim()) rawDashboardEndpoint = "";
+let palliumConfig = parsePalliumConfig(rawEndpoint, rawDashboardEndpoint);
 if (palliumConfig.configured && !palliumConfig.endpoint) {
-  if (explicit) {
+  if (endpointExplicit) {
     process.stderr.write("Invalid MINIMAP_PALLIUM_ENDPOINT; use a loopback HTTP origin or an empty value.\n");
     process.exit(1);
   }
   process.stderr.write("Ignoring an invalid stored Pallium endpoint; Participants remain disabled.\n");
   rawEndpoint = "";
-  palliumConfig = parsePalliumEndpoint(rawEndpoint);
+  rawDashboardEndpoint = "";
+  palliumConfig = parsePalliumConfig(rawEndpoint, rawDashboardEndpoint);
+}
+if (palliumConfig.dashboardConfigured && !palliumConfig.dashboardEndpoint) {
+  if (dashboardExplicit) {
+    process.stderr.write("Invalid MINIMAP_PALLIUM_DASHBOARD_ENDPOINT; use a loopback HTTP origin or an empty value.\n");
+    process.exit(1);
+  }
+  process.stderr.write("Ignoring an invalid stored Pallium dashboard endpoint; participant links remain disabled.\n");
+  rawDashboardEndpoint = "";
+  palliumConfig = parsePalliumConfig(rawEndpoint, rawDashboardEndpoint);
+}
+if (palliumConfig.dashboardEndpoint && !palliumConfig.endpoint) {
+  if (dashboardExplicit) {
+    process.stderr.write("MINIMAP_PALLIUM_DASHBOARD_ENDPOINT requires MINIMAP_PALLIUM_ENDPOINT.\n");
+    process.exit(1);
+  }
+  rawDashboardEndpoint = "";
+  palliumConfig = parsePalliumConfig(rawEndpoint, rawDashboardEndpoint);
 }
 const expectedConfigId = palliumConfigId(palliumConfig);
 const childEnv = { ...process.env, PORT: String(requestedPort) };
-if (!explicit) {
-  if (palliumConfig.endpoint) childEnv.MINIMAP_PALLIUM_ENDPOINT = palliumConfig.endpoint;
-  else delete childEnv.MINIMAP_PALLIUM_ENDPOINT;
-}
+if (palliumConfig.endpoint) childEnv.MINIMAP_PALLIUM_ENDPOINT = palliumConfig.endpoint;
+else delete childEnv.MINIMAP_PALLIUM_ENDPOINT;
+if (palliumConfig.dashboardEndpoint) childEnv.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT = palliumConfig.dashboardEndpoint;
+else delete childEnv.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT;
 // Port range we sweep for stray minimap servers before starting a new one.
 // The bundled server's listenOnAvailablePort falls forward across this range
 // when its preferred port is in TIME_WAIT, so a previous session that exited
@@ -189,9 +212,13 @@ if (alive.participantConfigId !== expectedConfigId) {
   process.stderr.write("Restarted server did not report the requested Participants configuration.\n");
   process.exit(1);
 }
-if (explicit) {
-  if (palliumConfig.endpoint) await writePalliumPreference(palliumConfig.endpoint);
-  else await clearPalliumPreference();
+if (endpointExplicit || dashboardExplicit) {
+  if (palliumConfig.endpoint) {
+    await writePalliumPreference({
+      palliumEndpoint: palliumConfig.endpoint,
+      palliumDashboardEndpoint: palliumConfig.dashboardEndpoint,
+    });
+  } else await clearPalliumPreference();
 }
 
 const portNote = alive.port === requestedPort ? "" : ` (requested ${requestedPort})`;

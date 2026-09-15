@@ -5415,7 +5415,6 @@ void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state
   preferredLens: initialRoute.lens,
   routeLensSpecified: initialRoute.lensSpecified,
   preferredLayout: initialRoute.layout,
-  preferredMode: initialRoute.mode,
   syncRoute: false,
 }).then(() => {
   if (initialRoute.view === "spec") {
