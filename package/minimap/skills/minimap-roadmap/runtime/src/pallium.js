@@ -142,9 +142,13 @@ export function isLoopbackHost(hostname) {
 }
 
 export function palliumConfigId(config) {
-  if (!config?.configured) return "disabled";
-  if (!config.endpoint) return null;
-  return `sha256:${createHash("sha256").update(config.endpoint).digest("hex")}`;
+  if (!config?.configured && !config?.dashboardConfigured) return "disabled";
+  if (!config?.endpoint || (config.dashboardConfigured && !config.dashboardEndpoint)) return null;
+  const identity = JSON.stringify({
+    endpoint: config.endpoint,
+    dashboardEndpoint: config.dashboardEndpoint || null,
+  });
+  return `sha256:${createHash("sha256").update(identity).digest("hex")}`;
 }
 
 export function parsePalliumEndpoint(rawValue) {
@@ -168,6 +172,16 @@ export function parsePalliumEndpoint(rawValue) {
   } catch {
     return { configured: true, endpoint: null };
   }
+}
+
+export function parsePalliumConfig(rawEndpoint, rawDashboardEndpoint) {
+  const endpoint = parsePalliumEndpoint(rawEndpoint);
+  const dashboard = parsePalliumEndpoint(rawDashboardEndpoint);
+  return {
+    ...endpoint,
+    dashboardConfigured: dashboard.configured,
+    dashboardEndpoint: dashboard.endpoint,
+  };
 }
 
 function normalizeRemoteAddress(value) {
@@ -416,8 +430,8 @@ export async function lookupPalliumParticipants(config, reference, options = {})
       canonicalWorkRef ||= page.work_ref;
       const rows = page.participants.map((row) => {
         const participant = validateParticipant(row, reference);
-        if (!/^relay-session-[0-9a-f]{32}$/.test(participant.endpoint_id)) return participant;
-        const sessionUrl = new URL("/dashboard", config.endpoint);
+        if (!config.dashboardEndpoint || !/^relay-session-[0-9a-f]{32}$/.test(participant.endpoint_id)) return participant;
+        const sessionUrl = new URL("/dashboard", config.dashboardEndpoint);
         sessionUrl.hash = `relay?session=${encodeURIComponent(participant.endpoint_id)}`;
         return { ...participant, session_url: sessionUrl.href };
       });

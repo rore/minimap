@@ -30,6 +30,7 @@ process.stdout.write(
   + `  version:   ${entry.version ?? "?"}\n`
   + `  startedAt: ${startedAt}\n`
   + `  participants: ${probe.participantMode || "unknown"}\n`
+  + `  participant links: ${probe.participantLinks || "unknown"}\n`
   + `  url:       http://localhost:${entry.port}/\n`,
 );
 process.exit(0);

@@ -19,6 +19,7 @@ export async function probePort(port, entry = null) {
     return {
       ...(entry || { port }),
       participantMode: payload.participants?.mode || null,
+      participantLinks: payload.participants?.links || null,
       participantConfigId: payload.participants?.configId || null,
     };
   } catch {

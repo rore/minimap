@@ -39,20 +39,29 @@ export async function readPalliumPreference(options = {}) {
   const home = resolveHome(options);
   try {
     const value = JSON.parse(await fs.readFile(palliumPreferencePath(home), "utf8"));
-    return typeof value?.palliumEndpoint === "string" && value.palliumEndpoint ? value.palliumEndpoint : null;
+    if (!value || typeof value !== "object" || typeof value.palliumEndpoint !== "string" || !value.palliumEndpoint) return null;
+    return {
+      palliumEndpoint: value.palliumEndpoint,
+      palliumDashboardEndpoint: typeof value.palliumDashboardEndpoint === "string" && value.palliumDashboardEndpoint ? value.palliumDashboardEndpoint : null,
+    };
   } catch (error) {
     if (error?.code === "ENOENT" || error instanceof SyntaxError) return null;
     throw error;
   }
 }
 
-export async function writePalliumPreference(palliumEndpoint, options = {}) {
-  if (typeof palliumEndpoint !== "string" || !palliumEndpoint) {
-    throw new TypeError("palliumEndpoint must be a non-empty string.");
+export async function writePalliumPreference(preference, options = {}) {
+  if (!preference || typeof preference.palliumEndpoint !== "string" || !preference.palliumEndpoint) {
+    throw new TypeError("preference.palliumEndpoint must be a non-empty string.");
+  }
+  if (preference.palliumDashboardEndpoint != null && (typeof preference.palliumDashboardEndpoint !== "string" || !preference.palliumDashboardEndpoint)) {
+    throw new TypeError("preference.palliumDashboardEndpoint must be a non-empty string or null.");
   }
   const home = resolveHome(options);
   await fs.mkdir(home, { recursive: true });
-  await fs.writeFile(palliumPreferencePath(home), `${JSON.stringify({ palliumEndpoint }, null, 2)}\n`, "utf8");
+  const value = { palliumEndpoint: preference.palliumEndpoint };
+  if (preference.palliumDashboardEndpoint) value.palliumDashboardEndpoint = preference.palliumDashboardEndpoint;
+  await fs.writeFile(palliumPreferencePath(home), `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 export async function clearPalliumPreference(options = {}) {

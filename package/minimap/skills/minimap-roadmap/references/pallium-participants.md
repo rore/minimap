@@ -36,4 +36,4 @@ Both encoded parts use NFC Unicode and RFC 3986 percent encoding. Minimap is the
 - Do not infer ownership, activity, acceptance, or completion from an association.
 - If the tools are missing or unavailable, proceed without Pallium. Do not use a shell or HTTP substitute and do not install anything.
 
-The optional Minimap server participant panel is read-only. A participant name with a validated canonical endpoint opens that exact session in the configured local Pallium dashboard; otherwise the name remains plain text. The panel's endpoint configuration does not control whether an agent may use already-available Pallium MCP tools.
+The optional Minimap server participant panel is read-only. Participant lookup uses `MINIMAP_PALLIUM_ENDPOINT`; exact-session links additionally require an explicitly configured, reviewed compatible `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`. Without that separate opt-in, or without a validated canonical endpoint, the name remains plain text. These panel settings do not control whether an agent may use already-available Pallium MCP tools.

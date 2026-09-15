@@ -1032,7 +1032,7 @@ test("self-contained spec-review skill runs when copied outside the repo", async
     });
 
     const health = await fetch(`http://localhost:${serverPort}/health`);
-    assert.deepEqual(await health.json(), { ok: true, participants: { mode: "disabled", configId: "disabled" } });
+    assert.deepEqual(await health.json(), { ok: true, participants: { mode: "disabled", links: "disabled", configId: "disabled" } });
   } finally {
     server.kill();
   }
@@ -2986,6 +2986,7 @@ test("participant route uses the exact local Pallium contract and sanitizes resp
     env: {
       MINIMAP_HOME: home,
       MINIMAP_PALLIUM_ENDPOINT: "http://127.0.0.1:" + upstreamPort,
+      MINIMAP_PALLIUM_DASHBOARD_ENDPOINT: "http://127.0.0.1:" + upstreamPort,
     },
   });
   const endpoint = "http://localhost:4445/api/items/add-pallium-work-item-participants/participants";
@@ -3350,16 +3351,18 @@ test("Participants endpoint opt-in persists safely across supported lifecycle op
   const port = "4442";
   const endpoint = "http://127.0.0.1:19836";
   const otherEndpoint = "http://127.0.0.1:19837";
-  const envFor = (value) => {
+  const envFor = (value, dashboardValue) => {
     const env = { ...process.env, PORT: port, MINIMAP_HOME: home };
     delete env.MINIMAP_PALLIUM_ENDPOINT;
+    delete env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT;
     if (value !== undefined) env.MINIMAP_PALLIUM_ENDPOINT = value;
+    if (dashboardValue !== undefined) env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT = dashboardValue;
     return env;
   };
-  const run = (name, value) => new Promise((resolve) => {
+  const run = (name, value, dashboardValue) => new Promise((resolve) => {
     const proc = spawn(process.execPath, [path.join(scripts, name)], {
       cwd: repoRoot,
-      env: envFor(value),
+      env: envFor(value, dashboardValue),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -3370,42 +3373,58 @@ test("Participants endpoint opt-in persists safely across supported lifecycle op
   });
   const health = () => fetch(`http://localhost:${port}/health`).then((response) => response.json());
   const preference = () => fs.readFile(path.join(home, "pallium-preference.json"), "utf8").then(JSON.parse);
+  const linkedPreference = { palliumEndpoint: endpoint, palliumDashboardEndpoint: endpoint };
 
   try {
     let result = await run("restart-server.mjs", endpoint);
     assert.equal(result.code, 0, result.stderr);
     const firstHealth = await health();
     assert.equal(firstHealth.participants.mode, "enabled");
+    assert.equal(firstHealth.participants.links, "disabled");
     assert.match(firstHealth.participants.configId, /^sha256:[a-f0-9]{64}$/);
     assert.equal(firstHealth.participants.endpoint, undefined);
     assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
 
     result = await run("restart-server.mjs");
     assert.equal(result.code, 0, result.stderr);
-    const restartedHealth = await health();
-    assert.deepEqual(restartedHealth.participants, firstHealth.participants);
+    assert.deepEqual((await health()).participants, firstHealth.participants);
+
+    result = await run("restart-server.mjs", undefined, endpoint);
+    assert.equal(result.code, 0, result.stderr);
+    const linkedHealth = await health();
+    assert.equal(linkedHealth.participants.mode, "enabled");
+    assert.equal(linkedHealth.participants.links, "enabled");
+    assert.notEqual(linkedHealth.participants.configId, firstHealth.participants.configId);
+    assert.deepEqual(await preference(), linkedPreference);
     const runningRegistry = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8"));
     assert.equal(runningRegistry.palliumEndpoint, undefined);
+    assert.equal(runningRegistry.palliumDashboardEndpoint, undefined);
+
+    result = await run("restart-server.mjs", undefined, "https://example.com");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Invalid MINIMAP_PALLIUM_DASHBOARD_ENDPOINT/);
+    assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
+    assert.deepEqual(await preference(), linkedPreference);
 
     result = await run("restart-server.mjs", "https://example.com");
     assert.equal(result.code, 1);
     assert.match(result.stderr, /Invalid MINIMAP_PALLIUM_ENDPOINT/);
     assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
-    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+    assert.deepEqual(await preference(), linkedPreference);
 
     result = await run("start-server.mjs", otherEndpoint);
     assert.equal(result.code, 1);
     assert.match(result.stderr, /different or unknown Participants configuration/);
     assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
-    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+    assert.deepEqual(await preference(), linkedPreference);
 
     result = await run("stop-server.mjs");
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(await preference(), { palliumEndpoint: endpoint });
+    assert.deepEqual(await preference(), linkedPreference);
 
     const foreground = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
       cwd: repoRoot,
-      env: envFor(undefined),
+      env: envFor(undefined, undefined),
       stdio: ["ignore", "pipe", "pipe"],
     });
     await new Promise((resolve, reject) => {
@@ -3424,11 +3443,11 @@ test("Participants endpoint opt-in persists safely across supported lifecycle op
         reject(new Error(`Saved-preference start exited early with ${code}.`));
       });
     });
-    assert.deepEqual((await health()).participants, firstHealth.participants);
+    assert.deepEqual((await health()).participants, linkedHealth.participants);
 
-    result = await run("restart-server.mjs", "");
+    result = await run("restart-server.mjs", "", endpoint);
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual((await health()).participants, { mode: "disabled", configId: "disabled" });
+    assert.deepEqual((await health()).participants, { mode: "disabled", links: "disabled", configId: "disabled" });
     await assert.rejects(() => fs.readFile(path.join(home, "pallium-preference.json"), "utf8"), { code: "ENOENT" });
   } finally {
     await run("stop-server.mjs");
