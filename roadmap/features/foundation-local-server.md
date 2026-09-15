@@ -41,3 +41,5 @@ The product needs a reliable local-only runtime before the roadmap files and UI 
 ## Notes
 
 Hardened for v0.3.5: the server binds only to IPv4 loopback; every API route rejects non-loopback peers, non-loopback Host values, and mismatched browser origins before route work. Lifecycle clients use literal 127.0.0.1 so IPv6-first DNS cannot misclassify the server. The CLI help now points HTTP users to the skill that ships the reference. Covered by focused security, lifecycle, packaging, full unit/integration, and full browser tests.
+
+Fixed for v0.3.6: a detached server is shut down when post-launch participant configuration verification fails, while a server-validated PID guard protects replacement instances. The Windows launcher exits naturally after cleanup. Covered by focused cleanup and replacement-instance regressions, the full unit/integration suite, the full Playwright suite, and smart review.

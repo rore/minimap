@@ -3294,6 +3294,24 @@ test("POST /api/shutdown returns 200, deletes registry, frees the port", async (
   await assert.rejects(() => fetch("http://localhost:4433/health"));
 });
 
+test("POST /api/shutdown rejects a stale instance PID without stopping its replacement", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const child = await startServerOnPort(4447, { cwd: repoRoot, env: { MINIMAP_HOME: home } });
+
+  try {
+    const response = await fetch("http://localhost:4447/api/shutdown", {
+      method: "POST",
+      headers: { "X-Minimap-Instance-Pid": String(child.pid + 1) },
+    });
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: "server_instance_mismatch" });
+    assert.equal((await fetch("http://localhost:4447/health").then((item) => item.json())).ok, true);
+    assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, child.pid);
+  } finally {
+    await stopServer(child);
+  }
+});
 test("stop-server.mjs gracefully stops a running server", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
@@ -3650,6 +3668,65 @@ test("/api/workspace specSessionsByItemId is empty when no sessions in MINIMAP_H
   }
 });
 
+test("restart-server cleans up its detached child when post-launch config verification fails", async () => {
+  const installRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-restart-mismatch-"));
+  const skillRoot = path.join(installRoot, "minimap-spec-review");
+  await fs.cp(
+    path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review"),
+    skillRoot,
+    { recursive: true },
+  );
+
+  const serverPath = path.join(skillRoot, "runtime", "server.js");
+  const serverSource = await fs.readFile(serverPath, "utf8");
+  assert.match(serverSource, /configId: palliumConfigId\(palliumConfig\)/);
+  await fs.writeFile(
+    serverPath,
+    serverSource.replace("configId: palliumConfigId(palliumConfig)", 'configId: "forced-mismatch"'),
+    "utf8",
+  );
+
+  const restartPath = path.join(skillRoot, "scripts", "restart-server.mjs");
+  const restartSource = await fs.readFile(restartPath, "utf8");
+  await fs.writeFile(
+    restartPath,
+    restartSource
+      .replace("const SWEEP_PORTS_FROM = 4312;", "const SWEEP_PORTS_FROM = 4446;")
+      .replace("const SWEEP_PORTS_TO = 4320;", "const SWEEP_PORTS_TO = 4446;"),
+    "utf8",
+  );
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const repoRoot = await makeTempRepo();
+  const run = (scriptName) => new Promise((resolve) => {
+    const proc = spawn(process.execPath, [path.join(skillRoot, "scripts", scriptName)], {
+      cwd: repoRoot,
+      env: { ...process.env, PORT: "4446", MINIMAP_HOME: home },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    proc.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+
+  try {
+    const result = await run("restart-server.mjs");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /did not report the requested Participants configuration/);
+
+    let health = true;
+    for (let attempt = 0; attempt < 40 && health; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      health = await fetch("http://127.0.0.1:4446/health").then(() => true).catch(() => false);
+    }
+    assert.equal(health, false, "the mismatched detached child must not remain running");
+    await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await run("stop-server.mjs");
+  }
+});
 test("restart-server.mjs survives back-to-back restarts (Windows TIME_WAIT regression)", async () => {
   // Earlier the script set MINIMAP_NO_PORT_FALLBACK=1 and waited only on
   // /health to stop responding. On Windows the port can stay in TIME_WAIT
