@@ -188,7 +188,7 @@ function normalizeRemoteAddress(value) {
   return String(value || "").toLowerCase().replace(/^::ffff:/, "");
 }
 
-export function isTrustedParticipantRequest(request) {
+export function isTrustedLocalRequest(request) {
   if (!isLoopbackHost(normalizeRemoteAddress(request?.socket?.remoteAddress))) return false;
   const host = request?.headers?.host;
   if (typeof host !== "string" || !host) return false;
@@ -208,6 +208,8 @@ export function isTrustedParticipantRequest(request) {
     return false;
   }
 }
+
+export const isTrustedParticipantRequest = isTrustedLocalRequest;
 
 async function runGit(args, cwd) {
   const result = await execFileAsync("git", args, {

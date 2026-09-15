@@ -9,6 +9,8 @@ Minimap has two modes:
 
 Both modes run from the same local server. Files stay canonical, the UI is a lens, the human is the merge authority.
 
+The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must come from a loopback peer and carry a loopback `Host`; when a browser supplies `Origin`, it must exactly match that request origin. Foreign origins are rejected before route work, while origin-less local CLI and lifecycle requests remain supported.
+
 For the spec-session model, see [`skills/minimap-spec-review/SKILL.md`](skills/minimap-spec-review/SKILL.md). For the roadmap file contract, see [`CONTRACT.md`](CONTRACT.md).
 
 ## Install

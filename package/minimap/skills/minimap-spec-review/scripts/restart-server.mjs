@@ -90,7 +90,7 @@ function canBindPort(port) {
     tester.once("error", () => finish(false));
     tester.once("listening", () => finish(true));
     try {
-      tester.listen(port);
+      tester.listen(port, "127.0.0.1");
     } catch {
       finish(false);
     }
@@ -106,7 +106,7 @@ async function shutdownIfMinimap(port) {
   const found = await probePort(port);
   if (!found) return false;
   try {
-    const resp = await fetch(`http://localhost:${port}/api/shutdown`, { method: "POST" });
+    const resp = await fetch(`http://127.0.0.1:${port}/api/shutdown`, { method: "POST" });
     return resp.ok;
   } catch {
     return false;
@@ -138,7 +138,7 @@ if (existing && typeof existing.port === "number") {
   const probe = await probePort(existing.port, existing);
   if (probe) {
     try {
-      const resp = await fetch(`http://localhost:${existing.port}/api/shutdown`, { method: "POST" });
+      const resp = await fetch(`http://127.0.0.1:${existing.port}/api/shutdown`, { method: "POST" });
       if (!resp.ok) {
         process.stderr.write(`Shutdown request returned ${resp.status}.\n`);
         process.exit(1);
