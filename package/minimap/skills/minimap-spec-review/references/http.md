@@ -213,7 +213,7 @@ Returns `{ "ok": true }`. Useful to confirm the server is alive at a given port.
 
 ### `POST /api/shutdown`
 
-Graceful shutdown. Returns `{ "shuttingDown": true }`. Used by `restart-server.mjs`; agents should not need to call this.
+Graceful shutdown. Returns `{ "shuttingDown": true }`. Restart cleanup supplies `X-Minimap-Instance-Pid`; a PID mismatch returns `409 { "error": "server_instance_mismatch" }` without stopping the replacement server. Agents should not need to call this route.
 
 ## Comment shape
 

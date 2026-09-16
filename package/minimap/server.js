@@ -208,6 +208,12 @@ async function handleHealth(request, response) {
 }
 
 async function handleShutdown(request, response) {
+  const expectedPid = request.headers["x-minimap-instance-pid"] ?? null;
+  if (expectedPid !== null && expectedPid !== String(process.pid)) {
+    sendJson(response, 409, { error: "server_instance_mismatch" });
+    return;
+  }
+
   // Cross-platform graceful shutdown. On Windows, child_process.kill() does
   // not deliver SIGTERM/SIGINT to the JS event loop, so a signal-based stop
   // from another process is unreliable. POST /api/shutdown works everywhere
