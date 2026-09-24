@@ -236,8 +236,12 @@ export async function resolveRoadmapItemReferences(repoRoot, roadmapPath, itemId
   const git = options.runGit || runGit;
   const realpath = options.realpath || fs.realpath;
   try {
-    const gitRoot = await realpath(path.resolve(await git(["rev-parse", "--show-toplevel"], repoRoot)));
-    const repositoryRef = canonicalGitRemote(await git(["remote", "get-url", "origin"], gitRoot));
+    const [gitRootText, remoteUrl] = await Promise.all([
+      git(["rev-parse", "--show-toplevel"], repoRoot),
+      git(["remote", "get-url", "origin"], repoRoot),
+    ]);
+    const gitRoot = await realpath(path.resolve(gitRootText));
+    const repositoryRef = canonicalGitRemote(remoteUrl);
     if (!repositoryRef) return null;
 
     const roadmapRoot = await realpath(path.resolve(repoRoot, roadmapPath));
