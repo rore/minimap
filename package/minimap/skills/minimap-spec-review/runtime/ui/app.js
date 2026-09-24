@@ -4312,7 +4312,8 @@ async function refreshBoardPresence() {
     renderBoardParticipantStatus();
   }
   try {
-    const result = await api.readBoardParticipantCounts({ signal: controller.signal });
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]);
+    const result = await api.readBoardParticipantCounts({ signal });
     if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || !boardPresenceIsVisible()) return;
     if (result.status === "ok") {
       if (!Array.isArray(result.counts) || result.counts.length > 200 || result.counts.some((row) =>
