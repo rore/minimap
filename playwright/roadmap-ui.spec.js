@@ -668,6 +668,16 @@ test("keeps participants usable for selected items on dense List and Columns boa
           const participantBox = await page.locator(".item-participants-body").boundingBox();
           expect(participantBox?.width).toBeGreaterThan(120);
           expect(participantRequests).toEqual([selectedId]);
+          if (layout === "list" && scenario.key === "populated") {
+            await page.setViewportSize({ width: 1440, height: 900 });
+            await page.screenshot({ path: "artifacts/board-selected-title-desktop.png" });
+            await page.setViewportSize({ width: 760, height: 740 });
+            await page.locator(".editor-header").scrollIntoViewIfNeeded();
+            expect(await page.locator("#editor-title").evaluate((title) =>
+              title.getBoundingClientRect().bottom <= title.closest(".editor-header").getBoundingClientRect().bottom)).toBe(true);
+            await page.screenshot({ path: "artifacts/board-selected-title-narrow.png" });
+            await page.setViewportSize({ width: 1280, height: 720 });
+          }
         } finally {
           await page.unroute(participantRoute, handler);
         }
