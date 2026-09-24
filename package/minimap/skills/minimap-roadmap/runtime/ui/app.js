@@ -1,6 +1,7 @@
 import { createApi } from "/api.js";
 import { renderMarkdownToHtml } from "/markdown.js";
 import {
+  normalizeFilterValues,
   normalizeFilterMap,
   itemMatchesFilters,
   filterBoardItemIds,
@@ -1405,8 +1406,7 @@ const FINISHED_STATUSES = new Set(["done", "shipped", "superseded", "cancelled",
 
 function getBoardFieldValues(field) {
   return Array.from(new Set(Object.values(state.workspace?.items || {})
-    .map((item) => String(item.metadata?.[field] ?? "").trim())
-    .filter(Boolean))).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    .flatMap((item) => normalizeFilterValues(item.metadata?.[field])))).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
 }
 
 function getUnfinishedStatusValues() {
@@ -3285,6 +3285,9 @@ function renderItemParticipants() {
   if (quietlyHidden) return;
 
   itemParticipantsStatusElement.textContent = participantStatusText(result);
+  const hasParticipants = result.status === "ok" && result.participants?.length > 0;
+  itemParticipantsStatusElement.classList.toggle("badge", hasParticipants);
+  itemParticipantsStatusElement.classList.toggle("board-item-participants", hasParticipants);
   itemParticipantsRefreshButton.disabled = result.status === "loading";
 
   const reference = result.reference;

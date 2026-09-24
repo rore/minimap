@@ -241,6 +241,22 @@ test("serializeItem preserves unknown frontmatter and unknown sections while all
   assert.match(serialized, /## Summary[\s\S]*Updated summary\./);
 });
 
+test("loadWorkspace reads every item across bounded batches", async () => {
+  const repoRoot = await makeTempRepo();
+  try {
+    const featureDir = path.join(repoRoot, "roadmap", "features");
+    await Promise.all(Array.from({ length: 33 }, (_, index) => {
+      const id = "batch-" + String(index).padStart(2, "0");
+      return fs.writeFile(path.join(featureDir, id + ".md"), sampleItemText.replaceAll("feature-a", id), "utf8");
+    }));
+    const workspace = await loadWorkspace(repoRoot);
+    assert.equal(Object.keys(workspace.items).length, 35);
+    assert.equal(workspace.items["batch-32"].metadata.title, "Test item");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadWorkspace uses roadmap.config.json override", async () => {
   const repoRoot = await makeTempRepo();
   await fs.mkdir(path.join(repoRoot, "docs", "roadmap", "features"), { recursive: true });

@@ -4875,7 +4875,7 @@ body[data-setup-mode="true"] .setup-side-stack {
 .item-participants[open] {
   display: flex;
   flex-direction: column;
-  max-height: min(46vh, 480px);
+  max-height: min(60vh, 600px);
 }
 
 .item-participants[hidden] {
@@ -4895,7 +4895,7 @@ body[data-setup-mode="true"] .setup-side-stack {
 .item-participants-body {
   display: grid;
   min-height: 0;
-  max-height: min(38vh, 400px);
+  max-height: min(52vh, 520px);
   gap: 10px;
   padding: 0 2px 12px;
   overflow-y: auto;

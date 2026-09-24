@@ -1,7 +1,7 @@
 ---
 id: show-board-work-presence
 title: Show work context on roadmap boards
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -36,4 +36,4 @@ Large boards hide active and blocked work among completed items. Participant det
 
 ## Notes
 
-Agree the minimal roadmap-wide Pallium contract with its owner before coupling the API.
+Shipped the agreed bounded roadmap-wide Pallium presence read, board focus and status signals, and pickup/handoff guidance in both packaged skills. Synthetic attach/detach and dense List/Columns browser checks passed; Pallium roadmap data was not changed. Attached sessions indicate association, not activity or ownership.

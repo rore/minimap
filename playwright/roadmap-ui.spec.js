@@ -567,14 +567,18 @@ test("shows the same lazy participant details in List and Columns without per-ca
     await route.fulfill({ json: participantPayload(itemId) });
   });
 
+  await page.setViewportSize({ width: 1440, height: 820 });
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
   await expect(details).toBeVisible();
   await expect(page.locator("#item-participants-status")).toHaveText("1 participant");
+  await expect(page.locator("#item-participants-status")).toHaveClass(/badge board-item-participants/);
   expect(participantRequests).toEqual(["feature-setup-guidance"]);
 
   await details.locator("summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  expect(await page.locator(".item-participants-body").evaluate((body) => body.scrollHeight - body.clientHeight)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/participant-detail-open.png" });
   await expect(page.locator("#item-participants-list")).toContainText("codex");
   await expect(page.locator("#item-participants-list .badge")).toHaveText(["codex", "Session: active", "Lifecycle: recent", "Destination: active"]);
   await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
@@ -590,6 +594,9 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
   await expect(page.locator("#editor-overlay")).toBeVisible();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  await page.setViewportSize({ width: 760, height: 740 });
+  expect(await page.locator(".item-participants-body").evaluate((body) => body.scrollHeight - body.clientHeight)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/participant-detail-narrow.png" });
   expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
 });
 
@@ -1878,6 +1885,23 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     await expect(activeColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
     await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
     expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("quick milestone focus handles block-list metadata values", async ({ page }) => {
+  const fixture = await makeDragRoadmapFixture();
+  try {
+    const file = path.join(fixture, "roadmap", "features", "drag-source.md");
+    const original = await fs.readFile(file, "utf8");
+    await fs.writeFile(file, original.replace("commitment: committed\n", "commitment: committed\nmilestone:\n  - P1\n  - P2\n"), "utf8");
+    await page.goto(repoUrlFor(fixture));
+    const options = page.locator("#board-focus-milestone option");
+    await expect(options).toHaveText(["All milestones", "P1", "P2"]);
+    await page.locator("#board-focus-milestone").selectOption("P2");
+    await expect(page.locator("[data-item-id=drag-source]")).toBeVisible();
+    await expect(page.locator("[data-item-id=drag-target]")).toHaveCount(0);
   } finally {
     await fs.rm(fixture, { recursive: true, force: true });
   }

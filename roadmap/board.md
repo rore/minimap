@@ -1,5 +1,4 @@
 # Now
-- show-board-work-presence
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- show-board-work-presence
 - foundation-local-server
 - link-pallium-participant-sessions
 - foundation-board-editor
