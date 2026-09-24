@@ -2420,7 +2420,7 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
 
 .board-column {
   display: grid;
-  flex: 1 0 228px;
+  flex: 1 0 280px;
   container-type: inline-size;
   gap: 8px;
   grid-template-rows: auto minmax(0, 1fr);
@@ -3613,13 +3613,10 @@ textarea {
   }
 
   .group-actions {
-    width: 100%;
-    justify-content: stretch;
+    width: auto;
+    justify-content: flex-start;
   }
 
-  .order-button {
-    flex: 1;
-  }
 
   .editor-tabs {
     flex-wrap: wrap;
@@ -4243,7 +4240,7 @@ textarea {
   }
 
   .board-column:not(.board-column-collapsed) {
-    flex-basis: 206px;
+    flex-basis: 260px;
   }
 }
 

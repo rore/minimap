@@ -749,7 +749,7 @@ function getVisibleBoardGroups(workspace = state.workspace) {
     defaultLensKey: DEFAULT_LENS_KEY,
     unassignedKey: UNASSIGNED_GROUP_KEY,
     unassignedLabel: UNASSIGNED_GROUP_LABEL,
-    showEmptyGroups: Array.isArray(activeLens.values) && activeLens.values.length > 0,
+    showEmptyGroups: !isSearchActive() && Array.isArray(activeLens.values) && activeLens.values.length > 0,
   });
 }
 
@@ -2528,7 +2528,7 @@ function renderBoardColumnsMode() {
   const allowColumnReorder = canReorderColumnsInColumnLayout();
   const boardGrouping = activeLens?.key === DEFAULT_LENS_KEY;
   const allowItemReorder = activeLens?.kind === "derived";
-  const metadataGroups = allowItemReorder
+  const metadataGroups = allowItemReorder && !isSearchActive()
     ? visibleGroups.filter((group) => activeLens.values.includes(group.groupKey))
     : [];
 
@@ -2825,7 +2825,7 @@ function renderBoardReadMode() {
   const activeLens = getActiveLensDefinition();
   const visibleGroups = getVisibleBoardGroups();
   const filtered = isSearchActive();
-  const allowGroupReorder = activeLens?.key === DEFAULT_LENS_KEY;
+  const allowGroupReorder = activeLens?.key === DEFAULT_LENS_KEY && !filtered;
   const allowDerivedDrag = canDragItemsInActiveLens();
 
   if (visibleGroups.length === 0) {
@@ -2840,7 +2840,7 @@ function renderBoardReadMode() {
   }
 
   const allowItemReorder = activeLens?.kind === "derived";
-  const metadataGroups = allowItemReorder
+  const metadataGroups = allowItemReorder && !filtered
     ? visibleGroups.filter((group) => activeLens.values.includes(group.groupKey))
     : [];
   const restrictionHtml = allowItemReorder && state.workspace.boardGroups.length > 1

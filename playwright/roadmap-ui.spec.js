@@ -828,14 +828,14 @@ test("saves optional milestone metadata and reflects it in the board", async ({ 
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
 
-  await page.locator("#field-milestone").fill("P2");
+  await page.locator("#field-milestone").fill("P3");
   await page.locator("#save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Saved.");
-  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toContainText("P2");
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toContainText("P3");
 
   const updatedFeatureText = await fs.readFile(featurePath, "utf8");
-  expect(updatedFeatureText).toContain("milestone: P2");
+  expect(updatedFeatureText).toContain("milestone: P3");
 });
 
 test("renders extra sections from the item file in the structured editor", async ({ page }) => {
@@ -1867,6 +1867,57 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
   }
 });
 
+test("filtered dense metadata views show only groups with matching cards", async ({ page }) => {
+  const fixture = await makeLargeRoadmapFixture();
+  try {
+    for (const lens of ["lane", "milestone"]) {
+      for (const layout of ["list", "columns"]) {
+        await page.setViewportSize({ width: layout === "columns" ? 760 : 1440, height: 820 });
+        await page.goto(repoUrlFor(fixture, "/#lens=" + lens + "&layout=" + layout));
+        await page.reload();
+        const groupSelector = layout === "columns" ? ".board-column" : ".board-group";
+        const cardSelector = layout === "columns" ? ".board-column-card" : ".board-item";
+        await expect(page.locator(groupSelector).first()).toBeVisible();
+
+        async function expectNoEmptyGroups() {
+          const groups = page.locator(groupSelector);
+          const count = await groups.count();
+          if (count === 0) {
+            await expect(page.locator("#board-groups .empty-state")).toContainText("No roadmap items match");
+          } else {
+            for (const group of await groups.all()) {
+              expect(await group.locator(cardSelector).count()).toBeGreaterThan(0);
+            }
+          }
+        }
+
+        await page.locator("#board-focus-unfinished").click();
+        await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "true");
+        await expectNoEmptyGroups();
+        await expect(page.locator(layout === "columns" ? ".board-column-order-actions" : ".group-actions")).toHaveCount(0);
+
+        const milestone = await page.locator("#board-focus-milestone option").last().getAttribute("value");
+        await page.locator("#board-focus-milestone").selectOption(milestone);
+        await expectNoEmptyGroups();
+
+        await page.locator("#board-search").fill("no-such-roadmap-item-xyz");
+        await expect(page.locator(groupSelector)).toHaveCount(0);
+        await expect(page.locator("#board-groups .empty-state")).toBeVisible();
+        await page.locator("#board-clear-filters").click();
+        await expect(page.locator(groupSelector).first()).toBeVisible();
+        if (layout === "columns") {
+          const width = await page.locator(".board-column:not(.board-column-collapsed)").first().evaluate((column) => column.getBoundingClientRect().width);
+          expect(width).toBeGreaterThanOrEqual(258);
+          const collapseWidth = await page.locator(".board-column-collapse-toggle").first().evaluate((button) => button.getBoundingClientRect().width);
+          expect(collapseWidth).toBeLessThanOrEqual(30);
+          await expect(page.locator(".board-column-card-open").first()).toBeVisible();
+        }
+      }
+    }
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
 test("stress-tests large metadata boards in list and columns views", async ({ page }) => {
   test.setTimeout(90_000);
   const fixture = await makeLargeRoadmapFixture();
