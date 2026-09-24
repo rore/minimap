@@ -98,8 +98,8 @@ function participantPayload(itemId, alias = "minimap-dev", count = 1) {
     const overview = i % 5 === 0 ? "Long overview ".repeat(24) : "Short overview.";
     const lane = i < 66 ? lanes[0] : i % 13 === 0 ? "" : lanes[1 + ((i - 66) % (lanes.length - 1))];
     const milestone = i % 17 === 0 ? "" : milestones[i % milestones.length];
-    const status = ["queued", "in-progress", "blocked", "done"][i % 4];
-    await fs.writeFile(path.join(root, "roadmap", "features", `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\npriority: ${i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low"}\ncommitment: committed\nrelease_train: train-${String((i % 10) + 1).padStart(2, "0")}\nresolved_by: ${i % 2 === 0 ? "automated-cleanup" : "manual-follow-up"}\nshipped_at: 2026-0${(i % 3) + 6}-01\n${lane ? `lane: ${lane}\n` : ""}${milestone ? `milestone: ${milestone}\n` : ""}---\n\n## Summary\n\n${overview}\n`, "utf8");
+    const status = ({ 1: "active", 5: "paused", 6: "shipped", 7: "superseded" })[i] || ["queued", "in-progress", "blocked", "done"][i % 4];
+    await fs.writeFile(path.join(root, "roadmap", "features", `${id}.md`), `---\nid: ${id}\ntitle: ${title}\nstatus: ${status}\npriority: ${i === 1 ? "1" : i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low"}\ncommitment: committed\nrelease_train: train-${String((i % 10) + 1).padStart(2, "0")}\nresolved_by: ${i % 2 === 0 ? "automated-cleanup" : "manual-follow-up"}\nshipped_at: 2026-0${(i % 3) + 6}-01\n${lane ? `lane: ${lane}\n` : ""}${milestone ? `milestone: ${milestone}\n` : ""}---\n\n## Summary\n\n${overview}\n`, "utf8");
   }
   return root;
 }
@@ -400,10 +400,10 @@ test("renders a denser board rail on desktop", async ({ page }) => {
 
   const firstCard = page.locator(".board-item").first();
   await expect(firstCard).toBeVisible();
-  const box = await firstCard.boundingBox();
-
-  expect(box).not.toBeNull();
-  expect(box.height).toBeLessThan(210);
+  await expect.poll(async () => {
+    const box = await firstCard.boundingBox();
+    return box !== null && box.height < 210;
+  }).toBe(true);
 });
 
 test("renders compact board group controls that stay on one row", async ({ page }) => {
@@ -420,15 +420,16 @@ test("renders compact board group controls that stay on one row", async ({ page 
   await expect(downButton).toContainText("Down");
   await expect(firstHeader).toBeVisible();
 
-  const headerBox = await firstHeader.boundingBox();
-  const toggleBox = await toggle.boundingBox();
-  const actionsBox = await actions.boundingBox();
-
-  expect(headerBox).not.toBeNull();
-  expect(toggleBox).not.toBeNull();
-  expect(actionsBox).not.toBeNull();
-  expect(actionsBox.y).toBeLessThan(toggleBox.y + 10);
-  expect(actionsBox.x + actionsBox.width).toBeLessThanOrEqual(headerBox.x + headerBox.width + 1);
+  await expect.poll(async () => page.evaluate(() => {
+    const header = document.querySelector(".board-group-header");
+    const toggle = header?.querySelector(".collapse-toggle");
+    const actions = header?.querySelector(".group-actions");
+    if (!header || !toggle || !actions) return false;
+    const headerBox = header.getBoundingClientRect();
+    const toggleBox = toggle.getBoundingClientRect();
+    const actionsBox = actions.getBoundingClientRect();
+    return actionsBox.y < toggleBox.y + 10 && actionsBox.right <= headerBox.right + 1;
+  })).toBe(true);
 });
 
 test("collapses scope into a narrow rail and gives space back to the editor", async ({ page }) => {
@@ -566,14 +567,18 @@ test("shows the same lazy participant details in List and Columns without per-ca
     await route.fulfill({ json: participantPayload(itemId) });
   });
 
+  await page.setViewportSize({ width: 1440, height: 820 });
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
   await expect(details).toBeVisible();
   await expect(page.locator("#item-participants-status")).toHaveText("1 participant");
+  await expect(page.locator("#item-participants-status")).toHaveClass(/badge board-item-participants/);
   expect(participantRequests).toEqual(["feature-setup-guidance"]);
 
   await details.locator("summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  expect(await page.locator(".item-participants-body").evaluate((body) => body.scrollHeight - body.clientHeight)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/participant-detail-open.png" });
   await expect(page.locator("#item-participants-list")).toContainText("codex");
   await expect(page.locator("#item-participants-list .badge")).toHaveText(["codex", "Session: active", "Lifecycle: recent", "Destination: active"]);
   await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
@@ -589,6 +594,9 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
   await expect(page.locator("#editor-overlay")).toBeVisible();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  await page.setViewportSize({ width: 760, height: 740 });
+  expect(await page.locator(".item-participants-body").evaluate((body) => body.scrollHeight - body.clientHeight)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/participant-detail-narrow.png" });
   expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
 });
 
@@ -641,6 +649,11 @@ test("keeps participants usable for selected items on dense List and Columns boa
           const groupsOrColumns = page.locator("#board-groups .board-group, #board-groups .board-column");
           expect(await groupsOrColumns.count()).toBeGreaterThanOrEqual(8);
           await expect(page.locator("#editor-title")).toHaveText(selectedTitle);
+          expect(await page.locator("#editor-title").evaluate((title) => {
+            const titleBox = title.getBoundingClientRect();
+            const headerBox = title.closest(".editor-header")?.getBoundingClientRect();
+            return Boolean(headerBox && titleBox.top >= headerBox.top && titleBox.bottom <= headerBox.bottom);
+          })).toBe(true);
           await expect(page.locator("#item-preview")).toContainText("Long overview");
           await expect.poll(() => page.evaluate(({ currentLayout, itemId }) => {
             const selector = currentLayout === "columns"
@@ -662,6 +675,16 @@ test("keeps participants usable for selected items on dense List and Columns boa
           const participantBox = await page.locator(".item-participants-body").boundingBox();
           expect(participantBox?.width).toBeGreaterThan(120);
           expect(participantRequests).toEqual([selectedId]);
+          if (layout === "list" && scenario.key === "populated") {
+            await page.setViewportSize({ width: 1440, height: 900 });
+            await page.screenshot({ path: "artifacts/board-selected-title-desktop.png" });
+            await page.setViewportSize({ width: 760, height: 740 });
+            await page.locator(".editor-header").scrollIntoViewIfNeeded();
+            expect(await page.locator("#editor-title").evaluate((title) =>
+              title.getBoundingClientRect().bottom <= title.closest(".editor-header").getBoundingClientRect().bottom)).toBe(true);
+            await page.screenshot({ path: "artifacts/board-selected-title-narrow.png" });
+            await page.setViewportSize({ width: 1280, height: 720 });
+          }
         } finally {
           await page.unroute(participantRoute, handler);
         }
@@ -827,14 +850,14 @@ test("saves optional milestone metadata and reflects it in the board", async ({ 
   await page.locator('[data-editor-mode="structured"]').click();
   await openMetadataDetails(page);
 
-  await page.locator("#field-milestone").fill("P2");
+  await page.locator("#field-milestone").fill("P3");
   await page.locator("#save-button").click();
 
   await expect(page.locator("#status-banner")).toContainText("Saved.");
-  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toContainText("P2");
+  await expect(page.locator('[data-item-id="feature-setup-guidance"]')).toContainText("P3");
 
   const updatedFeatureText = await fs.readFile(featurePath, "utf8");
-  expect(updatedFeatureText).toContain("milestone: P2");
+  expect(updatedFeatureText).toContain("milestone: P3");
 });
 
 test("renders extra sections from the item file in the structured editor", async ({ page }) => {
@@ -1175,6 +1198,7 @@ test("generic metadata filters render from file frontmatter and combine with sea
 });
 test("switches to the status lens, hides board editing, and restores from the URL", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#editor-title")).not.toHaveText("Item");
 
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
@@ -1581,6 +1605,357 @@ test("list view opens cards and supports moving and ordering with its in-card dr
 
     await card.click();
     await expect(page.locator("#editor-title")).toHaveText("Drag source");
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+test("shows bounded attached-session counts across dense List and Columns boards", async ({ page }) => {
+  test.setTimeout(90_000);
+  const fixture = await makeLargeRoadmapFixture();
+  const boardRequests = [];
+  let countForFeaturedItem = 2;
+  let countForQueuedItem = 0;
+  const detailRequests = [];
+  await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+    boardRequests.push(route.request().url());
+    await route.fulfill({ json: {
+      status: "ok",
+      counts: [
+        { itemId: "large-item-02", participantCount: countForFeaturedItem },
+        { itemId: "large-item-03", participantCount: 0 },
+        { itemId: "large-item-05", participantCount: countForQueuedItem },
+        // A defensive client must ignore completed cards even if the batch is stale or over-inclusive.
+        { itemId: "large-item-04", participantCount: 3 },
+      ],
+      partial: false,
+      refreshedAt: "2026-09-24T08:30:00.000Z",
+    } });
+  });
+  await page.route(/\/api\/items\/large-item-02\/participants$/, async (route) => {
+    detailRequests.push(route.request().url());
+    await route.fulfill({ json: { ...participantPayload("large-item-02", "dense-session", 2), status: "ok" } });
+  });
+
+  try {
+    for (const layout of ["list", "columns"]) {
+      boardRequests.length = 0;
+      detailRequests.length = 0;
+      countForFeaturedItem = 2;
+      countForQueuedItem = 0;
+      await page.setViewportSize({ width: 1440, height: 900 });
+      const layoutHash = layout === "columns" ? "&layout=columns" : "";
+      await page.goto(`/?presenceLayout=${layout}#repo=${encodeURIComponent(fixture)}${layoutHash}`);
+      const featuredCard = layout === "columns"
+        ? page.locator('.board-column-card-main[data-item-dblopen="large-item-02"]')
+        : page.locator('.board-item[data-item-id="large-item-02"]');
+      const zeroCard = layout === "columns"
+        ? page.locator('.board-column-card-main[data-item-dblopen="large-item-03"]')
+        : page.locator('.board-item[data-item-id="large-item-03"]');
+      const completedCard = layout === "columns"
+        ? page.locator('.board-column-card-main[data-item-dblopen="large-item-04"]')
+        : page.locator('.board-item[data-item-id="large-item-04"]');
+      const queuedCard = layout === "columns"
+        ? page.locator('.board-column-card-main[data-item-dblopen="large-item-05"]')
+        : page.locator('.board-item[data-item-id="large-item-05"]');
+
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(1);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText("2 attached");
+      await expect(zeroCard.locator(".board-item-participants")).toHaveCount(0);
+      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(0);
+      await expect(completedCard.locator(".board-item-participants")).toHaveCount(0);
+      await expect(page.locator("#board-participant-status")).toBeHidden();
+      expect(boardRequests).toHaveLength(1);
+
+      await page.screenshot({ path: `test-results/board-presence-${layout}-desktop.png`, fullPage: false });
+      await page.setViewportSize({ width: 760, height: 740 });
+      await featuredCard.scrollIntoViewIfNeeded();
+      await expect(featuredCard.locator(".board-item-participants:visible")).toBeVisible();
+      const geometry = await featuredCard.evaluate((card) => {
+        const rect = card.getBoundingClientRect();
+        const titleElement = card.querySelector(".board-item-title");
+        const title = titleElement?.getBoundingClientRect();
+        const metaElement = card.querySelector(".board-item-meta");
+        const kindElement = metaElement?.querySelector(".board-item-kind");
+        const dragElement = card.querySelector(".board-column-card-drag");
+        const board = document.querySelector("#board-groups").getBoundingClientRect();
+        const openButton = card.matches(".board-column-card-main")
+          ? card.parentElement.querySelector("[data-item-open]")
+          : card;
+        const overlaps = (first, second) => Boolean(first && second
+          && first.left < second.right - 1 && first.right > second.left + 1
+          && first.top < second.bottom - 1 && first.bottom > second.top + 1);
+        return {
+          contained: rect.left >= board.left - 1 && rect.right <= board.right + 1,
+          titleVisible: Boolean(title && title.width > 0 && title.height > 0 && getComputedStyle(titleElement).display !== "none"),
+          titleWithinCard: Boolean(title && title.left >= rect.left - 1 && title.right <= rect.right + 1),
+          titleOverlapsKind: overlaps(title, kindElement?.getBoundingClientRect()),
+          titleOverlapsDrag: overlaps(title, dragElement?.getBoundingClientRect()),
+          openVisible: Boolean(openButton && openButton.getBoundingClientRect().width > 0),
+          horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      await page.screenshot({ path: `test-results/board-presence-${layout}-narrow.png`, fullPage: false });
+      expect(geometry.contained).toBe(true);
+      expect(geometry.titleVisible).toBe(true);
+      expect(geometry.titleWithinCard).toBe(true);
+      expect(geometry.titleOverlapsKind).toBe(false);
+      expect(geometry.titleOverlapsDrag).toBe(false);
+      expect(geometry.openVisible).toBe(true);
+      expect(geometry.horizontalOverflow).toBeLessThanOrEqual(2);
+
+      let columnPositionBeforeRefresh;
+      if (layout === "columns") {
+        // At narrow widths Columns intentionally stacks and stops horizontal scrolling.
+        // Verify persistence in the desktop horizontal-scroller layout instead.
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const openButton = page.locator('[data-item-open="large-item-02"]');
+        await openButton.focus();
+        await page.locator(".board-columns").evaluate((root) => {
+          root.scrollLeft = Math.min(360, root.scrollWidth - root.clientWidth);
+          root.querySelector(".board-column-list").scrollTop = 48;
+        });
+        columnPositionBeforeRefresh = await page.evaluate(() => ({
+          horizontal: document.querySelector(".board-columns").scrollLeft,
+          vertical: document.querySelector(".board-column-list").scrollTop,
+          focusedOpen: document.activeElement?.matches('[data-item-open="large-item-02"]') || false,
+        }));
+        expect(columnPositionBeforeRefresh.horizontal).toBeGreaterThan(100);
+        expect(columnPositionBeforeRefresh.vertical).toBeGreaterThan(0);
+        expect(columnPositionBeforeRefresh.focusedOpen).toBe(true);
+      }
+
+      // A foreground refresh updates the visible count without multiplying per-card requests.
+      countForFeaturedItem = 1;
+      countForQueuedItem = 2;
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText("1 attached");
+      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(1);
+      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveText("2 attached");
+      if (layout === "columns") {
+        const columnPositionAfterRefresh = await page.evaluate(() => ({
+          horizontal: document.querySelector(".board-columns").scrollLeft,
+          vertical: document.querySelector(".board-column-list").scrollTop,
+          focusedOpen: document.activeElement?.matches('[data-item-open="large-item-02"]') || false,
+        }));
+        expect(columnPositionAfterRefresh).toEqual(columnPositionBeforeRefresh);
+      }
+      expect(boardRequests).toHaveLength(2);
+
+      if (layout === "columns") await page.locator('[data-item-open="large-item-02"]').click();
+      else await featuredCard.click();
+      await expect(page.locator("#editor-title")).toHaveText("Large project item large-item-02 — usable title");
+      await expect(page.locator("#item-participants-status")).toHaveText("2 participants");
+      expect(detailRequests).toHaveLength(1);
+      expect(boardRequests).toHaveLength(2);
+    }
+
+    // A fresh deep link into Columns must render a positive queued-item count on first paint.
+    boardRequests.length = 0;
+    countForQueuedItem = 2;
+    await page.goto(`/?presenceLayout=columns-positive#repo=${encodeURIComponent(fixture)}&layout=columns`);
+    const queuedColumnsCard = page.locator('.board-column-card-main[data-item-dblopen="large-item-05"]');
+    await expect(queuedColumnsCard.locator(".board-item-participants:visible")).toHaveText("2 attached");
+    await page.screenshot({ path: "artifacts/board-presence-columns-queued-refresh.png", fullPage: false });
+    expect(boardRequests).toHaveLength(1);
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("does not show zero badges when board presence is disabled or unavailable", async ({ page }) => {
+  const fixture = await makeLargeRoadmapFixture();
+  try {
+    for (const status of ["disabled", "unreachable"]) {
+      let requests = 0;
+      await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+        requests += 1;
+        await route.fulfill({ json: { status, counts: [], partial: false, refreshedAt: null } });
+      });
+      await page.goto(repoUrlFor(fixture, `/?presence=${status}`));
+      await expect(page.locator(".board-item-participants")).toHaveCount(0);
+      const toolbar = page.locator("#board-participant-status");
+      if (status === "disabled") await expect(toolbar).toBeHidden();
+      else {
+        await expect(toolbar).toBeVisible();
+        await expect(toolbar).toHaveText("Session badges unavailable");
+      }
+      await page.waitForLoadState("networkidle");
+      const card = page.locator('.board-item[data-item-id="large-item-02"]');
+      await card.focus();
+      const originalCard = await card.elementHandle();
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await expect.poll(() => requests).toBeGreaterThan(1);
+      await expect.poll(() => originalCard.evaluate((element) => element.isConnected)).toBe(true);
+      await expect.poll(() => originalCard.evaluate((element) => document.activeElement === element)).toBe(true);
+      await expect(card.locator(".board-item-participants")).toHaveCount(0);
+      await originalCard.dispose();
+      await page.unroute(/\/api\/board\/participant-counts$/);
+    }
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("ignores a delayed board count response after switching repositories", async ({ page }) => {
+  const oldFixture = await makeLargeRoadmapFixture();
+  const newFixture = await makeLargeRoadmapFixture();
+  let markOldStarted;
+  const oldStarted = new Promise((resolve) => { markOldStarted = resolve; });
+  let releaseOldResponse;
+  const oldResponseGate = new Promise((resolve) => { releaseOldResponse = resolve; });
+  await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+    const repo = route.request().headers()["x-minimap-repo"];
+    if (repo === oldFixture) {
+      markOldStarted();
+      await oldResponseGate;
+      try {
+        await route.fulfill({ json: { status: "ok", counts: [{ itemId: "large-item-02", participantCount: 9 }], partial: false, refreshedAt: null } });
+      } catch {
+        // Switching repositories intentionally aborts the old request.
+      }
+      return;
+    }
+    await route.fulfill({ json: { status: "ok", counts: [{ itemId: "large-item-02", participantCount: 1 }], partial: false, refreshedAt: null } });
+  });
+
+  try {
+    await page.goto(repoUrlFor(oldFixture));
+    await oldStarted;
+    await page.evaluate((repoPath) => {
+      const params = new URLSearchParams(location.hash.slice(1));
+      params.set("repo", repoPath);
+      location.hash = params.toString();
+    }, newFixture);
+    const currentCard = page.locator('.board-item[data-item-id="large-item-02"]');
+    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("1 attached");
+    releaseOldResponse();
+    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("1 attached");
+    await expect(currentCard.locator(".board-item-participants:visible")).not.toHaveText("9 attached");
+  } finally {
+    releaseOldResponse();
+    await fs.rm(oldFixture, { recursive: true, force: true });
+    await fs.rm(newFixture, { recursive: true, force: true });
+  }
+});
+test("focuses a dense board without reordering and keeps active, blocked, and numeric priority legible", async ({ page }) => {
+  const fixture = await makeLargeRoadmapFixture();
+  const boardFile = path.join(fixture, "roadmap", "board.md");
+  try {
+    await page.setViewportSize({ width: 1440, height: 820 });
+    await page.goto(repoUrlFor(fixture));
+    const originalBoard = await fs.readFile(boardFile, "utf8");
+    const activeCard = page.locator('[data-item-id="large-item-02"]');
+    await expect(activeCard).toHaveClass(/board-card-status-progress/);
+    await expect(activeCard.locator(".badge-row .badge-field-status")).toHaveText("active");
+    await expect(activeCard.locator(".badge-row .badge-field-priority")).toHaveText("P1");
+    await expect(activeCard.locator(".badge-row .badge-field-priority")).toHaveAttribute("title", "Priority 1");
+    await expect(page.locator('[data-item-id="large-item-03"]')).toHaveClass(/board-card-status-blocked/);
+
+    const milestone = await page.locator("#board-focus-milestone option").nth(2).getAttribute("value");
+    await page.locator("#board-focus-milestone").selectOption(milestone);
+    await expect(page.locator("#board-focus-milestone")).toHaveValue(milestone);
+    await expect(activeCard).toBeVisible();
+    await page.locator("#board-focus-unfinished").click();
+    await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "true");
+    await page.locator("#board-focus-milestone").selectOption("");
+    const statuses = await page.locator(".board-item .badge-field-status").allTextContents();
+    expect(statuses.length).toBeGreaterThan(0);
+    expect(statuses.every((status) => !["done", "shipped", "superseded"].includes(status))).toBe(true);
+    await expect(page.locator('[data-item-id="large-item-06"]')).toBeVisible();
+    await expect(page.locator('[data-item-id="large-item-07"]')).toHaveCount(0);
+    await expect(page.locator('[data-item-id="large-item-08"]')).toHaveCount(0);
+    expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
+
+    await page.locator("#board-layout-columns").click();
+    const activeColumnCard = page.locator(".board-column-card").filter({ has: page.locator('[data-item-dblopen="large-item-02"]') });
+    const blockedColumnCard = page.locator(".board-column-card").filter({ has: page.locator('[data-item-dblopen="large-item-03"]') });
+    await expect(activeColumnCard).toHaveClass(/board-card-status-progress/);
+    await expect(blockedColumnCard).toHaveClass(/board-card-status-blocked/);
+    await expect(activeColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
+    await expect(blockedColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
+    await expect(activeColumnCard.getByRole("button", { name: /Open / })).toBeVisible();
+    await page.screenshot({ path: "test-results/board-focus-desktop.png" });
+
+    await page.setViewportSize({ width: 760, height: 700 });
+    await page.locator(".board-columns").evaluate((root) => { root.scrollLeft = 0; });
+    await page.screenshot({ path: "test-results/board-focus-narrow.png" });
+    const toolbarOverflow = await page.locator(".board-toolbar-row").evaluate((row) => row.scrollWidth - row.clientWidth);
+    expect(toolbarOverflow).toBeLessThanOrEqual(2);
+    await expect(activeColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
+    expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("quick milestone focus handles block-list metadata values", async ({ page }) => {
+  const fixture = await makeDragRoadmapFixture();
+  try {
+    const file = path.join(fixture, "roadmap", "features", "drag-source.md");
+    const original = await fs.readFile(file, "utf8");
+    await fs.writeFile(file, original.replace("commitment: committed\n", "commitment: committed\nmilestone:\n  - P1\n  - P2\n"), "utf8");
+    await page.goto(repoUrlFor(fixture));
+    const options = page.locator("#board-focus-milestone option");
+    await expect(options).toHaveText(["All milestones", "P1", "P2"]);
+    await page.locator("#board-focus-milestone").selectOption("P2");
+    await expect(page.locator("[data-item-id=drag-source]")).toBeVisible();
+    await expect(page.locator("[data-item-id=drag-target]")).toHaveCount(0);
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("filtered dense metadata views show only groups with matching cards", async ({ page }) => {
+  const fixture = await makeLargeRoadmapFixture();
+  try {
+    for (const lens of ["lane", "milestone"]) {
+      for (const layout of ["list", "columns"]) {
+        await page.setViewportSize({ width: layout === "columns" ? 760 : 1440, height: 820 });
+        await page.goto(`/?denseCase=${lens}-${layout}#repo=${encodeURIComponent(fixture)}&lens=${lens}&layout=${layout}`);
+        await page.reload();
+        await page.waitForLoadState("networkidle");
+        const groupSelector = layout === "columns" ? ".board-column" : ".board-group";
+        const cardSelector = layout === "columns" ? ".board-column-card" : ".board-item";
+        await expect(page.locator(groupSelector).first()).toBeVisible();
+
+        async function expectNoEmptyGroups() {
+          const groups = page.locator(groupSelector);
+          const count = await groups.count();
+          if (count === 0) {
+            await expect(page.locator("#board-groups .empty-state")).toContainText("No roadmap items match");
+          } else {
+            for (const group of await groups.all()) {
+              expect(await group.locator(cardSelector).count()).toBeGreaterThan(0);
+            }
+          }
+        }
+
+        await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "false");
+        await page.locator("#board-focus-unfinished").click();
+        await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "true");
+        await expectNoEmptyGroups();
+        await expect(page.locator(layout === "columns" ? ".board-column-order-actions" : ".group-actions")).toHaveCount(0);
+
+        const milestone = await page.locator("#board-focus-milestone option").last().getAttribute("value");
+        await page.locator("#board-focus-milestone").selectOption(milestone);
+        await expectNoEmptyGroups();
+
+        await page.locator("#board-search").fill("no-such-roadmap-item-xyz");
+        await expect(page.locator(groupSelector)).toHaveCount(0);
+        await expect(page.locator("#board-groups .empty-state")).toBeVisible();
+        await page.locator("#board-clear-filters").click();
+        await expect(page.locator(groupSelector).first()).toBeVisible();
+        if (layout === "columns") {
+          const width = await page.locator(".board-column:not(.board-column-collapsed)").first().evaluate((column) => column.getBoundingClientRect().width);
+          expect(width).toBeGreaterThanOrEqual(258);
+          const collapseWidth = await page.locator(".board-column-collapse-toggle").first().evaluate((button) => button.getBoundingClientRect().width);
+          expect(collapseWidth).toBeLessThanOrEqual(30);
+          await expect(page.locator(".board-column-card-open").first()).toBeVisible();
+        }
+      }
+    }
   } finally {
     await fs.rm(fixture, { recursive: true, force: true });
   }

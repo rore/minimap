@@ -12,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- show-board-work-presence
 - foundation-local-server
 - link-pallium-participant-sessions
 - foundation-board-editor

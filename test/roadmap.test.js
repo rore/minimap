@@ -241,6 +241,22 @@ test("serializeItem preserves unknown frontmatter and unknown sections while all
   assert.match(serialized, /## Summary[\s\S]*Updated summary\./);
 });
 
+test("loadWorkspace reads every item across bounded batches", async () => {
+  const repoRoot = await makeTempRepo();
+  try {
+    const featureDir = path.join(repoRoot, "roadmap", "features");
+    await Promise.all(Array.from({ length: 33 }, (_, index) => {
+      const id = "batch-" + String(index).padStart(2, "0");
+      return fs.writeFile(path.join(featureDir, id + ".md"), sampleItemText.replaceAll("feature-a", id), "utf8");
+    }));
+    const workspace = await loadWorkspace(repoRoot);
+    assert.equal(Object.keys(workspace.items).length, 35);
+    assert.equal(workspace.items["batch-32"].metadata.title, "Test item");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("loadWorkspace uses roadmap.config.json override", async () => {
   const repoRoot = await makeTempRepo();
   await fs.mkdir(path.join(repoRoot, "docs", "roadmap", "features"), { recursive: true });
@@ -4489,4 +4505,81 @@ test("createTextAnchor disambiguates same-line duplicates via quoteOffset hint",
     quoteOffset: secondOffset + 2,
   });
   assert.equal(nearSecond.offset, secondOffset);
+});
+
+test("board participant-count route batches only unfinished board items and omits completed or over-limit results", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-board-counts-"));
+  const roadmapRoot = path.join(repoRoot, "roadmap");
+  const featuresRoot = path.join(roadmapRoot, "features");
+  await fs.mkdir(featuresRoot, { recursive: true });
+  await fs.mkdir(path.join(roadmapRoot, "ideas"), { recursive: true });
+  const itemIds = Array.from({ length: 205 }, (_, index) => `item-${String(index).padStart(3, "0")}`);
+  const terminal = new Map([[0, "done"], [3, "shipped"], [4, "cancelled"], [5, "canceled"]]);
+  await fs.writeFile(path.join(roadmapRoot, "scope.md"), "Test scope.\n", "utf8");
+  await fs.writeFile(path.join(roadmapRoot, "board.md"), `# Now\n${itemIds.map((id) => `- ${id}`).join("\n")}\n`, "utf8");
+  await Promise.all(itemIds.map((id, index) => fs.writeFile(
+    path.join(featuresRoot, `${id}.md`),
+    `---\nid: ${id}\ntitle: ${id}\nstatus: ${terminal.get(index) || "queued"}\npriority: medium\ncommitment: committed\n---\n\n## Summary\nTest item.\n`,
+    "utf8",
+  )));
+  const git = (args) => new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    child.on("error", reject);
+    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(stderr)));
+  });
+  await git(["init"]);
+  await git(["remote", "add", "origin", "https://github.com/example/board-counts.git"]);
+
+  const requests = [];
+  const upstream = http.createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    requests.push({ method: request.method, url: request.url, payload });
+    response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
+      contract: "relay-work-ref-counts/v1",
+      counts: payload.references.map((reference, index) => ({ ...reference, participant_count: index === 0 ? 0 : 2 })),
+    }));
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const upstreamPort = upstream.address().port;
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const child = await startServerOnPort(4452, {
+    cwd: repoRoot,
+    env: { MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: `http://127.0.0.1:${upstreamPort}` },
+  });
+  const url = "http://localhost:4452/api/board/participant-counts";
+  const headers = { "X-Minimap-Repo": repoRoot };
+  try {
+    const response = await fetch(url, { headers });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const selectedIds = itemIds.filter((_, index) => !terminal.has(index));
+    assert.equal(body.status, "ok");
+    assert.equal(body.counts.length, 200);
+    assert.equal(body.partial, true);
+    assert.deepEqual(body.counts.map((row) => row.itemId), selectedIds.slice(0, 200));
+    assert.equal(body.counts[0].participantCount, 0);
+    assert.equal(body.counts[1].participantCount, 2);
+    assert.equal(body.counts.some((row) => ["item-000", "item-003", "item-004", "item-005", "item-204"].includes(row.itemId)), false);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, "POST");
+    assert.equal(requests[0].url, "/relay/work-refs/participant-counts");
+    assert.equal(requests[0].payload.references.length, 200);
+    assert.ok(requests[0].payload.references.every((ref) => ref.scope_ref === requests[0].payload.references[0].scope_ref));
+
+    await Promise.all(itemIds.map(async (id) => {
+      const itemPath = path.join(featuresRoot, `${id}.md`);
+      const itemText = await fs.readFile(itemPath, "utf8");
+      await fs.writeFile(itemPath, itemText.replace(/^status: .*$/m, "status: superseded"), "utf8");
+    }));
+    const emptyResponse = await fetch(url, { headers });
+    assert.deepEqual(await emptyResponse.json(), { status: "ok", counts: [], partial: false });
+    assert.equal(requests.length, 1, "empty unfinished selection must not call Pallium");
+  } finally {
+    await stopServer(child);
+    await new Promise((resolve) => upstream.close(resolve));
+  }
 });

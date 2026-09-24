@@ -45,6 +45,8 @@ const SAFE_NAMES = new Set([
   "beforeHtml", "afterHtml", "cls", "classes", "contentHtml",
   "metaHtml", "buttonsHtml", "dropZoneHtml", "scopeIconHtml",
   "filterChipsHtml", "filterFacetsHtml",
+  "signalBadges", // Concatenation of renderBadge outputs; values are escaped there.
+  "participantBadge", // buildBoardParticipantBadge escapes its only dynamic label.
   "badges", "titleHtml", "statsHtml", "chips", "options", "optionMarkup",
   "specBadge", "cardsHtml", "columnsHtml", "rows", "label", "value", "key",
   "safeHeading", "rowCount", "items",

@@ -66,7 +66,7 @@ Filters are intentionally curated. Common planning fields (`status`, `priority`,
 
 ## Optional live participants
 
-Pallium integration is optional and read-only. Minimap never stores live participants or work-reference associations in roadmap files. With no explicitly configured local Pallium endpoint, normal board, item, and editing behavior makes no Pallium HTTP request.
+Pallium integration is optional and read-only. Minimap never stores live participants or work-reference associations in roadmap files. With no explicitly configured local Pallium endpoint, normal board, item, and editing behavior makes no Pallium HTTP request. With a configured loopback endpoint, the visible roadmap board uses one bounded request per refresh for counts on up to 200 noncompleted board items. Done, shipped, superseded, cancelled, and canceled items are omitted. Badges mean attached, nonclosed sessions only; they do not signal execution, ownership, or item status. Completed-item session detail remains available on demand in the existing item panel. Overflow, errors, and unknown results must remain visibly partial or unavailable, never be represented as zero. Minimap calls `GET /api/board/participant-counts`; the configured Pallium service receives `POST /relay/work-refs/participant-counts`.
 
 An item's public work-reference selector is derived by Minimap and copied unchanged by the UI, CLI, and agent skill:
 

@@ -59,7 +59,7 @@ Each request carries its own repo identity via the `X-Minimap-Repo` header — t
 
 ### Optional Pallium participants
 
-Set `MINIMAP_PALLIUM_ENDPOINT` to an explicit loopback HTTP origin to show a lazy, read-only participant list for the selected roadmap item. When it is unset, Minimap makes no Pallium requests and ordinary board and editing behavior is unchanged. Exact session links are independently opt-in: set `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT` to a reviewed compatible dashboard origin. When it is absent, participant names remain plain text.
+Set `MINIMAP_PALLIUM_ENDPOINT` to an explicit loopback HTTP origin to show board-wide counts from one bounded, read-only request per visible refresh for up to 200 noncompleted board items. Badges count attached, nonclosed sessions only—not execution, ownership, or item status. Completed items remain available through the existing on-demand item panel. Disabled lookup makes no Pallium HTTP requests; overflow, error, and unknown results are never presented as zero. Exact-session links remain independently opt-in through a reviewed compatible `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`.
 
 `minimap roadmap item-ref <item-id> --repo /abs/path/to/repo --json` returns the same authoritative selector for agent MCP participation without requiring the HTTP integration. It uses canonical Git identity and fails closed when no safe identity exists.
 ## Metadata-first roadmap setup
@@ -82,7 +82,7 @@ Keep lane, milestone, status, and similar classifications in item frontmatter. K
 }
 ```
 
-A valid URL grouping overrides `defaultLens`, including explicit `lens=board`. Grouping and List/Columns layout are independent. In Columns, collapse unneeded groups to give the remaining columns more reading width; widened dense columns reveal descriptions. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. Moving an item to Unassigned removes the active grouping field. See [`skills/minimap-roadmap/references/roadmap-contract.md`](skills/minimap-roadmap/references/roadmap-contract.md) for ownership and manual migration.
+A valid URL grouping overrides `defaultLens`, including explicit `lens=board`. Grouping and List/Columns layout are independent. In Columns, collapse unneeded groups to give the remaining columns more reading width; widened dense columns reveal descriptions. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. The Milestone and Unfinished quick controls reuse those filters without changing `board.md` order or item status. Moving an item to Unassigned removes the active grouping field. See [`skills/minimap-roadmap/references/roadmap-contract.md`](skills/minimap-roadmap/references/roadmap-contract.md) for ownership and manual migration.
 ## Server lifecycle (agent contract)
 
 Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.

@@ -7,11 +7,13 @@ import {
   canonicalGitRemote,
   encodeReferencePart,
   isTrustedLocalRequest,
+  lookupPalliumParticipantCounts,
   lookupPalliumParticipants,
   palliumConfigId,
   parsePalliumConfig,
   parsePalliumEndpoint,
   resolveRoadmapItemReference,
+  resolveRoadmapItemReferences,
 } from "../package/minimap/src/pallium.js";
 import {
   clearPalliumPreference,
@@ -365,4 +367,139 @@ test("unsupported, malformed, and oversized responses stay distinct and safe", a
     maxPageBytes: 16,
     fetchImpl: async () => page(0, []),
   })).status, "over-limit");
+});
+test("board references resolve one shared git scope for all exact item IDs", async () => {
+  const calls = [];
+  const refs = await resolveRoadmapItemReferences("C:/work/repo", "roadmap", ["one", "two", "café"], {
+    runGit: async (args, cwd) => {
+      calls.push({ args, cwd });
+      return args[0] === "rev-parse" ? "C:/work/repo" : "https://github.com/Owner/Repo.git";
+    },
+    realpath: async (value) => path.resolve(value),
+  });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(refs.map(({ scope_ref, local_ref }) => [scope_ref, local_ref]), [
+    ["roadmap:v1:git:github.com/owner/repo#roadmap", "item:v1:one"],
+    ["roadmap:v1:git:github.com/owner/repo#roadmap", "item:v1:two"],
+    ["roadmap:v1:git:github.com/owner/repo#roadmap", "item:v1:caf%C3%A9"],
+  ]);
+  assert.equal(await resolveRoadmapItemReferences("C:/work/repo", "roadmap", ["one", "one"], {
+    runGit: async () => "https://github.com/Owner/Repo.git",
+    realpath: async (value) => path.resolve(value),
+  }), null);
+  assert.equal(await resolveRoadmapItemReferences("C:/work/repo", "roadmap", Array(201).fill("x")), null);
+});
+
+test("board participant counts use one exact POST and preserve request order including zero", async () => {
+  const config = { configured: true, endpoint: "http://127.0.0.1:19836" };
+  const refs = [reference, { ...reference, local_ref: "item:v1:second" }];
+  let calls = 0;
+  const result = await lookupPalliumParticipantCounts(config, refs, {
+    fetchImpl: async (url, init) => {
+      calls += 1;
+      assert.equal(new URL(url).pathname, "/relay/work-refs/participant-counts");
+      assert.equal(init.method, "POST");
+      assert.equal(init.redirect, "error");
+      assert.equal(init.headers["content-type"], "application/json");
+      assert.deepEqual(JSON.parse(init.body), { references: refs.map(({ scope_ref, local_ref }) => ({ scope_ref, local_ref })) });
+      return Response.json({
+        contract: "relay-work-ref-counts/v1",
+        counts: [
+          { scope_ref: refs[0].scope_ref, local_ref: refs[0].local_ref, participant_count: 0 },
+          { scope_ref: refs[1].scope_ref, local_ref: refs[1].local_ref, participant_count: 2 },
+        ],
+      });
+    },
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(result, {
+    status: "ok",
+    counts: [
+      { scope_ref: refs[0].scope_ref, local_ref: refs[0].local_ref, participant_count: 0 },
+      { scope_ref: refs[1].scope_ref, local_ref: refs[1].local_ref, participant_count: 2 },
+    ],
+    partial: false,
+  });
+});
+
+test("board count accepts a valid 200-row response larger than 64KB within the bounded cap", async () => {
+  const scope_ref = `roadmap:v1:git:example.test/${"x".repeat(300)}#roadmap`;
+  const refs = Array.from({ length: 200 }, (_, index) => ({
+    scope_ref,
+    local_ref: `item:v1:item-${index}`,
+  }));
+  const json = JSON.stringify({
+    contract: "relay-work-ref-counts/v1",
+    counts: refs.map((reference) => ({ ...reference, participant_count: 1 })),
+  });
+  assert.ok(Buffer.byteLength(json) > 64 * 1024);
+  assert.ok(Buffer.byteLength(json) < 256 * 1024);
+
+  const result = await lookupPalliumParticipantCounts(
+    { configured: true, endpoint: "http://127.0.0.1:19836" },
+    refs,
+    { fetchImpl: async () => new Response(json, { headers: { "content-type": "application/json" } }) },
+  );
+  assert.equal(result.status, "ok");
+  assert.equal(result.counts.length, 200);
+  assert.equal(result.counts[199].participant_count, 1);
+});
+test("board counts fail closed for duplicate, over-limit, malformed, reordered, or missing rows", async () => {
+  const config = { configured: true, endpoint: "http://127.0.0.1:19836" };
+  let calls = 0;
+  const fetchImpl = async () => { calls += 1; throw new Error("unexpected request"); };
+  assert.equal((await lookupPalliumParticipantCounts(config, Array(201).fill(reference), { fetchImpl })).status, "invalid-request");
+  assert.equal((await lookupPalliumParticipantCounts(config, [reference, reference], { fetchImpl })).status, "invalid-request");
+  assert.equal((await lookupPalliumParticipantCounts(config, [{ ...reference, local_ref: "bad ref" }], { fetchImpl })).status, "invalid-request");
+  assert.equal(calls, 0);
+
+  const refs = [reference, { ...reference, local_ref: "item:v1:second" }];
+  for (const counts of [
+    [{ ...refs[0], participant_count: 0 }],
+    [{ ...refs[1], participant_count: 1 }, { ...refs[0], participant_count: 0 }],
+    [{ ...refs[0], participant_count: -1 }, { ...refs[1], participant_count: 1 }],
+    [{ ...refs[0], participant_count: 0 }, { ...refs[1], participant_count: 1.5 }],
+    [{ ...refs[0], participant_count: 0 }, { ...refs[1], participant_count: Number.MAX_SAFE_INTEGER + 1 }],
+    [{ ...refs[0], participant_count: 0 }, { scope_ref: refs[1].scope_ref, local_ref: "item:v1:other", participant_count: 1 }],
+  ]) {
+    const result = await lookupPalliumParticipantCounts(config, refs, {
+      fetchImpl: async () => Response.json({ contract: "relay-work-ref-counts/v1", counts }),
+    });
+    assert.equal(result.status, "invalid-response");
+    assert.deepEqual(result.counts, []);
+  }
+});
+
+test("board count lookup does not post when its caller signal was aborted before identity resolution finished", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let calls = 0;
+  await assert.rejects(
+    lookupPalliumParticipantCounts(
+      { configured: true, endpoint: "http://127.0.0.1:19836" },
+      [reference],
+      { signal: controller.signal, fetchImpl: async () => { calls += 1; throw new Error("must not run"); } },
+    ),
+    { name: "AbortError" },
+  );
+  assert.equal(calls, 0);
+});
+test("board count lookup never turns disabled, unsupported, failed, or timed out calls into zero", async () => {
+  let calls = 0;
+  const never = async () => { calls += 1; throw new Error("must not run"); };
+  const disabled = await lookupPalliumParticipantCounts({ configured: false }, [reference], { fetchImpl: never });
+  assert.equal(disabled.status, "disabled");
+  assert.deepEqual(disabled.counts, []);
+  assert.equal((await lookupPalliumParticipantCounts({ configured: true }, [reference], { fetchImpl: never })).status, "unsupported");
+  assert.equal((await lookupPalliumParticipantCounts({ configured: true, endpoint: "http://127.0.0.1:19836" }, [reference], {
+    fetchImpl: async () => new Response("", { status: 404 }),
+  })).status, "unsupported");
+  assert.equal((await lookupPalliumParticipantCounts({ configured: true, endpoint: "http://127.0.0.1:19836" }, [reference], {
+    fetchImpl: async () => new Response("", { status: 503 }),
+  })).status, "unreachable");
+  assert.equal((await lookupPalliumParticipantCounts({ configured: true, endpoint: "http://127.0.0.1:19836" }, [reference], {
+    timeoutMs: 10,
+    fetchImpl: async (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true })),
+  })).status, "timeout");
+  assert.equal(calls, 0);
 });
