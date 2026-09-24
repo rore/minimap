@@ -49,7 +49,7 @@ A single running server is shared across both modes and across any number of rep
 
 ### Optional Pallium participants
 
-When `MINIMAP_PALLIUM_ENDPOINT` is set to an explicit loopback HTTP origin, such as `http://127.0.0.1:19836`, a selected roadmap item can show a lazy, read-only list of associated Pallium sessions. Leaving it unset makes no Pallium requests and changes none of Minimap's normal board or editing behavior. Session links are a separate compatibility opt-in: set `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT` to the reviewed dashboard origin only when that Pallium server supports exact session deep links. Without it, participant names remain plain text.
+When `MINIMAP_PALLIUM_ENDPOINT` is set to an explicit loopback HTTP origin, such as `http://127.0.0.1:19836`, the visible roadmap board uses one bounded, read-only request per refresh for counts on up to 200 noncompleted board items. Badges count attached, nonclosed Pallium sessions; they do not indicate execution, ownership, or roadmap status. Completed items have no board-wide badge, but their sessions remain available on demand in the item panel. If the setting is unset, Minimap makes no Pallium requests. Results beyond the 200-item bound and error or unknown states are shown as partial/unavailable, never as zero. Exact-session links remain a separate compatibility opt-in via `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`.
 
 Agents can obtain the same authoritative work selector without enabling the HTTP integration:
 
@@ -199,7 +199,7 @@ Optional repo-root config:
 }
 ```
 
-`defaultLens` controls grouping only; List/Columns stays independent. An explicit URL grouping, including `lens=board`, wins. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. Metadata owns classification and `board.md` owns one shared order; use a neutral `# Items` group for unrestricted metadata-first prioritization.
+`defaultLens` controls grouping only; List/Columns stays independent. An explicit URL grouping, including `lens=board`, wins. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. The Milestone and Unfinished quick controls reuse those filters without changing `board.md` order or item status. Metadata owns classification and `board.md` owns one shared order; use a neutral `# Items` group for unrestricted metadata-first prioritization.
 
 For the file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md).
 

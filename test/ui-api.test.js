@@ -37,6 +37,17 @@ test("item participant reads use the exact roadmap endpoint and forward cancella
   assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/repo");
 });
 
+test("board participant counts use one repo-scoped request and forward cancellation", async () => {
+  const f = fakeFetch([{ body: { status: "ok", counts: [] } }]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/repo" });
+  const controller = new AbortController();
+  await api.readBoardParticipantCounts({ signal: controller.signal });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].url, "/api/board/participant-counts");
+  assert.equal(f.calls[0].opts.signal, controller.signal);
+  assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/repo");
+});
+
 test("non-2xx response throws a normalized error carrying code and statusCode", async () => {
   const f = fakeFetch([{ ok: false, status: 422, body: { error: { code: "anchor_orphaned", message: "no match" } } }]);
   const api = createApi({ fetch: f });
