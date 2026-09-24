@@ -1176,6 +1176,7 @@ test("generic metadata filters render from file frontmatter and combine with sea
 });
 test("switches to the status lens, hides board editing, and restores from the URL", async ({ page }) => {
   await page.goto(repoUrl());
+  await expect(page.locator("#editor-title")).not.toHaveText("Item");
 
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="status"]').click();
@@ -1873,8 +1874,9 @@ test("filtered dense metadata views show only groups with matching cards", async
     for (const lens of ["lane", "milestone"]) {
       for (const layout of ["list", "columns"]) {
         await page.setViewportSize({ width: layout === "columns" ? 760 : 1440, height: 820 });
-        await page.goto(repoUrlFor(fixture, "/#lens=" + lens + "&layout=" + layout));
+        await page.goto(`/?denseCase=${lens}-${layout}#repo=${encodeURIComponent(fixture)}&lens=${lens}&layout=${layout}`);
         await page.reload();
+        await page.waitForLoadState("networkidle");
         const groupSelector = layout === "columns" ? ".board-column" : ".board-group";
         const cardSelector = layout === "columns" ? ".board-column-card" : ".board-item";
         await expect(page.locator(groupSelector).first()).toBeVisible();
@@ -1891,6 +1893,7 @@ test("filtered dense metadata views show only groups with matching cards", async
           }
         }
 
+        await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "false");
         await page.locator("#board-focus-unfinished").click();
         await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "true");
         await expectNoEmptyGroups();

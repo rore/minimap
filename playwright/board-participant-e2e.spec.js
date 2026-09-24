@@ -94,7 +94,8 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
       contract: "relay-work-ref-counts/v1",
       counts: body.references.map((reference) => ({
         ...reference,
-        participant_count: reference.local_ref === "item:v1:active-item" ? 2 : 0,
+        participant_count: reference.local_ref === "item:v1:active-item" ? 2
+          : reference.local_ref === "item:v1:completed-item" ? 1 : 0,
       })),
     }));
   });
@@ -144,6 +145,34 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     await expect(page.locator('.board-column-card-main[data-item-dblopen="completed-item"] .board-item-participants:visible')).toHaveCount(0);
     expect(writes).toEqual([]);
     expect(requests).toHaveLength(1, "switching layout must not create per-card or duplicate batch requests");
+
+    await page.locator("#board-layout-list").click();
+    const doneDetailResponse = page.waitForResponse((response) => response.url().includes("/api/items/completed-item/participants"));
+    await page.locator('.board-item[data-item-id="completed-item"]').click();
+    const doneDetail = await doneDetailResponse;
+    expect(doneDetail.status()).toBe(200);
+    expect((await doneDetail.json()).reference.local_ref).toBe("item:v1:completed-item");
+    await page.locator("#tab-structured").click();
+    if ((await page.locator(".metadata-details").getAttribute("open")) === null) await page.locator("#metadata-toggle").click();
+    await page.locator("#field-status").selectOption("in-progress");
+    await page.locator("#save-button").click();
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests[1].body.references.map((reference) => reference.local_ref)).toEqual([
+      "item:v1:active-item", "item:v1:zero-item", "item:v1:completed-item",
+    ]);
+    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("1 attached");
+
+    await page.locator('.board-item[data-item-id="active-item"]').click();
+    await page.locator("#tab-structured").click();
+    if ((await page.locator(".metadata-details").getAttribute("open")) === null) await page.locator("#metadata-toggle").click();
+    await page.locator("#field-status").selectOption("done");
+    await page.locator("#save-button").click();
+    await expect.poll(() => requests.length).toBe(3);
+    expect(requests[2].body.references.map((reference) => reference.local_ref)).toEqual([
+      "item:v1:zero-item", "item:v1:completed-item",
+    ]);
+    await expect(page.locator('.board-item[data-item-id="active-item"] .board-item-participants:visible')).toHaveCount(0);
+    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("1 attached");
   } finally {
     if (appEnv) await runScript(stopScript, appEnv).catch((error) => { throw error; });
     await new Promise((resolve) => pallium.close(resolve));
