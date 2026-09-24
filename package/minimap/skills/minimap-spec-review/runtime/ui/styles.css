@@ -2109,6 +2109,8 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
 
 .editor-header {
   gap: 12px;
+  height: auto;
+  min-height: 44px;
 }
 
 .editor-header .editor-heading {

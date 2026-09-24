@@ -642,6 +642,11 @@ test("keeps participants usable for selected items on dense List and Columns boa
           const groupsOrColumns = page.locator("#board-groups .board-group, #board-groups .board-column");
           expect(await groupsOrColumns.count()).toBeGreaterThanOrEqual(8);
           await expect(page.locator("#editor-title")).toHaveText(selectedTitle);
+          expect(await page.locator("#editor-title").evaluate((title) => {
+            const titleBox = title.getBoundingClientRect();
+            const headerBox = title.closest(".editor-header")?.getBoundingClientRect();
+            return Boolean(headerBox && titleBox.top >= headerBox.top && titleBox.bottom <= headerBox.bottom);
+          })).toBe(true);
           await expect(page.locator("#item-preview")).toContainText("Long overview");
           await expect.poll(() => page.evaluate(({ currentLayout, itemId }) => {
             const selector = currentLayout === "columns"
