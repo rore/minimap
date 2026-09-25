@@ -86,4 +86,31 @@ test.describe("spec file-changed banner", () => {
     // is still true and the on-disk hash still differs from lastSeenContentHash.
     await expect(banner).toBeVisible({ timeout: 15_000 });
   });
+  test("marks an unavailable session in the file list", async ({ page }) => {
+    await page.route("**/api/spec-sessions", async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      const session = payload.sessions.find((entry) => entry.targetFile === fixturePosix);
+      expect(session).toBeTruthy();
+      delete session.counts;
+      session.availability = {
+        status: "unavailable",
+        code: "recovery_conflict",
+        message: "Target changed during suggestion recovery; no file was overwritten.",
+      };
+      await route.fulfill({ response, json: payload });
+    });
+    await page.route(/\/api\/spec-sessions\/by-file\/context\?/, (route) => route.fulfill({
+      status: 409,
+      json: { error: { code: "recovery_conflict", message: "Target changed during suggestion recovery.", details: null } },
+    }));
+    await page.goto("/#" + repoHashParam + "&view=spec&file=" + encodeURIComponent(fixturePosix));
+    const row = page.locator(".spec-session-row").filter({ hasText: "playwright-file-changed-fixture.md" });
+    await expect(row.locator(".spec-session-time")).toHaveText("Recovery conflict");
+    await expect(row.locator(".spec-session-time")).toHaveAttribute("title", /Target changed/);
+    await expect(row).toHaveAttribute("data-pulse", "unavailable");
+    await expect(page.locator(".spec-file-error-card")).toContainText("This session needs recovery.");
+    await expect(page.locator("[data-spec-missing-remove]")).toHaveCount(0);
+  });
+
 });

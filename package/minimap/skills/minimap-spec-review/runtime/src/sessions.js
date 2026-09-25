@@ -1950,26 +1950,31 @@ export async function listFileSessions(options = {}) {
   const index = await loadSessionIndex(minimapHome);
   const sessions = [];
 
-  for (const sessionId of Object.values(index.files)) {
+  for (const [fileKey, sessionId] of Object.entries(index.files)) {
     const paths = makeSessionPaths(minimapHome, sessionId);
-    await recoverSuggestionTransaction(paths);
-    const session = await readJson(paths.sessionJson, null);
-    if (!session) continue;
-    // Tally counts so the file list can show per-file pulse dots without
-    // having to load each session's full context. Cheap: just reads two
-    // JSONL files and counts statuses.
+    let session;
     try {
+      await recoverSuggestionTransaction(paths);
+      session = await readJson(paths.sessionJson, null);
+      if (!session) continue;
+      // Keep counts out of the full context; one bad session must not hide others.
       const comments = await readJsonLines(paths.commentsJsonl);
       const suggestions = await readJsonLines(paths.suggestionsJsonl);
       session.counts = {
         openComments: comments.filter((c) => c.status !== "resolved").length,
         pendingSuggestions: suggestions.filter((s) => s.status === "pending" || s.status === "accepted").length,
       };
-    } catch {
-      session.counts = { openComments: 0, pendingSuggestions: 0 };
+    } catch (error) {
+      session = session || await readJson(paths.sessionJson, null).catch(() => null)
+        || { id: sessionId, targetFile: normalizeDisplayPath(fileKey), title: path.basename(fileKey) };
+      delete session.counts;
+      session.availability = {
+        status: "unavailable",
+        code: error?.code || "unavailable",
+        message: error?.message || "Session data is unavailable.",
+      };
     }
     sessions.push(session);
   }
-
   return sessions.sort((left, right) => String(right.lastActiveAt || "").localeCompare(String(left.lastActiveAt || "")));
 }

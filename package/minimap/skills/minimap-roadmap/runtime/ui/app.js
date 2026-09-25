@@ -2209,9 +2209,11 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
   const signalBadges = `${cardStatus ? renderBadge(metadata.status, "status") : ""}${numericPriority}${participantBadge}`;
   const statusSignal = `<span class="board-card-signals">${signalBadges}</span>`;
   const specLink = state.workspace?.specSessionsByItemId?.[item.id];
-  const specBadge = specLink
-    ? `<span class="board-item-spec-badge" title="${escapeHtml(buildSpecBadgeTitle(specLink))}" aria-label="${escapeHtml(buildSpecBadgeTitle(specLink))}">💬 ${specLink.openComments}${specLink.pendingSuggestions > 0 ? ` · ✎ ${specLink.pendingSuggestions}` : ""}</span>`
-    : "";
+  const specBadge = specLink?.unavailable
+    ? `<span class="board-item-spec-badge is-unavailable" title="Spec session unavailable" aria-label="Spec session unavailable">⚠</span>`
+    : specLink
+      ? `<span class="board-item-spec-badge" title="${escapeHtml(buildSpecBadgeTitle(specLink))}" aria-label="${escapeHtml(buildSpecBadgeTitle(specLink))}">💬 ${specLink.openComments}${specLink.pendingSuggestions > 0 ? ` · ✎ ${specLink.pendingSuggestions}` : ""}</span>`
+      : "";
 
   return `
     <span class="board-item-top">

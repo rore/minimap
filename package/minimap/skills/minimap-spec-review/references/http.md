@@ -86,7 +86,7 @@ Create or re-attach a session for a file.
 
 ### `GET /api/spec-sessions`
 
-List all sessions, sorted by `lastActiveAt` descending. Each entry includes `counts: { openComments, pendingSuggestions }` but no inline comments/suggestions.
+List all sessions, sorted by `lastActiveAt` descending. Healthy entries include `counts: { openComments, pendingSuggestions }` but no inline comments/suggestions. If one session cannot be recovered or counted, it remains in the list with `availability: { status: "unavailable", code, message }` and no `counts`; other sessions still load normally. Open that session for the specific error before editing it.
 
 **Response 200**: `{ "sessions": [{...}, ...] }`.
 

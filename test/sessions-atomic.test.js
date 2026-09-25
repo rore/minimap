@@ -17,6 +17,7 @@ import {
   applyFileSessionSuggestion,
   rollbackFileSessionSuggestion,
   getFileSessionContext,
+  listFileSessions,
 } from "../package/minimap/src/sessions.js";
 
 test("applyFileSessionSuggestion: journal publication failure leaves session store unchanged", async () => {
@@ -402,4 +403,31 @@ test("an incomplete recovery journal is retained and reported as a conflict", as
   await fs.writeFile(journalPath, JSON.stringify(journal), "utf8");
   await assert.rejects(() => getFileSessionContext(targetPath, opts), (error) => error.code === "recovery_conflict");
   assert.ok(await fs.readFile(journalPath, "utf8"), "journal remains for inspection");
+});
+
+test("one recovery conflict stays discoverable without hiding healthy sessions", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  const conflictedId = (await getFileSessionContext(targetPath, opts)).session.id;
+  const healthyPath = path.join(path.dirname(targetPath), "healthy.md");
+  await fs.writeFile(healthyPath, "# Healthy\n", "utf8");
+  const { session: healthySession } = await attachFileSession(healthyPath, opts);
+  await addFileSessionComment(healthyPath, {
+    by: "tester", kind: "confirmation", scope: "global", text: "Healthy review.",
+  }, opts);
+
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  const externalText = "# Spec\n\nExternal edit.\n";
+  await fs.writeFile(targetPath, externalText, "utf8");
+
+  const sessions = await listFileSessions(opts);
+  assert.equal(sessions.length, 2);
+  const conflicted = sessions.find((session) => session.id === conflictedId);
+  const healthy = sessions.find((session) => session.id === healthySession.id);
+  assert.equal(conflicted.availability?.status, "unavailable");
+  assert.equal(conflicted.availability?.code, "recovery_conflict");
+  assert.equal(conflicted.counts, undefined, "stale counts must not look healthy");
+  assert.deepEqual(healthy.counts, { openComments: 1, pendingSuggestions: 0 });
+  assert.equal(healthy.availability, undefined);
+  assert.equal((await getFileSessionContext(healthyPath, opts)).comments.length, 1);
+  assert.equal(await fs.readFile(targetPath, "utf8"), externalText);
 });
