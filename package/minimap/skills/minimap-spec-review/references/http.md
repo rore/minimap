@@ -4,6 +4,8 @@ The minimap server exposes a JSON HTTP API on `localhost`. Every operation the C
 
 The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must come from a loopback peer and carry a loopback `Host`; when a browser supplies `Origin`, it must exactly match that request origin. Foreign origins are rejected before route work, while origin-less local CLI and lifecycle requests remain supported.
 
+Minimap has no authentication or authorization system. The `by` actor on writes is supplied by the caller for attribution and does not verify identity or permissions. Explicit user approval before applying a suggestion is workflow policy, not an enforced access check.
+
 ## When to use HTTP vs the CLI
 
 The CLI ([cli.md](cli.md)) and HTTP routes reach the same server code. Pick whichever fits the surface you're already in:
@@ -84,7 +86,7 @@ Create or re-attach a session for a file.
 
 ### `GET /api/spec-sessions`
 
-List all sessions, sorted by `lastActiveAt` descending. Each entry includes `counts: { openComments, pendingSuggestions }` but no inline comments/suggestions.
+List all sessions, sorted by `lastActiveAt` descending. Healthy entries include `counts: { openComments, pendingSuggestions }` but no inline comments/suggestions. If one session cannot be recovered or counted, it remains in the list with `availability: { status: "unavailable", code, message }` and no `counts`; other sessions still load normally. Open that session for the specific error before editing it.
 
 **Response 200**: `{ "sessions": [{...}, ...] }`.
 
@@ -128,7 +130,7 @@ Create a comment.
 
 **Body**:
 - `file` (string, required) — absolute or cwd-relative path.
-- `by` (string, required) — actor identity (`claude`, `codex`, `human`, …).
+- `by` (string, required) — caller-supplied actor label for attribution (`claude`, `codex`, `human`, …), not an authenticated identity.
 - `kind` (string, required) — one of: `instruction`, `concern`, `question`, `evidence`, `disagreement`, `confirmation`, `recommendation`, `conclusion`.
 - `scope` (string, required) — one of: `"global"`, `"section"`, or `""` (empty string for quote-anchored). The server uses this to pick the anchor branch.
 - `text` (string, required) — comment body.
@@ -195,17 +197,19 @@ Re-resolve the anchor and produce a diff without writing.
 
 ### `POST /api/spec-sessions/by-file/suggestions/<id>/apply`
 
-Apply the suggestion: write the file. Only do this when the user explicitly asks. For `replace` suggestions the server re-anchors any sibling suggestions and comments whose anchor range overlapped the replaced span — char-offset overlap when both sides have `offset`, line-range overlap when one side lacks it, and exact-quote equality as a final fallback for legacy records. Each rewritten anchor gets an `anchorRewrittenAt` timestamp; the suggestion's pre-apply anchor is stored as `originalAnchor` for rollback.
+Apply the suggestion: write the file. Workflow policy requires explicit user approval; the server does not authenticate the caller or enforce this approval. For `replace` suggestions the server re-anchors any sibling suggestions and comments whose anchor range overlapped the replaced span — char-offset overlap when both sides have `offset`, line-range overlap when one side lacks it, and exact-quote equality as a final fallback for legacy records. Each rewritten anchor gets an `anchorRewrittenAt` timestamp; the suggestion's pre-apply anchor is stored as `originalAnchor` for rollback.
 
 **Body**: `{ "file", "by" }`.
 
 **Response 200**: `{ "suggestion": { ..., "status": "applied", "appliedBy", "appliedAt", "beforeHash", "afterHash", "originalAnchor" }, "preview": {...} }`.
 
-**Errors**: `bad_request`, `not_found`, `anchor_orphaned`, `anchor_ambiguous`, `conflict` (already applied / rejected / stale), `drift` (file changed since suggestion was created — hash mismatch).
+**Errors**: `bad_request`, `not_found`, `anchor_orphaned`, `anchor_ambiguous`, `conflict` (already applied / rejected / stale), `drift` (target or session changed before promotion), `session_busy`, `recovery_conflict`.
 
 ### `POST /api/spec-sessions/by-file/suggestions/<id>/rollback`
 
 Reverse a previously-applied suggestion. **Body**: `{ "file", "by" }`. Refuses with `conflict` if the file changed since `apply` (hash mismatch), `rollback_unsupported` for `delete`, or `rollback_ambiguous` / `rollback_mismatch` if the post-apply content can no longer be unambiguously reverted.
+
+Apply and rollback use a per-session lock across Minimap CLI/server processes. They stage the target edit, record the intended metadata, then replace the target and promote metadata files in sequence. If interrupted, the next session read completes metadata only when the target has the exact intended hash; if the target is unchanged, it discards the intent. A different target or metadata hash returns `recovery_conflict` without overwriting the external edit. This is recoverable sequencing, not multi-file crash atomicity. External editors do not share the lock, so a narrow check-to-rename race remains. Symlinks are preserved; multiply linked targets are rejected with `conflict` because replacing one link would silently split the file.
 
 ### `GET /health`
 

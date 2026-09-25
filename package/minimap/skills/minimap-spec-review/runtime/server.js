@@ -202,12 +202,14 @@ async function buildSpecSessionsByItemId(repoRoot, workspace) {
     const absolute = path.resolve(item.filePath).replace(/\\/g, "/");
     const session = sessionsByPath.get(absolute);
     if (!session) continue;
-    linked[item.id] = {
-      sessionId: session.id,
-      targetFile: session.targetFile,
-      openComments: session.counts?.openComments ?? 0,
-      pendingSuggestions: session.counts?.pendingSuggestions ?? 0,
-    };
+    linked[item.id] = session.availability?.status === "unavailable"
+      ? { sessionId: session.id, targetFile: session.targetFile, unavailable: true }
+      : {
+          sessionId: session.id,
+          targetFile: session.targetFile,
+          openComments: session.counts.openComments,
+          pendingSuggestions: session.counts.pendingSuggestions,
+        };
   }
   return linked;
 }

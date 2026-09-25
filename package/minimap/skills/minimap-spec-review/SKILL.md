@@ -5,7 +5,7 @@ description: Use when reviewing or commenting on one specific markdown file (spe
 
 # Minimap Spec Review
 
-Attach one target file and track comments, replies, and proposed edits against it. The target file stays canonical; nothing is written to it unless the user explicitly applies a previewed suggestion.
+Attach one target file and track comments, replies, and proposed edits against it. The target file stays canonical; workflow policy requires explicit user approval before applying a previewed suggestion. The `--by` actor is an attribution label, not authentication or authorization; Minimap has no auth system.
 
 Valid targets: any markdown file. When the target is a roadmap item, this skill complements [`minimap-roadmap`](../minimap-roadmap/SKILL.md).
 
@@ -49,7 +49,7 @@ Standard flow:
 2. `minimap.mjs context <file> --json --summary` — compact scan of unresolved items + a counts block; the right first call for "where am I in this review?". Use `--filter all` (with or without `--summary`) for the full picture, or no flags for the raw shape. **`--summary` truncates comment / suggestion bodies to ~120-char snippets — drop it (`--json --filter all`) when you actually need to read what someone wrote, and pipe through `jq` to pluck one item by id.**
 3. Read the target file directly before substantive review.
 4. Add comments, replies, or suggestions. For multi-line content (backticks, em-dashes, embedded newlines), use `--json-stdin` and pipe the JSON body — inline `--text` survives only trivial single-line strings. When the same quote appears more than once and `anchor_ambiguous` comes back, read the file to find the line of the occurrence you mean, then retry with `--line-start N --line-end N` (line range) or `--quote-offset N` (exact char offset) — both work inline and via `--json-stdin`.
-5. Preview suggestions before applying; apply only when the user explicitly asks.
+5. Preview suggestions before applying; apply only with explicit user approval. This is workflow policy, not an enforced permission check.
 
 If `node ...` fails to spawn (sandbox restriction — `CreateProcessWithLogonW failed`, `EACCES`, etc.), [references/cli.md](references/cli.md) has shell-fallback patterns; if those also fail, drop to the HTTP API. **Use only the documented HTTP routes from [references/http.md](references/http.md) — for example, comments are created at `POST /api/spec-sessions/by-file/comments`, not `/api/comment`. Don't guess endpoint names.** For comment kinds and anchoring rules, see [references/review-workflow.md](references/review-workflow.md).
 

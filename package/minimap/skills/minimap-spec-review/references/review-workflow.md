@@ -37,6 +37,7 @@ When quote anchoring:
 - a suggestion is a proposed edit, not a decision
 - accept/reject does not modify the file
 - preview before apply, always; preview re-resolves the anchor and returns a diff
-- apply writes the file and should only run on explicit user request
+- apply writes the file; workflow policy requires explicit user approval
+- this approval is not enforced by authentication or authorization; the `by` actor is caller-supplied attribution, and Minimap has no auth system
 
 Spec-session comments are review artifacts, not decisions.

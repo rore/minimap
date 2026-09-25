@@ -113,7 +113,7 @@ mm attach path/to/spec.md --json
 
 ## Comments
 
-Use a stable actor identity in `--by`, such as `codex`, `claude`, or `human`.
+Use a stable actor label in `--by`, such as `codex`, `claude`, or `human`. It is caller-supplied attribution, not authentication or authorization; Minimap has no auth system.
 
 ```sh
 # Trivial single-line text
@@ -202,7 +202,8 @@ mm suggest reject path/to/spec.md <suggestion-id> --by human --json
 # Preview re-resolves the anchor and returns a diff without writing.
 mm suggest preview path/to/spec.md <suggestion-id> --json
 
-# Apply writes the target file. Only when the user explicitly asks.
+# Apply writes the target file. Workflow policy requires explicit user approval;
+# the actor label does not enforce that approval.
 mm suggest apply   path/to/spec.md <suggestion-id> --by human --json
 ```
 
