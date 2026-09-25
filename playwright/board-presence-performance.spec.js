@@ -76,6 +76,7 @@ test("dense board keeps one bounded batch in flight, recovers from timeout, and 
     await expect(page.locator("#board-groups .board-group")).toHaveCount(205);
     const listMs = Date.now() - listStartedAt;
     const listCard = page.locator('.board-item[data-item-id="dense-001"]');
+    await expect(page.locator("#item-preview .preview-title")).toHaveText("Feature dense-001 with a long title that stays usable");
     await listCard.focus();
     const originalCard = await listCard.elementHandle();
     await page.evaluate(() => {

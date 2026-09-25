@@ -33,12 +33,6 @@ async function listAllFiles(dir, out = [], base = dir) {
 }
 
 test("sync-mirrors.mjs makes the runtime trees byte-identical to the top-level runtime files", async () => {
-  const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/sync-mirrors.mjs")], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
-  assert.equal(result.status, 0, `sync-mirrors exited ${result.status}: ${result.stderr}`);
-
   for (const target of [roadmapRuntime, specRuntime]) {
     for (const file of RUNTIME_FILES) {
       const a = await readBytes(path.join(top, file));
@@ -56,4 +50,10 @@ test("sync-mirrors.mjs makes the runtime trees byte-identical to the top-level r
       }
     }
   }
+
+  const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/sync-mirrors.mjs")], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `sync-mirrors exited ${result.status}: ${result.stderr}`);
 });

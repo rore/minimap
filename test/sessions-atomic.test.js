@@ -1,21 +1,25 @@
-// Tests that the metadata triple-write at the tail of
-// applyFileSessionSuggestion / rollbackFileSessionSuggestion is atomic-ish:
-// a crash mid-temp-write must leave the on-disk session store in its
-// pre-apply state so the operation can be retried cleanly.
+// Document edits and session metadata use a recovery journal. A failure
+// before document promotion leaves the old content; afterward, the next
+// session read can complete metadata if the target still matches.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import {
   attachFileSession,
+  moveFileSession,
+  removeFileSession,
+  addFileSessionComment,
   addFileSessionSuggestion,
   applyFileSessionSuggestion,
+  rollbackFileSessionSuggestion,
   getFileSessionContext,
 } from "../package/minimap/src/sessions.js";
 
-test("applyFileSessionSuggestion: crash mid-temp-write leaves session store unchanged", async () => {
+test("applyFileSessionSuggestion: journal publication failure leaves session store unchanged", async () => {
   const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-atomic-"));
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-atomic-work-"));
   const targetPath = path.join(workDir, "spec.md");
@@ -41,10 +45,8 @@ test("applyFileSessionSuggestion: crash mid-temp-write leaves session store unch
   const pendingBefore = ctxBefore.suggestions.find((s) => s.id === suggestion.id);
   assert.equal(pendingBefore.status, "pending", "precondition: suggestion starts pending");
 
-  // Sabotage: fail on the second .tmp- write to simulate a crash mid
-  // multi-file transaction. The first temp write succeeds; the second
-  // throws; the rename phase must never run, so the .json files on disk
-  // stay at their pre-apply contents.
+  // Fail while publishing the journal, before document or metadata promotion.
+  // No file in the session should advance.
   const realWriteFile = fs.writeFile.bind(fs);
   let tmpWriteCount = 0;
   const sabotaged = async (filePath, ...rest) => {
@@ -74,10 +76,7 @@ test("applyFileSessionSuggestion: crash mid-temp-write leaves session store unch
   assert.match(caught.message, /simulated crash/);
   assert.ok(tmpWriteCount >= 2, `expected at least 2 .tmp- writes, saw ${tmpWriteCount}`);
 
-  // Post-condition: session metadata is consistent. The suggestion must
-  // still appear pending; suggestions.jsonl and session.json were not
-  // promoted past the failed write because writeAllOrNothing never reached
-  // the rename phase.
+  // The target was not promoted, so recovery discards the intent.
   const ctxAfter = await getFileSessionContext(targetPath, opts);
   const stillPending = ctxAfter.suggestions.find((s) => s.id === suggestion.id);
   assert.ok(stillPending, "suggestion must still exist after failed apply");
@@ -184,4 +183,223 @@ test("session-index.json: writes go to a temp file and rename, never directly to
   const text = await fs.readFile(indexPath, "utf8");
   const parsed = JSON.parse(text);
   assert.ok(parsed && parsed.files && Object.keys(parsed.files).length >= 2, "index should record both attached files");
+});
+
+async function transactionFixture(t) {
+  const minimapHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-transaction-"));
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-transaction-work-"));
+  t.after(async () => {
+    await fs.rm(minimapHome, { recursive: true, force: true });
+    await fs.rm(workDir, { recursive: true, force: true });
+  });
+  const targetPath = path.join(workDir, "spec.md");
+  const originalText = "# Spec\n\nHello world.\n";
+  await fs.writeFile(targetPath, originalText, "utf8");
+  const opts = { minimapHome };
+  await attachFileSession(targetPath, opts);
+  const { suggestion } = await addFileSessionSuggestion(targetPath, {
+    by: "tester", kind: "replace", quote: "Hello world.", content: "Hello, world!",
+  }, opts);
+  return { targetPath, originalText, suggestion, opts, minimapHome };
+}
+
+async function failSessionPromotion(action) {
+  const realRename = fs.rename;
+  let failed = false;
+  fs.rename = async (from, to) => {
+    if (!failed && path.basename(String(to)) === "session.json" && String(from).includes(".tmp-")) {
+      failed = true;
+      throw new Error("simulated metadata rename failure");
+    }
+    return realRename(from, to);
+  };
+  try { await assert.rejects(action, /simulated metadata rename failure/); }
+  finally { fs.rename = realRename; }
+  assert.ok(failed, "failure must happen after document promotion");
+}
+
+test("apply interruption recovers metadata when the document still matches", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  assert.match(await fs.readFile(targetPath, "utf8"), /Hello, world!/);
+
+  const context = await getFileSessionContext(targetPath, opts);
+  assert.equal(context.suggestions.find((item) => item.id === suggestion.id).status, "applied");
+  const sessionDir = path.join(minimapHome, "sessions", context.session.id);
+  await assert.rejects(() => fs.access(path.join(sessionDir, "suggestion-transaction.json")), { code: "ENOENT" });
+  const events = (await fs.readFile(path.join(sessionDir, "events.jsonl"), "utf8")).trim().split("\n");
+  assert.equal(events.filter((line) => JSON.parse(line).type === "suggestion_applied").length, 1);
+});
+
+test("rollback interruption recovers metadata and preserves the original document", async (t) => {
+  const { targetPath, originalText, suggestion, opts } = await transactionFixture(t);
+  await applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts);
+  await failSessionPromotion(() => rollbackFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  assert.equal(await fs.readFile(targetPath, "utf8"), originalText);
+  const context = await getFileSessionContext(targetPath, opts);
+  assert.equal(context.suggestions.find((item) => item.id === suggestion.id).status, "pending");
+});
+
+test("recovery leaves an external document edit untouched", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  const externalText = "# Spec\n\nIndependent edit.\n";
+  await fs.writeFile(targetPath, externalText, "utf8");
+  await assert.rejects(
+    () => getFileSessionContext(targetPath, opts),
+    (error) => error.code === "recovery_conflict",
+  );
+  assert.equal(await fs.readFile(targetPath, "utf8"), externalText);
+});
+
+test("a competing process holds the session lock until its edit completes", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  const context = await getFileSessionContext(targetPath, opts);
+  const lockPath = path.join(minimapHome, "sessions", context.session.id, "session-mutation.lock");
+  const holderCode = [
+    "const fs=require('fs');",
+    "fs.writeFileSync(" + JSON.stringify(lockPath) + ",JSON.stringify({pid:process.pid,token:'holder'}),{flag:'wx'});",
+    "process.stdout.write('ready\\n');",
+    "setTimeout(()=>{fs.unlinkSync(" + JSON.stringify(lockPath) + ");process.exit(0)},450);",
+  ].join("");
+  const holder = spawn(process.execPath, ["-e", holderCode], { stdio: ["ignore", "pipe", "pipe"] });
+  await new Promise((resolve, reject) => {
+    holder.stdout.once("data", resolve);
+    holder.once("error", reject);
+  });
+  const started = Date.now();
+  await applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts);
+  assert.ok(Date.now() - started >= 250, "apply should wait for the other process's lock");
+  assert.equal((await getFileSessionContext(targetPath, opts)).suggestions[0].status, "applied");
+});
+
+test("an external edit before document promotion is never overwritten", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  const externalText = "# Spec\n\nExternal change during apply.\n";
+  const realRename = fs.rename;
+  let injected = false;
+  fs.rename = async (from, to) => {
+    await realRename(from, to);
+    if (!injected && path.basename(String(to)) === "suggestion-transaction.json") {
+      injected = true;
+      await fs.writeFile(targetPath, externalText, "utf8");
+    }
+  };
+  try {
+    await assert.rejects(
+      () => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts),
+      (error) => error.code === "drift",
+    );
+  } finally {
+    fs.rename = realRename;
+  }
+  assert.ok(injected);
+  assert.equal(await fs.readFile(targetPath, "utf8"), externalText);
+  await assert.rejects(() => getFileSessionContext(targetPath, opts), (error) => error.code === "recovery_conflict");
+});
+
+test("a queued mutation recovers a failed apply without locking itself", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  const sessionId = (await getFileSessionContext(targetPath, opts)).session.id;
+  const lockPath = path.join(minimapHome, "sessions", sessionId, "session-mutation.lock");
+  const realRename = fs.rename;
+  const realWriteFile = fs.writeFile;
+  let releaseJournal;
+  const journalGate = new Promise((resolve) => { releaseJournal = resolve; });
+  let signalJournal;
+  const journalReached = new Promise((resolve) => { signalJournal = resolve; });
+  let signalWaiter;
+  const waiterReached = new Promise((resolve) => { signalWaiter = resolve; });
+  let paused = false;
+  let failed = false;
+  fs.rename = async (from, to) => {
+    if (!paused && path.basename(String(to)) === "suggestion-transaction.json") {
+      paused = true;
+      signalJournal();
+      await journalGate;
+    }
+    if (!failed && path.basename(String(to)) === "session.json" && String(from).includes(".tmp-")) {
+      failed = true;
+      throw new Error("simulated metadata rename failure");
+    }
+    return realRename(from, to);
+  };
+  fs.writeFile = async (filePath, content, options) => {
+    if (paused && filePath === lockPath && options?.flag === "wx") signalWaiter();
+    return realWriteFile(filePath, content, options);
+  };
+  try {
+    const applying = assert.rejects(
+      applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts),
+      /simulated metadata rename failure/,
+    );
+    await journalReached;
+    const editing = addFileSessionComment(targetPath, {
+      by: "tester", kind: "confirmation", scope: "global", text: "Reviewed.",
+    }, opts);
+    await waiterReached;
+    releaseJournal();
+    await applying;
+    const { comment } = await editing;
+    assert.ok(comment.id);
+  } finally {
+    releaseJournal();
+    fs.rename = realRename;
+    fs.writeFile = realWriteFile;
+  }
+  assert.equal((await getFileSessionContext(targetPath, opts)).suggestions[0].status, "applied");
+});
+
+test("attach and move recover pending metadata; remove refuses an unresolved conflict", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  await attachFileSession(targetPath, opts);
+  assert.equal((await getFileSessionContext(targetPath, opts)).suggestions[0].status, "applied");
+
+  const { suggestion: next } = await addFileSessionSuggestion(targetPath, {
+    by: "tester", kind: "replace", quote: "Hello, world!", content: "Hello again.",
+  }, opts);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, next.id, { by: "tester" }, opts));
+  const movedPath = path.join(path.dirname(targetPath), "moved.md");
+  await fs.copyFile(targetPath, movedPath);
+  await moveFileSession(targetPath, movedPath, opts);
+  assert.equal((await getFileSessionContext(movedPath, opts)).suggestions.find((s) => s.id === next.id).status, "applied");
+
+  const { suggestion: last } = await addFileSessionSuggestion(movedPath, {
+    by: "tester", kind: "replace", quote: "Hello again.", content: "Hello once more.",
+  }, opts);
+  await failSessionPromotion(() => applyFileSessionSuggestion(movedPath, last.id, { by: "tester" }, opts));
+  await fs.writeFile(movedPath, "# Spec\n\nExternal edit.\n", "utf8");
+  await assert.rejects(() => removeFileSession(movedPath, opts), (error) => error.code === "recovery_conflict");
+  const index = JSON.parse(await fs.readFile(path.join(minimapHome, "session-index.json"), "utf8"));
+  assert.equal(Object.keys(index.files).length, 1, "conflicted session remains attached");
+});
+
+test("apply keeps a symlink and the target file mode", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  const linkPath = path.join(path.dirname(targetPath), "linked.md");
+  try { await fs.symlink(targetPath, linkPath, "file"); }
+  catch (error) {
+    if (["EPERM", "EACCES", "ENOTSUP"].includes(error.code)) return t.skip("symlinks unavailable");
+    throw error;
+  }
+  await moveFileSession(targetPath, linkPath, opts);
+  await fs.chmod(targetPath, 0o640);
+  const beforeMode = (await fs.stat(targetPath)).mode & 0o777;
+  await applyFileSessionSuggestion(linkPath, suggestion.id, { by: "tester" }, opts);
+  assert.equal((await fs.stat(targetPath)).mode & 0o777, beforeMode);
+  assert.equal((await fs.lstat(linkPath)).isSymbolicLink(), true);
+  assert.match(await fs.readFile(linkPath, "utf8"), /Hello, world!/);
+});
+
+test("an incomplete recovery journal is retained and reported as a conflict", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  const sessionId = (await getFileSessionContext(targetPath, opts)).session.id;
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  const journalPath = path.join(minimapHome, "sessions", sessionId, "suggestion-transaction.json");
+  const journal = JSON.parse(await fs.readFile(journalPath, "utf8"));
+  journal.writes = [];
+  await fs.writeFile(journalPath, JSON.stringify(journal), "utf8");
+  await assert.rejects(() => getFileSessionContext(targetPath, opts), (error) => error.code === "recovery_conflict");
+  assert.ok(await fs.readFile(journalPath, "utf8"), "journal remains for inspection");
 });

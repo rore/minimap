@@ -12,7 +12,7 @@ labels:
 
 ## Summary
 
-A global, machine-local workbench that attaches to one arbitrary text/spec file in any repo and coordinates review and suggestion edits between the user and one or more agents. The target file stays in its original repo; comments, suggestions, replies, anchors, and events live in minimap's global local store. The target file changes only when the user explicitly applies a previewed suggestion.
+A global, machine-local workbench that attaches to one arbitrary text/spec file in any repo and coordinates review and suggestion edits between the user and one or more agents. The target file stays in its original repo; comments, suggestions, replies, anchors, and events live in minimap's global local store. Workflow policy requires explicit user approval before a previewed suggestion changes the target file.
 
 ## Why
 
@@ -25,7 +25,7 @@ Iterating on specs across agents was too manual: prompts, critiques, and finding
 - comments support `global`, `section`, and `anchor` scopes with one level of replies
 - suggestions support `replace`, `insert_after`, and `delete` with preview-before-apply
 - resilient anchors store quote, heading path, line range, selected hash, and file hash; resolution is classified `resolved` / `ambiguous` / `stale` / `orphaned`
-- agents may create comments and suggestions but may not apply suggestions
+- agents may create comments and suggestions; applying requires explicit user approval under workflow policy
 - the human UI may create and apply a suggestion in one preview-confirmed flow
 - the same minimap local server handles both roadmap mode and spec sessions
 - session metadata + counts available to the file list without loading full context
@@ -68,7 +68,7 @@ Build a globally installed minimap workflow for iterating on ideas and specs acr
 
 The target use case is a user working in any repo, including work repos that do not have minimap installed, and explicitly attaching minimap to an existing text/spec file such as `docs/my-new-feature.md`.
 
-Minimap acts as a local global coordinator for collaboration around that file. The target file stays in its original repo and keeps its own structure. Comments, suggestions, replies, anchor metadata, and operational events live in minimap's global local store. The target file changes only when the user explicitly applies a previewed suggestion.
+Minimap acts as a local global coordinator for collaboration around that file. The target file stays in its original repo and keeps its own structure. Comments, suggestions, replies, anchor metadata, and operational events live in minimap's global local store. Workflow policy requires explicit user approval before a previewed suggestion changes the target file.
 
 ### Core Product Shape
 
@@ -103,7 +103,7 @@ In spec session mode:
 - No separate decision, evidence, open-question, review, or agent-run entities in MVP.
 - Comments and suggestions are separate first-class entities.
 - Human comments and human suggestions are first-class.
-- Agents can create comments and suggestions, but cannot apply suggestions.
+- Agents can create comments and suggestions; applying one requires explicit user approval under workflow policy.
 - Human UI can create and apply a suggestion in one preview-confirmed flow.
 - Applying a suggestion is preview-first: minimap shows the exact diff before writing the target file.
 - The same minimap local server handles both roadmap mode and global spec sessions.
@@ -377,8 +377,8 @@ Suggestion semantics:
 
 - accepting a suggestion does not modify the target file
 - applying a suggestion shows a diff preview first
-- the target file is written only after human confirmation
-- agents may create suggestions, but agents may not apply them in MVP
+- the target file is written only after explicit user approval
+- agents may apply suggestions only with explicit user approval; this is workflow policy, not an enforced permission check
 - human UI may create and apply a suggestion in one preview-confirmed flow
 
 Applying a suggestion should:
@@ -436,8 +436,10 @@ Core rules:
 - Use global or section comments when exact anchoring is not appropriate.
 - Separate claim, concern, recommendation, evidence/reference, and confidence inside comment text where useful.
 - Reference existing comment and suggestion ids when responding to prior feedback.
-- Do not apply suggestions as an agent.
+- Agents apply suggestions only after explicit user approval (workflow policy, not technical authorization).
 - Use explicit actor identity on every write.
+
+The `by` actor is caller-supplied attribution, not authentication or authorization. Minimap has no auth system; user approval before an agent applies a suggestion is a workflow rule.
 
 Actor identity:
 
@@ -646,7 +648,7 @@ minimap attach docs/my-new-feature.md
 - re-resolve anchor before preview/apply
 - block apply when anchor is stale, orphaned, or ambiguous
 - compute and show a diff
-- apply only after human confirmation
+- apply only after explicit user approval (workflow policy; no authorization system)
 - record before and after hashes in `events.jsonl`
 - preserve line endings as much as practical
 
@@ -713,7 +715,7 @@ The MVP is successful when:
 - Do not require target repos to adopt minimap.
 - Do not use line numbers as the only anchor.
 - Do not store full target-file snapshots by default.
-- Do not let agents apply suggestions.
+- Require explicit user approval before an agent applies a suggestion; the actor label is not an access check.
 - Do not invoke agents from minimap in MVP.
 - Do not introduce separate decisions/evidence/reviews/entities until there is real workflow pain.
 - Do not treat minimap server state as a replacement for the target file.

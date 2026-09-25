@@ -139,13 +139,13 @@ A comment can be:
 - **section-anchored** — applies to a heading or section
 - **quote-anchored** — applies to a precise sentence or passage
 
-A suggestion is a proposed edit (replace / insert / delete) anchored to a quote. Suggestions are previewed as a diff before they are applied. Applying writes the target file; only humans can apply.
+A suggestion is a proposed edit (replace / insert / delete) anchored to a quote. Suggestions are previewed as a diff before they are applied. Applying writes the target file; agents follow the workflow policy to apply only with explicit user approval. The `--by` actor is attribution, not authentication or authorization; Minimap has no auth system.
 
 Anchors are designed to survive small edits to the surrounding text. When an anchor becomes ambiguous or stale, minimap surfaces that state explicitly instead of silently re-attaching feedback to the wrong place.
 
 ### One human, multiple agents
 
-Each comment, suggestion, and applied edit carries an explicit actor (`human`, `claude`, `codex`, …). That makes it possible to run reviews like:
+Each comment, suggestion, and applied edit carries an explicit actor (`human`, `claude`, `codex`, …). This is an attribution label supplied by the caller, not a verified identity or permission check; Minimap has no authentication or authorization system. That makes it possible to run reviews like:
 
 1. The human attaches a target file and asks one agent (e.g. Claude) to review it. Claude leaves anchored comments and concrete suggestions.
 2. The human asks a second agent (e.g. Codex) to review *Claude's review* — confirm what looks right, disagree where appropriate, add evidence, propose alternative suggestions. Codex replies to specific comment ids; the threads accumulate.
