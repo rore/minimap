@@ -1126,17 +1126,13 @@ test("stacked layout provides working jumps between board and item", async ({ pa
 
   await expect(page.locator("#jump-to-board")).toBeVisible();
   await page.locator("#jump-to-board").click();
-  await page.waitForTimeout(250);
-
-  const boardTop = await page.locator(".board-panel").evaluate((element) => Math.round(element.getBoundingClientRect().top));
-  expect(boardTop).toBeLessThan(40);
+  await expect.poll(() => page.locator(".board-panel").evaluate((element) =>
+    Math.round(element.getBoundingClientRect().top))).toBeLessThan(40);
 
   await expect(page.locator("#jump-to-editor")).toBeVisible();
   await page.locator("#jump-to-editor").click();
-  await page.waitForTimeout(250);
-
-  const editorTop = await page.locator(".editor-panel").evaluate((element) => Math.round(element.getBoundingClientRect().top));
-  expect(editorTop).toBeLessThan(40);
+  await expect.poll(() => page.locator(".editor-panel").evaluate((element) =>
+    Math.round(element.getBoundingClientRect().top))).toBeLessThan(40);
 });
 
 test("selecting a board item in stacked layout returns focus to the editor", async ({ page }) => {
@@ -1145,11 +1141,10 @@ test("selecting a board item in stacked layout returns focus to the editor", asy
 
   await page.locator(".board-panel").scrollIntoViewIfNeeded();
   await page.locator('[data-item-id="feature-edit-board-and-scope"]').click();
-  await page.waitForTimeout(250);
 
   await expect(page.locator("#editor-title")).toHaveText("Edit board and scope from the UI");
-  const editorTop = await page.locator(".editor-panel").evaluate((element) => Math.round(element.getBoundingClientRect().top));
-  expect(editorTop).toBeLessThan(40);
+  await expect.poll(() => page.locator(".editor-panel").evaluate((element) =>
+    Math.round(element.getBoundingClientRect().top))).toBeLessThan(40);
 });
 
 

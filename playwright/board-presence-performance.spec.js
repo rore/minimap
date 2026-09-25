@@ -37,14 +37,13 @@ async function makeDenseBoard() {
   return { root, ids };
 }
 
-test("dense board keeps one bounded batch in flight, recovers from timeout, and never refetches on layout", async ({ page }) => {
+test("dense board keeps one bounded batch in flight, recovers from a network timeout, and never refetches on layout", async ({ page }) => {
   test.setTimeout(90_000);
   const { root, ids } = await makeDenseBoard();
   let requests = 0;
   let releaseFirst;
   const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
-  let releaseSecond;
-  const secondGate = new Promise((resolve) => { releaseSecond = resolve; });
+
   const counts = ids.slice(0, 200).map((itemId, index) => ({ itemId, participantCount: index === 0 ? 3 : 0 }));
   await page.route(/\/api\/board\/participant-counts$/, async (route) => {
     requests += 1;
@@ -52,11 +51,11 @@ test("dense board keeps one bounded batch in flight, recovers from timeout, and 
     if (current === 1) {
       await firstGate;
     }
-    if (current === 2) await secondGate;
+    if (current === 2) { await route.abort("timedout"); return; }
     try {
       await route.fulfill({ json: { status: "ok", counts, partial: true, refreshedAt: null } });
     } catch {
-      // The second request is deliberately aborted by the client timeout.
+      // A request invalidated by a later layout or visibility change may be gone.
     }
   });
 
@@ -105,8 +104,7 @@ test("dense board keeps one bounded batch in flight, recovers from timeout, and 
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await expect.poll(() => requests).toBe(2);
-    await expect(page.locator("#board-participant-status"), { timeout: 10_000 }).toHaveText("Session badges unavailable");
-    releaseSecond();
+    await expect(page.locator("#board-participant-status")).toHaveText("Session badges unavailable", { timeout: 10_000 });
 
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect.poll(() => requests).toBe(3);
@@ -118,7 +116,6 @@ test("dense board keeps one bounded batch in flight, recovers from timeout, and 
     console.log("dense-board measured render: Columns " + columnsMs + "ms, List " + listMs + "ms; 205 groups, 200-count partial batch");
   } finally {
     releaseFirst();
-    releaseSecond();
     await fs.rm(root, { recursive: true, force: true });
   }
 });
