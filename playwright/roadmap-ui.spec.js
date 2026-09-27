@@ -201,6 +201,18 @@ async function currentSpecFile(page) {
   return page.evaluate(() => decodeURIComponent(window.location.hash.match(/file=([^&]+)/)[1]));
 }
 
+async function openCurrentItemAsSpec(page) {
+  const attached = page.waitForResponse((response) => response.url().endsWith("/api/spec-sessions/attach") && response.request().method() === "POST");
+  await page.locator("#open-in-spec-button").click();
+  const attachResponse = await attached;
+  expect(attachResponse.ok()).toBe(true);
+  const { session: { targetFile } } = await attachResponse.json();
+  // Switching modes first renders an older session. Wait for the requested
+  // file's completed load before reading counts or interacting with its body.
+  await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("file") === targetFile);
+  return targetFile;
+}
+
 async function openMetadataDetails(page) {
   const details = page.locator(".metadata-details");
   if ((await details.getAttribute("open")) === null) {
@@ -2545,7 +2557,7 @@ test("Review button on a roadmap item opens it as a spec session", async ({ page
   // Editor header gains a Review button only when an item is loaded.
   const reviewButton = page.locator("#open-in-spec-button");
   await expect(reviewButton).toBeVisible();
-  await reviewButton.click();
+  await openCurrentItemAsSpec(page);
 
   // Switches to spec mode and the spec session for this item is selected.
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
@@ -2568,7 +2580,7 @@ test("board badge appears on items with an active spec session", async ({ page }
   const firstItemId = await firstItem.getAttribute("data-item-id");
   await firstItem.click();
   await expect(page.locator("#open-in-spec-button")).toBeVisible();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
 
   // Add a global comment so openComments > 0.
@@ -2604,7 +2616,7 @@ test("spec session of a roadmap item strips YAML frontmatter from the rendered b
   await expect(page.locator("#mode-title")).toContainText("Roadmap");
 
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
 
   // Wait for the file body to render.
@@ -2636,7 +2648,7 @@ test("spec session of a roadmap item shows the same title + badges as the roadma
   expect(expectedBadges.length, "roadmap preview should have at least one badge").toBeGreaterThan(0);
 
   // Now open the same item as a spec session.
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2715,7 +2727,7 @@ test("topbar Refresh re-fetches the spec session in spec mode", async ({ page })
   // button is gone, and the topbar Refresh button now drives both modes.
   await page.goto(repoUrl());
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2749,19 +2761,14 @@ test("auto-refresh in spec mode picks up externally-added comments", async ({ pa
   const itemId = await page.locator(".board-item").first().getAttribute("data-item-id");
   expect(itemId).toBeTruthy();
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
   const startCount = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
 
-  // Use the absolute path the UI itself attached the session with — pull it
-  // from /api/spec-sessions so we hit the exact session record.
-  const sessionsResp = await request.get(`${baseURL}/api/spec-sessions`);
-  expect(sessionsResp.ok()).toBe(true);
-  const { sessions } = await sessionsResp.json();
-  const targetFile = sessions[0]?.targetFile;
-  expect(targetFile, "spec session must be attached before posting a comment").toBeTruthy();
+  // Use the exact file selected by the completed Review-button attachment.
+  const targetFile = await currentSpecFile(page);
 
   const post = await request.post(`${baseURL}/api/spec-sessions/by-file/comments`, {
     data: {
@@ -2842,7 +2849,7 @@ test("commenting on a selection that crosses backticks saves successfully", asyn
   // Navigate to the idea-create-items roadmap item.
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page.locator("#editor-title")).toContainText("Create roadmap items from the UI");
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2946,7 +2953,7 @@ test("rendered spec view finds anchored quotes that include markdown syntax", as
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -3010,7 +3017,7 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -3098,14 +3105,7 @@ test("participants facepile lists comment authors plus the viewer", async ({ pag
   // is in #spec-comment-by — defaults to "human").
   await page.goto(repoUrl());
   await page.locator(".board-item").first().click();
-  const attached = page.waitForResponse((response) => response.url().endsWith("/api/spec-sessions/attach") && response.request().method() === "POST");
-  await page.locator("#open-in-spec-button").click();
-  const attachResponse = await attached;
-  expect(attachResponse.ok()).toBe(true);
-  const { session: { targetFile } } = await attachResponse.json();
-  // Switching modes first renders an older session. Wait for the requested
-  // file's completed load before reading its count or posting comments.
-  await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("file") === targetFile);
+  const targetFile = await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -3160,7 +3160,7 @@ test("participants facepile updates when the viewer edits the actor field", asyn
   // themselves as a participant under the new name.
   await page.goto(repoUrl());
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -3197,7 +3197,7 @@ test("trimming a paragraph quote down to a duplicate substring still anchors to 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3236,7 +3236,7 @@ test("live-selecting one of two same-line duplicates anchors to the chosen occur
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3288,7 +3288,7 @@ test("live-selecting a duplicate phrase on different lines anchors to the chosen
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3338,7 +3338,7 @@ test("comment composer closes after a successful submit", async ({ page }) => {
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
   // Open the composer on a real block via the gutter "+" hook, the same
@@ -3433,7 +3433,7 @@ A second paragraph in the same section.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3492,7 +3492,7 @@ test("rendered spec body stamps each block with its source line", async ({ page 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const lineAttrSummary = await page.evaluate(() => {
@@ -3533,7 +3533,7 @@ key: value
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
@@ -3590,7 +3590,7 @@ test("legacy comment without anchorStatus.lineStart still anchors via text-match
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
@@ -3632,7 +3632,7 @@ The whole sentence here that mentions key phrase inside it.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
@@ -3721,7 +3721,7 @@ A second paragraph for layout.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
