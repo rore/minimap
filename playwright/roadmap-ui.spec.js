@@ -3097,20 +3097,17 @@ test("participants facepile lists comment authors plus the viewer", async ({ pag
   // and the popover should list them along with the viewer (whatever value
   // is in #spec-comment-by — defaults to "human").
   await page.goto(repoUrl());
-  const itemId = await page.locator(".board-item").first().getAttribute("data-item-id");
   await page.locator(".board-item").first().click();
+  const attached = page.waitForResponse((response) => response.url().endsWith("/api/spec-sessions/attach") && response.request().method() === "POST");
   await page.locator("#open-in-spec-button").click();
+  const attachResponse = await attached;
+  expect(attachResponse.ok()).toBe(true);
+  const { session: { targetFile } } = await attachResponse.json();
+  // Switching modes first renders an older session. Wait for the requested
+  // file's completed load before reading its count or posting comments.
+  await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("file") === targetFile);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
-
-  const sessionsResp = await request.get(`${baseURL}/api/spec-sessions`);
-  const { sessions } = await sessionsResp.json();
-  // Prior tests may leave attached sessions for other files. Pick the
-  // session whose targetFile ends in the item id we just opened, not just
-  // sessions[0] — race-safe across the serial suite.
-  const targetFile = sessions.find((s) => (s.targetFile || "").includes(itemId))?.targetFile
-    ?? sessions[0]?.targetFile;
-  expect(targetFile, `must find a spec session for ${itemId}`).toBeTruthy();
 
   const startCount = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
 
