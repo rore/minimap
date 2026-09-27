@@ -1,5 +1,4 @@
 # Now
-- distinguish-recent-dormant-participants
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- distinguish-recent-dormant-participants
 - show-board-work-presence
 - foundation-local-server
 - link-pallium-participant-sessions
