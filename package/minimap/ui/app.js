@@ -1424,7 +1424,7 @@ function renderBoardParticipantStatus() {
   const status = boardParticipantStatus;
   const message = status === "loading" ? "Updating session badges…"
     : status === "ok" && boardParticipantPartial ? "Session badges limited to 200 items"
-    : status === "unsupported" ? "Session badges need a newer Pallium"
+    : status === "unsupported" ? "Participant recency needs a newer Pallium"
     : ["disabled", "idle", "ok"].includes(status) ? ""
     : "Session badges unavailable";
   boardParticipantStatusElement.hidden = !message || state.appMode !== "roadmap" || !state.workspace;
@@ -2159,11 +2159,19 @@ function clearBoardDragState() {
 
 function buildBoardParticipantBadge(item) {
   if (FINISHED_STATUSES.has(String(getBadgeMetadata(item).status || "").trim().toLowerCase())) return "";
-  const count = boardParticipantCounts.get(item.id);
-  if (!Number.isSafeInteger(count) || count < 1) return "";
-  const label = `${count} attached`;
-  const ariaLabel = `${count} attached session${count === 1 ? "" : "s"}; open item for details`;
-  return `<span class="badge board-item-participants" title="Pallium-associated sessions, not execution status. Open item for details." aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(label)}</span>`;
+  const counts = boardParticipantCounts.get(item.id);
+  if (!counts) return "";
+  return buildParticipantRecencyBadges(counts.recentParticipantCount, counts.dormantParticipantCount);
+}
+
+function buildParticipantRecencyBadges(recent, dormant, closed = 0) {
+  return [["Recent", recent], ["Dormant", dormant], ["Closed", closed]].filter(([, count]) => count > 0).map(([label, count]) => {
+    const title = label === "Recent"
+      ? "Recent under Pallium's 24-hour session last-seen observation; session activity is not work on this feature, current execution, or staffing."
+      : label === "Dormant" ? "Dormant under Pallium's session last-seen observation; dormant does not mean this item is completed."
+      : "Closed session association; this does not mean this item is completed.";
+    return `<span class="badge board-item-participants${label !== "Recent" ? " participant-dormant" : ""}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${label} ${count} associated session${count === 1 ? "" : "s"}. ${title}`)}">${label} ${count}</span>`;
+  }).join(" ");
 }
 
 function syncBoardParticipantBadges() {
@@ -2173,13 +2181,8 @@ function syncBoardParticipantBadges() {
     if (!item) continue;
     const markup = buildBoardParticipantBadge(item);
     for (const row of card.querySelectorAll(".badge-row, .board-card-signals")) {
-      const current = row.querySelector(".board-item-participants");
-      if (!markup) {
-        current?.remove();
-      } else if (current?.textContent !== `${boardParticipantCounts.get(itemId)} attached`) {
-        current?.remove();
-        row.insertAdjacentHTML("beforeend", markup);
-      }
+      for (const current of row.querySelectorAll(".board-item-participants")) current.remove();
+      if (markup) row.insertAdjacentHTML("beforeend", markup);
     }
   }
 }
@@ -3286,10 +3289,15 @@ function renderItemParticipants() {
   itemParticipantsElement.hidden = quietlyHidden;
   if (quietlyHidden) return;
 
-  itemParticipantsStatusElement.textContent = participantStatusText(result);
   const hasParticipants = result.status === "ok" && result.participants?.length > 0;
-  itemParticipantsStatusElement.classList.toggle("badge", hasParticipants);
-  itemParticipantsStatusElement.classList.toggle("board-item-participants", hasParticipants);
+  if (hasParticipants) {
+    const participants = result.participants;
+    itemParticipantsStatusElement.innerHTML = buildParticipantRecencyBadges(
+      participants.filter((participant) => participant.lifecycle === "recent").length,
+      participants.filter((participant) => participant.lifecycle === "dormant").length,
+      participants.filter((participant) => participant.lifecycle === "closed").length,
+    ) + (result.partial ? '<span class="badge" title="Counts describe only the displayed sessions; more may exist.">Partial</span>' : "");
+  } else itemParticipantsStatusElement.textContent = participantStatusText(result);
   itemParticipantsRefreshButton.disabled = result.status === "loading";
 
   const reference = result.reference;
@@ -3322,7 +3330,7 @@ function renderItemParticipants() {
     return;
   }
 
-  const rows = participants.map((participant) => {
+  const renderParticipant = (participant) => {
     const name = participant.alias || participant.title || participant.session_ref;
     const availability = [["Session", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
     const origins = participant.association?.origins || [];
@@ -3337,14 +3345,23 @@ function renderItemParticipants() {
         <div class="item-participant-reference-row"><span class="muted">Container</span><code>${escapeHtml(participant.container_ref)}</code></div>
         <div class="item-participant-badges">${availability.map(([label, value]) => `<span class="badge">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}</div>
         <p class="muted item-participant-freshness" title="Last seen: ${escapeHtml(participant.last_seen_at)}; association updated: ${escapeHtml(participant.association?.updated_at || "")}">
-          Seen ${escapeHtml(formatParticipantTime(participant.last_seen_at))} · association updated ${escapeHtml(formatParticipantTime(participant.association?.updated_at))}
+          Session last seen ${escapeHtml(formatParticipantTime(participant.last_seen_at))} · association updated ${escapeHtml(formatParticipantTime(participant.association?.updated_at))}
           ${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}
         </p>
       </article>
     `;
+  };
+  const rows = ["recent", "dormant", "closed"].map((lifecycle) => {
+    const group = participants.filter((participant) => participant.lifecycle === lifecycle);
+    if (!group.length) return "";
+    const label = lifecycle[0].toUpperCase() + lifecycle.slice(1);
+    return `<section class="item-participant-group" role="listitem" aria-label="${label} sessions"><h4>${label}</h4><div class="item-participant-group-list" role="list">${group.map(renderParticipant).join("")}</div></section>`;
   }).join("");
 
-  itemParticipantsListElement.innerHTML = `${result.partial ? '<p class="muted">Showing the first 200 participants; more may exist.</p>' : ""}${rows}`;
+  const guidance = '<p class="muted">Last seen measures session activity, not work on this feature or staffing. Dormant does not mean completed.</p>'
+    + (participants.some((participant) => participant.session_url)
+      ? '<p class="muted">Use a linked Pallium session to remove explicit associations; structural links update through their producer. Captured History is unchanged, but is not a complete participation record.</p>' : "");
+  itemParticipantsListElement.innerHTML = (result.partial ? '<p class="muted">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "") + guidance + rows;
 }
 
 async function loadItemParticipants(itemId, generation = state.itemLoadGeneration) {
@@ -4321,13 +4338,18 @@ async function refreshBoardPresence() {
     const result = await api.readBoardParticipantCounts({ signal });
     if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || !boardPresenceIsVisible()) return;
     if (result.status === "ok") {
-      if (!Array.isArray(result.counts) || result.counts.length > 200 || result.counts.some((row) =>
+      if (!Array.isArray(result.counts) || result.counts.length > 200
+        || (result.counts.length > 0 && (result.recentSeconds !== 86400 || typeof result.asOf !== "string"
+        || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(result.asOf)
+        || !Number.isFinite(Date.parse(result.asOf))))
+        || result.counts.some((row) =>
         !row || typeof row.itemId !== "string" || !Object.hasOwn(state.workspace.items || {}, row.itemId)
-        || !Number.isSafeInteger(row.participantCount) || row.participantCount < 0
+        || [row.participantCount, row.recentParticipantCount, row.dormantParticipantCount].some((count) => !Number.isSafeInteger(count) || count < 0)
+        || row.recentParticipantCount + row.dormantParticipantCount !== row.participantCount
       ) || new Set(result.counts.map((row) => row.itemId)).size !== result.counts.length) {
         throw new Error("Invalid board participant counts.");
       }
-      boardParticipantCounts = new Map(result.counts.map((row) => [row.itemId, row.participantCount]));
+      boardParticipantCounts = new Map(result.counts.map((row) => [row.itemId, row]));
     } else {
       boardParticipantCounts = new Map();
     }

@@ -52,11 +52,11 @@ function participantPayload(itemId, alias = "minimap-dev", count = 1) {
       title: "Minimap delivery " + index,
       alias: index === 0 ? alias : "worker-" + index,
       state: "active",
-      lifecycle: index % 2 ? "dormant" : "recent",
+      lifecycle: index === 0 ? "recent" : index === 1 ? "dormant" : "closed",
       destination_health: "active",
       first_seen_at: "2026-09-12T08:00:00.000Z",
       last_seen_at: "2026-09-12T08:30:00.000Z",
-      closed_at: null,
+      closed_at: index === 2 ? "2026-09-12T08:31:00.000Z" : null,
       scope_generation: 1,
       association: {
         work_ref: "work:v1:" + "a".repeat(64),
@@ -68,7 +68,8 @@ function participantPayload(itemId, alias = "minimap-dev", count = 1) {
       },
     })),
     partial: count === 200,
-    refreshedAt: "2026-09-12T08:30:00.000Z",
+    asOf: "2026-09-12T08:30:00.000Z",
+    recentSeconds: 86400,
   };
 }async function makeLargeRoadmapFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-large-roadmap-"));
@@ -198,6 +199,18 @@ async function restoreFixture(file, contents) {
 async function currentSpecFile(page) {
   await expect(page).toHaveURL(/file=/);
   return page.evaluate(() => decodeURIComponent(window.location.hash.match(/file=([^&]+)/)[1]));
+}
+
+async function openCurrentItemAsSpec(page) {
+  const attached = page.waitForResponse((response) => response.url().endsWith("/api/spec-sessions/attach") && response.request().method() === "POST");
+  await page.locator("#open-in-spec-button").click();
+  const attachResponse = await attached;
+  expect(attachResponse.ok()).toBe(true);
+  const { session: { targetFile } } = await attachResponse.json();
+  // Switching modes first renders an older session. Wait for the requested
+  // file's completed load before reading counts or interacting with its body.
+  await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("file") === targetFile);
+  return targetFile;
 }
 
 async function openMetadataDetails(page) {
@@ -561,28 +574,38 @@ test("opens another board item in read mode before entering edit mode", async ({
 
 test("shows the same lazy participant details in List and Columns without per-card requests", async ({ page }) => {
   const participantRequests = [];
+  let currentAlias = "minimap-dev";
   await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
     const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
     participantRequests.push(itemId);
-    await route.fulfill({ json: participantPayload(itemId) });
+    await route.fulfill({ json: participantPayload(itemId, currentAlias, 3) });
   });
 
   await page.setViewportSize({ width: 1440, height: 820 });
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
   await expect(details).toBeVisible();
-  await expect(page.locator("#item-participants-status")).toHaveText("1 participant");
-  await expect(page.locator("#item-participants-status")).toHaveClass(/badge board-item-participants/);
+  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
   expect(participantRequests).toEqual(["feature-setup-guidance"]);
 
   await details.locator("summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
-  expect(await page.locator(".item-participants-body").evaluate((body) => body.scrollHeight - body.clientHeight)).toBeLessThanOrEqual(1);
-  await page.screenshot({ path: "test-results/participant-detail-open.png" });
+  await expect(page.locator("#item-participants-list .item-participant")).toHaveCount(3);
   await expect(page.locator("#item-participants-list")).toContainText("codex");
-  await expect(page.locator("#item-participants-list .badge")).toHaveText(["codex", "Session: active", "Lifecycle: recent", "Destination: active"]);
+  await expect(page.locator("#item-participants-list .badge")).toHaveText([
+    "codex", "Session: active", "Lifecycle: recent", "Destination: active",
+    "claude-code", "Session: active", "Lifecycle: dormant", "Destination: active",
+    "codex", "Session: active", "Lifecycle: closed", "Destination: active",
+  ]);
+  await expect(page.locator("#item-participants-list")).toContainText("Recent");
+  await expect(page.locator("#item-participants-list .item-participant-group")).toHaveCount(3);
+  for (const [index, lifecycle] of ["Recent", "Dormant", "Closed"].entries()) {
+    await expect(page.locator("#item-participants-list .item-participant-group").nth(index)).toContainText(lifecycle);
+  }
+  await expect(page.locator(".item-participant-freshness").first()).toContainText("Session last seen");
+  await page.screenshot({ path: test.info().outputPath("participant-detail-desktop.png") });
   await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
-  const sessionLink = page.locator("#item-participants-list a");
+  const sessionLink = page.locator("#item-participants-list a").first();
   await expect(sessionLink).toHaveAttribute("href", "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000");
   await expect(sessionLink).toHaveAttribute("target", "_blank");
   await expect(sessionLink).toHaveAttribute("rel", "noopener noreferrer");
@@ -590,13 +613,15 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(sessionLink).toHaveAttribute("title", "Open session in Pallium");
   await expect(page.locator("#item-participants-scope")).toHaveText("roadmap:v1:git:github.com/rore/minimap#roadmap");
 
+  currentAlias = "renamed-session";
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
   await expect(page.locator("#editor-overlay")).toBeVisible();
-  await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
+  await expect(page.locator("#item-participants-list")).toContainText("renamed-session");
+  await expect(page.locator("#item-participants-list a").first()).toHaveAttribute("href", "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000");
   await page.setViewportSize({ width: 760, height: 740 });
-  expect(await page.locator(".item-participants-body").evaluate((body) => body.scrollHeight - body.clientHeight)).toBeLessThanOrEqual(1);
-  await page.screenshot({ path: "test-results/participant-detail-narrow.png" });
+  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
+  await page.screenshot({ path: test.info().outputPath("participant-detail-narrow.png") });
   expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
 });
 
@@ -605,6 +630,8 @@ test("escapes linked participant names and keeps unlinked participants as plain 
     const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
     const payload = participantPayload(itemId, "<unsafe participant>", 2);
     delete payload.participants[1].session_url;
+    payload.participants[1].alias = null;
+    payload.participants[1].title = "Title fallback";
     await route.fulfill({ json: payload });
   });
 
@@ -614,7 +641,7 @@ test("escapes linked participant names and keeps unlinked participants as plain 
   await expect(cards.nth(0).locator("a")).toHaveText("<unsafe participant>");
   await expect(cards.nth(0).locator("unsafe")).toHaveCount(0);
   await expect(cards.nth(1).locator("a")).toHaveCount(0);
-  await expect(cards.nth(1).locator("strong")).toHaveText("worker-1");
+  await expect(cards.nth(1).locator("strong")).toHaveText("Title fallback");
 });
 test("keeps participants usable for selected items on dense List and Columns boards", async ({ page }) => {
   test.setTimeout(60_000);
@@ -624,7 +651,7 @@ test("keeps participants usable for selected items on dense List and Columns boa
   const participantRoute = /\/api\/items\/([^/]+)\/participants$/;
   const cases = [
     { key: "empty", result: { ...participantPayload(selectedId), participants: [] }, status: "0 participants", message: "No sessions are associated with this item." },
-    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), status: "2 participants", message: "dense-session" },
+    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), badges: ["Recent 1", "Dormant 1"], message: "dense-session" },
     { key: "unreachable", result: { ...participantPayload(selectedId), status: "unreachable", participants: [] }, status: "Pallium unavailable", message: "could not be reached" },
   ];
 
@@ -669,7 +696,8 @@ test("keeps participants usable for selected items on dense List and Columns boa
           }, { currentLayout: layout, itemId: selectedId })).toEqual({ titleReadable: true, cardContained: true });
           const details = page.locator("#item-participants");
           await expect(details).toBeVisible();
-          await expect(page.locator("#item-participants-status")).toHaveText(scenario.status);
+          if (scenario.badges) await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(scenario.badges);
+          else await expect(page.locator("#item-participants-status")).toHaveText(scenario.status);
           await details.locator("summary").click();
           await expect(page.locator("#item-participants-list")).toContainText(scenario.message);
           const participantBox = await page.locator(".item-participants-body").boundingBox();
@@ -696,7 +724,7 @@ test("keeps participants usable for selected items on dense List and Columns boa
 });
 
 
-test("keeps a 200-session participant result scrollable without squeezing the item pane", async ({ page }) => {
+test("keeps the item pane usable with 200 participant records", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 820 });
   await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
     const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
@@ -705,8 +733,11 @@ test("keeps a 200-session participant result scrollable without squeezing the it
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
+  await expect(details.locator("summary .badge").filter({ hasText: /^Partial$/ })).toHaveText("Partial");
   await details.locator("summary").click();
   await expect(page.locator(".item-participant")).toHaveCount(200);
+  await page.locator(".item-participant").last().scrollIntoViewIfNeeded();
+  await expect(page.locator(".item-participant").last()).toBeVisible();
   let geometry = await page.evaluate(() => ({
     participantClientHeight: document.querySelector(".item-participants-body").clientHeight,
     participantScrollHeight: document.querySelector(".item-participants-body").scrollHeight,
@@ -714,11 +745,14 @@ test("keeps a 200-session participant result scrollable without squeezing the it
   }));
   expect(geometry.participantScrollHeight).toBeGreaterThan(geometry.participantClientHeight);
   expect(geometry.itemClientHeight).toBeGreaterThan(180);
+  await page.screenshot({ path: test.info().outputPath("participant-detail-200.png") });
 
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
   await expect(page.locator("#editor-overlay")).toBeVisible();
   await expect(page.locator(".item-participant")).toHaveCount(200);
+  await page.locator(".item-participant").last().scrollIntoViewIfNeeded();
+  await expect(page.locator(".item-participant").last()).toBeVisible();
   geometry = await page.evaluate(() => ({
     participantClientHeight: document.querySelector(".item-participants-body").clientHeight,
     participantScrollHeight: document.querySelector(".item-participants-body").scrollHeight,
@@ -726,6 +760,21 @@ test("keeps a 200-session participant result scrollable without squeezing the it
   }));
   expect(geometry.participantScrollHeight).toBeGreaterThan(geometry.participantClientHeight);
   expect(geometry.itemClientHeight).toBeGreaterThan(180);
+});
+
+test("avoids a scrollbar when one-participant details fit", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.route(/\/api\/items\/([^/]+)\/participants$/, async (route) => {
+    const itemId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-2));
+    await route.fulfill({ json: participantPayload(itemId) });
+  });
+  await page.goto(repoUrl("/#item=feature-setup-guidance"));
+  await page.locator("#item-participants summary").click();
+  const geometry = await page.locator(".item-participants-body").evaluate((body) => ({
+    clientHeight: body.clientHeight,
+    scrollHeight: body.scrollHeight,
+  }));
+  expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
 });
 test("keeps participant lookup invisible and ordinary editing usable when Pallium is not configured", async ({ page }) => {
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
@@ -1604,26 +1653,27 @@ test("list view opens cards and supports moving and ordering with its in-card dr
     await fs.rm(fixture, { recursive: true, force: true });
   }
 });
-test("shows bounded attached-session counts across dense List and Columns boards", async ({ page }) => {
+test("shows bounded recent and dormant session counts across dense List and Columns boards", async ({ page }) => {
   test.setTimeout(90_000);
   const fixture = await makeLargeRoadmapFixture();
   const boardRequests = [];
-  let countForFeaturedItem = 2;
-  let countForQueuedItem = 0;
+  let countForFeaturedItem = { recentParticipantCount: 1, dormantParticipantCount: 1 };
+  let countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 0 };
   const detailRequests = [];
   await page.route(/\/api\/board\/participant-counts$/, async (route) => {
     boardRequests.push(route.request().url());
     await route.fulfill({ json: {
       status: "ok",
       counts: [
-        { itemId: "large-item-02", participantCount: countForFeaturedItem },
-        { itemId: "large-item-03", participantCount: 0 },
-        { itemId: "large-item-05", participantCount: countForQueuedItem },
+        { itemId: "large-item-02", participantCount: countForFeaturedItem.recentParticipantCount + countForFeaturedItem.dormantParticipantCount, ...countForFeaturedItem },
+        { itemId: "large-item-03", participantCount: 0, recentParticipantCount: 0, dormantParticipantCount: 0 },
+        { itemId: "large-item-05", participantCount: countForQueuedItem.recentParticipantCount + countForQueuedItem.dormantParticipantCount, ...countForQueuedItem },
         // A defensive client must ignore completed cards even if the batch is stale or over-inclusive.
-        { itemId: "large-item-04", participantCount: 3 },
+        { itemId: "large-item-04", participantCount: 3, recentParticipantCount: 2, dormantParticipantCount: 1 },
       ],
       partial: false,
-      refreshedAt: "2026-09-24T08:30:00.000Z",
+      asOf: "2026-09-24T08:30:00.000Z",
+      recentSeconds: 86400,
     } });
   });
   await page.route(/\/api\/items\/large-item-02\/participants$/, async (route) => {
@@ -1635,8 +1685,8 @@ test("shows bounded attached-session counts across dense List and Columns boards
     for (const layout of ["list", "columns"]) {
       boardRequests.length = 0;
       detailRequests.length = 0;
-      countForFeaturedItem = 2;
-      countForQueuedItem = 0;
+      countForFeaturedItem = { recentParticipantCount: 1, dormantParticipantCount: 1 };
+      countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 0 };
       await page.setViewportSize({ width: 1440, height: 900 });
       const layoutHash = layout === "columns" ? "&layout=columns" : "";
       await page.goto(`/?presenceLayout=${layout}#repo=${encodeURIComponent(fixture)}${layoutHash}`);
@@ -1653,8 +1703,8 @@ test("shows bounded attached-session counts across dense List and Columns boards
         ? page.locator('.board-column-card-main[data-item-dblopen="large-item-05"]')
         : page.locator('.board-item[data-item-id="large-item-05"]');
 
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(1);
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText("2 attached");
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(2);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Recent 1", "Dormant 1"]);
       await expect(zeroCard.locator(".board-item-participants")).toHaveCount(0);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(0);
       await expect(completedCard.locator(".board-item-participants")).toHaveCount(0);
@@ -1664,7 +1714,7 @@ test("shows bounded attached-session counts across dense List and Columns boards
       await page.screenshot({ path: `test-results/board-presence-${layout}-desktop.png`, fullPage: false });
       await page.setViewportSize({ width: 760, height: 740 });
       await featuredCard.scrollIntoViewIfNeeded();
-      await expect(featuredCard.locator(".board-item-participants:visible")).toBeVisible();
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(2);
       const geometry = await featuredCard.evaluate((card) => {
         const rect = card.getBoundingClientRect();
         const titleElement = card.querySelector(".board-item-title");
@@ -1720,12 +1770,12 @@ test("shows bounded attached-session counts across dense List and Columns boards
       }
 
       // A foreground refresh updates the visible count without multiplying per-card requests.
-      countForFeaturedItem = 1;
-      countForQueuedItem = 2;
+      countForFeaturedItem = { recentParticipantCount: 1, dormantParticipantCount: 0 };
+      countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 2 };
       await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText("1 attached");
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(1);
-      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveText("2 attached");
+      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveText("Dormant 2");
       if (layout === "columns") {
         const columnPositionAfterRefresh = await page.evaluate(() => ({
           horizontal: document.querySelector(".board-columns").scrollLeft,
@@ -1739,17 +1789,17 @@ test("shows bounded attached-session counts across dense List and Columns boards
       if (layout === "columns") await page.locator('[data-item-open="large-item-02"]').click();
       else await featuredCard.click();
       await expect(page.locator("#editor-title")).toHaveText("Large project item large-item-02 — usable title");
-      await expect(page.locator("#item-participants-status")).toHaveText("2 participants");
+      await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1"]);
       expect(detailRequests).toHaveLength(1);
       expect(boardRequests).toHaveLength(2);
     }
 
     // A fresh deep link into Columns must render a positive queued-item count on first paint.
     boardRequests.length = 0;
-    countForQueuedItem = 2;
+    countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 2 };
     await page.goto(`/?presenceLayout=columns-positive#repo=${encodeURIComponent(fixture)}&layout=columns`);
     const queuedColumnsCard = page.locator('.board-column-card-main[data-item-dblopen="large-item-05"]');
-    await expect(queuedColumnsCard.locator(".board-item-participants:visible")).toHaveText("2 attached");
+    await expect(queuedColumnsCard.locator(".board-item-participants:visible")).toHaveText("Dormant 2");
     await page.screenshot({ path: "artifacts/board-presence-columns-queued-refresh.png", fullPage: false });
     expect(boardRequests).toHaveLength(1);
   } finally {
@@ -1757,19 +1807,20 @@ test("shows bounded attached-session counts across dense List and Columns boards
   }
 });
 
-test("does not show zero badges when board presence is disabled or unavailable", async ({ page }) => {
+test("does not show zero badges when board recency is disabled, unsupported, or unavailable", async ({ page }) => {
   const fixture = await makeLargeRoadmapFixture();
   try {
-    for (const status of ["disabled", "unreachable"]) {
+    for (const status of ["disabled", "unsupported", "unreachable"]) {
       let requests = 0;
       await page.route(/\/api\/board\/participant-counts$/, async (route) => {
         requests += 1;
-        await route.fulfill({ json: { status, counts: [], partial: false, refreshedAt: null } });
+        await route.fulfill({ json: { status, counts: [], partial: false, asOf: null, recentSeconds: 86400 } });
       });
       await page.goto(repoUrlFor(fixture, `/?presence=${status}`));
       await expect(page.locator(".board-item-participants")).toHaveCount(0);
       const toolbar = page.locator("#board-participant-status");
       if (status === "disabled") await expect(toolbar).toBeHidden();
+      else if (status === "unsupported") await expect(toolbar).toHaveText("Participant recency needs a newer Pallium");
       else {
         await expect(toolbar).toBeVisible();
         await expect(toolbar).toHaveText("Session badges unavailable");
@@ -1804,13 +1855,13 @@ test("ignores a delayed board count response after switching repositories", asyn
       markOldStarted();
       await oldResponseGate;
       try {
-        await route.fulfill({ json: { status: "ok", counts: [{ itemId: "large-item-02", participantCount: 9 }], partial: false, refreshedAt: null } });
+        await route.fulfill({ json: { status: "ok", counts: [{ itemId: "large-item-02", participantCount: 9, recentParticipantCount: 9, dormantParticipantCount: 0 }], partial: false, asOf: "2026-09-24T08:30:00.000Z", recentSeconds: 86400 } });
       } catch {
         // Switching repositories intentionally aborts the old request.
       }
       return;
     }
-    await route.fulfill({ json: { status: "ok", counts: [{ itemId: "large-item-02", participantCount: 1 }], partial: false, refreshedAt: null } });
+    await route.fulfill({ json: { status: "ok", counts: [{ itemId: "large-item-02", participantCount: 1, recentParticipantCount: 0, dormantParticipantCount: 1 }], partial: false, asOf: "2026-09-24T08:30:00.000Z", recentSeconds: 86400 } });
   });
 
   try {
@@ -1822,10 +1873,10 @@ test("ignores a delayed board count response after switching repositories", asyn
       location.hash = params.toString();
     }, newFixture);
     const currentCard = page.locator('.board-item[data-item-id="large-item-02"]');
-    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("1 attached");
+    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
     releaseOldResponse();
-    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("1 attached");
-    await expect(currentCard.locator(".board-item-participants:visible")).not.toHaveText("9 attached");
+    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
+    await expect(currentCard.locator(".board-item-participants:visible")).not.toContainText("Recent 9");
   } finally {
     releaseOldResponse();
     await fs.rm(oldFixture, { recursive: true, force: true });
@@ -2506,7 +2557,7 @@ test("Review button on a roadmap item opens it as a spec session", async ({ page
   // Editor header gains a Review button only when an item is loaded.
   const reviewButton = page.locator("#open-in-spec-button");
   await expect(reviewButton).toBeVisible();
-  await reviewButton.click();
+  await openCurrentItemAsSpec(page);
 
   // Switches to spec mode and the spec session for this item is selected.
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
@@ -2529,7 +2580,7 @@ test("board badge appears on items with an active spec session", async ({ page }
   const firstItemId = await firstItem.getAttribute("data-item-id");
   await firstItem.click();
   await expect(page.locator("#open-in-spec-button")).toBeVisible();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
 
   // Add a global comment so openComments > 0.
@@ -2565,7 +2616,7 @@ test("spec session of a roadmap item strips YAML frontmatter from the rendered b
   await expect(page.locator("#mode-title")).toContainText("Roadmap");
 
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
 
   // Wait for the file body to render.
@@ -2597,7 +2648,7 @@ test("spec session of a roadmap item shows the same title + badges as the roadma
   expect(expectedBadges.length, "roadmap preview should have at least one badge").toBeGreaterThan(0);
 
   // Now open the same item as a spec session.
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2676,7 +2727,7 @@ test("topbar Refresh re-fetches the spec session in spec mode", async ({ page })
   // button is gone, and the topbar Refresh button now drives both modes.
   await page.goto(repoUrl());
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2710,19 +2761,14 @@ test("auto-refresh in spec mode picks up externally-added comments", async ({ pa
   const itemId = await page.locator(".board-item").first().getAttribute("data-item-id");
   expect(itemId).toBeTruthy();
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
   const startCount = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
 
-  // Use the absolute path the UI itself attached the session with — pull it
-  // from /api/spec-sessions so we hit the exact session record.
-  const sessionsResp = await request.get(`${baseURL}/api/spec-sessions`);
-  expect(sessionsResp.ok()).toBe(true);
-  const { sessions } = await sessionsResp.json();
-  const targetFile = sessions[0]?.targetFile;
-  expect(targetFile, "spec session must be attached before posting a comment").toBeTruthy();
+  // Use the exact file selected by the completed Review-button attachment.
+  const targetFile = await currentSpecFile(page);
 
   const post = await request.post(`${baseURL}/api/spec-sessions/by-file/comments`, {
     data: {
@@ -2803,7 +2849,7 @@ test("commenting on a selection that crosses backticks saves successfully", asyn
   // Navigate to the idea-create-items roadmap item.
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page.locator("#editor-title")).toContainText("Create roadmap items from the UI");
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2907,7 +2953,7 @@ test("rendered spec view finds anchored quotes that include markdown syntax", as
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -2971,7 +3017,7 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -3058,20 +3104,10 @@ test("participants facepile lists comment authors plus the viewer", async ({ pag
   // and the popover should list them along with the viewer (whatever value
   // is in #spec-comment-by — defaults to "human").
   await page.goto(repoUrl());
-  const itemId = await page.locator(".board-item").first().getAttribute("data-item-id");
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  const targetFile = await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
-
-  const sessionsResp = await request.get(`${baseURL}/api/spec-sessions`);
-  const { sessions } = await sessionsResp.json();
-  // Prior tests may leave attached sessions for other files. Pick the
-  // session whose targetFile ends in the item id we just opened, not just
-  // sessions[0] — race-safe across the serial suite.
-  const targetFile = sessions.find((s) => (s.targetFile || "").includes(itemId))?.targetFile
-    ?? sessions[0]?.targetFile;
-  expect(targetFile, `must find a spec session for ${itemId}`).toBeTruthy();
 
   const startCount = Number((await page.locator('[data-spec-count="comments"]').first().textContent()) || "0");
 
@@ -3124,7 +3160,7 @@ test("participants facepile updates when the viewer edits the actor field", asyn
   // themselves as a participant under the new name.
   await page.goto(repoUrl());
   await page.locator(".board-item").first().click();
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
@@ -3161,7 +3197,7 @@ test("trimming a paragraph quote down to a duplicate substring still anchors to 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3200,7 +3236,7 @@ test("live-selecting one of two same-line duplicates anchors to the chosen occur
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3252,7 +3288,7 @@ test("live-selecting a duplicate phrase on different lines anchors to the chosen
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3302,7 +3338,7 @@ test("comment composer closes after a successful submit", async ({ page }) => {
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
 
   // Open the composer on a real block via the gutter "+" hook, the same
@@ -3397,7 +3433,7 @@ A second paragraph in the same section.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
@@ -3456,7 +3492,7 @@ test("rendered spec body stamps each block with its source line", async ({ page 
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const lineAttrSummary = await page.evaluate(() => {
@@ -3497,7 +3533,7 @@ key: value
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
@@ -3554,7 +3590,7 @@ test("legacy comment without anchorStatus.lineStart still anchors via text-match
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
@@ -3596,7 +3632,7 @@ The whole sentence here that mentions key phrase inside it.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);
@@ -3685,7 +3721,7 @@ A second paragraph for layout.
   await page.goto(repoUrl());
   await page.locator('[data-item-id="idea-create-items"]').first().click();
   await expect(page).toHaveURL(/item=idea-create-items/);
-  await page.locator("#open-in-spec-button").click();
+  await openCurrentItemAsSpec(page);
   await expect(page.locator(".spec-body-markdown")).toBeVisible({ timeout: 5000 });
 
   const targetFile = await currentSpecFile(page);

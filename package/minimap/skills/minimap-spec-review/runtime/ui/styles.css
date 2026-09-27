@@ -2352,6 +2352,12 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   background: rgba(91, 61, 168, 0.08);
 }
 
+.board-item-participants.participant-dormant {
+  color: var(--muted);
+  border-color: var(--border);
+  background: var(--panel);
+}
+
 .board-item:hover {
   border-color: var(--border-strong);
   background: #fff;
@@ -4887,12 +4893,20 @@ body[data-setup-mode="true"] .setup-side-stack {
 
 .item-participants-summary {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 2px;
   cursor: pointer;
   font-weight: 650;
+  flex-wrap: wrap;
+}
+
+#item-participants-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .item-participants-body {
@@ -4937,6 +4951,16 @@ body[data-setup-mode="true"] .setup-side-stack {
 }
 
 .item-participants-list {
+  display: grid;
+  gap: 10px;
+}
+
+.item-participant-group h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+}
+
+.item-participant-group-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 8px;

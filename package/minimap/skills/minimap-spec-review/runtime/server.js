@@ -474,9 +474,15 @@ async function handleBoardParticipantCounts(request, response) {
     const result = await lookupPalliumParticipantCounts(palliumConfig, references, { signal: controller.signal });
     if (!response.destroyed) {
       const counts = result.status === "ok"
-        ? result.counts.map((row, index) => ({ itemId: itemIds[index], participantCount: row.participant_count }))
+        ? result.counts.map((row, index) => ({
+          itemId: itemIds[index], participantCount: row.participant_count,
+          recentParticipantCount: row.recent_participant_count, dormantParticipantCount: row.dormant_participant_count,
+        }))
         : [];
-      sendJson(response, 200, { status: result.status, counts, partial });
+      sendJson(response, 200, {
+        status: result.status, counts, partial,
+        ...(result.status === "ok" ? { asOf: result.asOf, recentSeconds: result.recentSeconds } : {}),
+      });
     }
   } catch (error) {
     if (!controller.signal.aborted) throw error;

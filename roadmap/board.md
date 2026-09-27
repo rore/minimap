@@ -12,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- distinguish-recent-dormant-participants
 - show-board-work-presence
 - foundation-local-server
 - link-pallium-participant-sessions
