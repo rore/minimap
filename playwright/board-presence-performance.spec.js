@@ -44,7 +44,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
   let releaseFirst;
   const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
 
-  const counts = ids.slice(0, 200).map((itemId, index) => ({ itemId, participantCount: index === 0 ? 3 : 0 }));
+  const counts = ids.slice(0, 200).map((itemId, index) => ({ itemId, participantCount: index === 0 ? 3 : 0, recentParticipantCount: index === 0 ? 2 : 0, dormantParticipantCount: index === 0 ? 1 : 0 }));
   await page.route(/\/api\/board\/participant-counts$/, async (route) => {
     requests += 1;
     const current = requests;
@@ -53,7 +53,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     }
     if (current === 2) { await route.abort("timedout"); return; }
     try {
-      await route.fulfill({ json: { status: "ok", counts, partial: true, refreshedAt: null } });
+      await route.fulfill({ json: { status: "ok", counts, partial: true, asOf: "2026-09-27T00:00:00Z", recentSeconds: 86400 } });
     } catch {
       // A request invalidated by a later layout or visibility change may be gone.
     }
@@ -68,6 +68,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     const columnsMs = Date.now() - startedAt;
     const firstCard = page.locator('.board-column-card-main[data-item-dblopen="dense-001"]');
     await expect(firstCard).toBeVisible();
+    expect(requests).toBe(1);
     expect(requests).toBe(1);
 
     const listStartedAt = Date.now();
@@ -84,12 +85,32 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     });
     expect(requests).toBe(1);
     releaseFirst();
-    await expect(listCard.locator(".board-item-participants:visible")).toHaveText("3 attached");
+    await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["Recent 2", "Dormant 1"]);
     await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
     expect(await originalCard.evaluate((element) => element.isConnected && document.activeElement === element)).toBe(true);
     expect(requests).toBe(1);
     await originalCard.dispose();
+
+    // Layout changes intentionally replace cards; verify async-refresh focus above first.
+    await page.screenshot({ path: test.info().outputPath("dense-list-desktop.png"), fullPage: true });
+    await page.locator("#board-layout-columns").click();
+    await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
+    const firstColumnCard = page.locator('.board-column-card-main[data-item-dblopen="dense-001"]');
+    await expect(firstColumnCard.locator(".board-item-participants:visible")).toHaveText(["Recent 2", "Dormant 1"]);
+    await page.screenshot({ path: test.info().outputPath("dense-columns-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: test.info().outputPath("dense-columns-narrow.png") });
+    await page.locator("#board-layout-list").click();
+    await expect(page.locator("#board-groups .board-group")).toHaveCount(205);
+    await page.screenshot({ path: test.info().outputPath("dense-list-narrow.png") });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator("#board-layout-columns").click();
+    await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
+    await page.locator("#board-layout-list").click();
+    await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
+    await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
+    expect(requests).toBe(1);
 
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
@@ -108,10 +129,10 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
 
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect.poll(() => requests).toBe(3);
-    await expect(listCard.locator(".board-item-participants:visible")).toHaveText("3 attached");
+    await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["Recent 2", "Dormant 1"]);
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
-    await expect(page.locator('.board-column-card-main[data-item-dblopen="dense-001"] .board-item-participants:visible')).toHaveText("3 attached");
+    await expect(page.locator('.board-column-card-main[data-item-dblopen="dense-001"] .board-item-participants:visible')).toHaveText(["Recent 2", "Dormant 1"]);
     expect(requests).toBe(3);
     console.log("dense-board measured render: Columns " + columnsMs + "ms, List " + listMs + "ms; 205 groups, 200-count partial batch");
   } finally {

@@ -25,6 +25,8 @@ The running server transparently serves spec sessions and any roadmap that reque
 
 ## Optional Pallium participants
 
+Roadmap Recent/Dormant badges classify attached, nonclosed sessions under Pallium's 24-hour session last-seen window—not activity on that feature, staffing, or completion. Legacy total-only responses leave classification unavailable; Minimap never guesses a cutoff or fans out per card. Detail remains usable when supported and links existing Pallium association controls. Minimap never detaches sessions or promises complete historical participation.
+
 The shared server may also expose the roadmap item's read-only Participants panel. Set `MINIMAP_PALLIUM_ENDPOINT` on a supported start or restart command to opt in with one validated loopback HTTP origin. Exact-session participant links require the separate `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`, set only for a reviewed compatible dashboard. Successful commands save both settings under `$MINIMAP_HOME`; an explicit empty dashboard value disables links while retaining lookup, and an explicit empty lookup value clears both. Invalid values are rejected without changing the running server or saved preference.
 
 A requested or saved effective setting that differs from a healthy server's verified effective setting—or whose identity cannot be verified on a legacy server—is not silently ignored: `start-server.mjs` exits with restart guidance. `status.mjs` reports lookup and link state independently as enabled, disabled, or unknown without exposing either origin. This server setting is independent of whether an agent has Pallium skills or MCP tools, and disabled mode makes no Pallium requests.

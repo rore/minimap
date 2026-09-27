@@ -4540,7 +4540,13 @@ test("board participant-count route batches only unfinished board items and omit
     requests.push({ method: request.method, url: request.url, payload });
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
       contract: "relay-work-ref-counts/v1",
-      counts: payload.references.map((reference, index) => ({ ...reference, participant_count: index === 0 ? 0 : 2 })),
+      as_of: "2026-09-27T10:00:00Z",
+      recent_seconds: 86400,
+      counts: payload.references.map((reference, index) => ({
+        ...reference, participant_count: index === 0 ? 0 : 2,
+        recent_participant_count: index === 0 ? 0 : 1,
+        dormant_participant_count: index === 0 ? 0 : 1,
+      })),
     }));
   });
   await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
@@ -4563,6 +4569,12 @@ test("board participant-count route batches only unfinished board items and omit
     assert.deepEqual(body.counts.map((row) => row.itemId), selectedIds.slice(0, 200));
     assert.equal(body.counts[0].participantCount, 0);
     assert.equal(body.counts[1].participantCount, 2);
+    assert.equal(body.counts[0].recentParticipantCount, 0);
+    assert.equal(body.counts[0].dormantParticipantCount, 0);
+    assert.equal(body.counts[1].recentParticipantCount, 1);
+    assert.equal(body.counts[1].dormantParticipantCount, 1);
+    assert.equal(body.asOf, "2026-09-27T10:00:00Z");
+    assert.equal(body.recentSeconds, 86400);
     assert.equal(body.counts.some((row) => ["item-000", "item-003", "item-004", "item-005", "item-204"].includes(row.itemId)), false);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");

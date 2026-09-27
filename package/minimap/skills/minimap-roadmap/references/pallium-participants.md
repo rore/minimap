@@ -27,6 +27,10 @@ Both encoded parts use NFC Unicode and RFC 3986 percent encoding. Minimap is the
 
 ## Attach and detach
 
+The board's Recent and quieter Dormant badges classify attached, nonclosed sessions under Pallium's inclusive 24-hour session last-seen window—not work on this feature, staffing, or completion. Total equals Recent plus Dormant; aliases and destination health do not classify recency. Legacy total-only batches leave classification unsupported rather than all-Recent, without N+1 fallback. Detail is a separate observation, not a shared board snapshot.
+
+Use existing linked Pallium session controls for explicit association cleanup; Minimap performs no administration. Explicit detach removes only that origin, while structural origins require producer refresh. Close releases the alias and excludes the session from default participant reads but retains associations. Detach does not relabel captured History. Associations do not backfill earlier turns or guarantee historical participation, access, or coverage: per-turn lookup must succeed and History has a five-reference capture cap.
+
 - Read the authoritative item file, then derive its exact reference with the command above.
 - Call `pallium_relay_work_refs` before attaching. Reuse an existing association with the same `scope_ref` and `local_ref`; otherwise call `pallium_relay_attach_work_ref` with that exact pair.
 - If attach reports a capacity limit, do not detach or replace another association silently. Continue without the new association and report the result when it matters.

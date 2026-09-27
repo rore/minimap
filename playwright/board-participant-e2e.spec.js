@@ -19,7 +19,7 @@ async function freePort() {
 }
 
 function runScript(script, env, readyPort = null) {
-  const child = spawn(process.execPath, [script], { cwd: projectRoot, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [script], { cwd: projectRoot, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   return new Promise((resolve, reject) => {
     const timer = readyPort === null ? null : setTimeout(() => reject(new Error(`Minimap did not start. ${output}`)), 8000);
@@ -69,8 +69,8 @@ async function makeRepo() {
     `---\nid: ${id}\ntitle: ${id}\nstatus: ${status}\npriority: medium\ncommitment: committed\n---\n\n## Summary\n${id} fixture.\n`,
     "utf8",
   )));
-  execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
-  execFileSync("git", ["remote", "add", "origin", "https://github.com/example/board-e2e.git"], { cwd: root, stdio: "ignore" });
+  execFileSync("git", ["init", "-q"], { cwd: root, windowsHide: true, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", "https://github.com/example/board-e2e.git"], { cwd: root, windowsHide: true, stdio: "ignore" });
   return root;
 }
 
@@ -96,7 +96,11 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
         ...reference,
         participant_count: reference.local_ref === "item:v1:active-item" ? 2
           : reference.local_ref === "item:v1:completed-item" ? 1 : 0,
+        recent_participant_count: reference.local_ref === "item:v1:active-item" || reference.local_ref === "item:v1:completed-item" ? 1 : 0,
+        dormant_participant_count: reference.local_ref === "item:v1:active-item" ? 1 : 0,
       })),
+      as_of: "2026-09-27T00:00:00Z",
+      recent_seconds: 86400,
     }));
   });
 
@@ -123,8 +127,8 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     const localResult = await response.json();
     expect(localResult.status).toBe("ok");
     expect(localResult.counts).toEqual([
-      { itemId: "active-item", participantCount: 2 },
-      { itemId: "zero-item", participantCount: 0 },
+      { itemId: "active-item", participantCount: 2, recentParticipantCount: 1, dormantParticipantCount: 1 },
+      { itemId: "zero-item", participantCount: 0, recentParticipantCount: 0, dormantParticipantCount: 0 },
     ]);
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ method: "POST", url: "/relay/work-refs/participant-counts" });
@@ -134,13 +138,13 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     ] });
 
     const listActive = page.locator('.board-item[data-item-id="active-item"]');
-    await expect(listActive.locator(".board-item-participants:visible")).toHaveText("2 attached");
+    await expect(listActive.locator(".board-item-participants:visible")).toHaveText(["Recent 1", "Dormant 1"]);
     await expect(page.locator('.board-item[data-item-id="zero-item"] .board-item-participants:visible')).toHaveCount(0);
     await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveCount(0);
 
     await page.locator("#board-layout-columns").click();
     const columnActive = page.locator('.board-column-card-main[data-item-dblopen="active-item"]');
-    await expect(columnActive.locator(".board-item-participants:visible")).toHaveText("2 attached");
+    await expect(columnActive.locator(".board-item-participants:visible")).toHaveText(["Recent 1", "Dormant 1"]);
     await expect(page.locator('.board-column-card-main[data-item-dblopen="zero-item"] .board-item-participants:visible')).toHaveCount(0);
     await expect(page.locator('.board-column-card-main[data-item-dblopen="completed-item"] .board-item-participants:visible')).toHaveCount(0);
     expect(writes).toEqual([]);
@@ -160,7 +164,7 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     expect(requests[1].body.references.map((reference) => reference.local_ref)).toEqual([
       "item:v1:active-item", "item:v1:zero-item", "item:v1:completed-item",
     ]);
-    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("1 attached");
+    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("Recent 1");
 
     await page.locator('.board-item[data-item-id="active-item"]').click();
     await page.locator("#tab-structured").click();
@@ -172,7 +176,7 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
       "item:v1:zero-item", "item:v1:completed-item",
     ]);
     await expect(page.locator('.board-item[data-item-id="active-item"] .board-item-participants:visible')).toHaveCount(0);
-    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("1 attached");
+    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("Recent 1");
   } finally {
     if (appEnv) await runScript(stopScript, appEnv).catch((error) => { throw error; });
     await new Promise((resolve) => pallium.close(resolve));

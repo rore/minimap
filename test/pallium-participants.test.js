@@ -23,6 +23,7 @@ import {
 } from "../package/minimap/src/server-registry.js";
 
 const WORK_REF = "work:v1:" + "a".repeat(64);
+const RECENCY = { as_of: "2026-09-12T10:00:00Z", recent_seconds: 86400 };
 
 const reference = {
   contract: "minimap-roadmap-item/v1",
@@ -404,9 +405,10 @@ test("board participant counts use one exact POST and preserve request order inc
       assert.deepEqual(JSON.parse(init.body), { references: refs.map(({ scope_ref, local_ref }) => ({ scope_ref, local_ref })) });
       return Response.json({
         contract: "relay-work-ref-counts/v1",
+        ...RECENCY,
         counts: [
-          { scope_ref: refs[0].scope_ref, local_ref: refs[0].local_ref, participant_count: 0 },
-          { scope_ref: refs[1].scope_ref, local_ref: refs[1].local_ref, participant_count: 2 },
+          { scope_ref: refs[0].scope_ref, local_ref: refs[0].local_ref, participant_count: 0, recent_participant_count: 0, dormant_participant_count: 0 },
+          { scope_ref: refs[1].scope_ref, local_ref: refs[1].local_ref, participant_count: 2, recent_participant_count: 1, dormant_participant_count: 1 },
         ],
       });
     },
@@ -415,10 +417,12 @@ test("board participant counts use one exact POST and preserve request order inc
   assert.deepEqual(result, {
     status: "ok",
     counts: [
-      { scope_ref: refs[0].scope_ref, local_ref: refs[0].local_ref, participant_count: 0 },
-      { scope_ref: refs[1].scope_ref, local_ref: refs[1].local_ref, participant_count: 2 },
+      { scope_ref: refs[0].scope_ref, local_ref: refs[0].local_ref, participant_count: 0, recent_participant_count: 0, dormant_participant_count: 0 },
+      { scope_ref: refs[1].scope_ref, local_ref: refs[1].local_ref, participant_count: 2, recent_participant_count: 1, dormant_participant_count: 1 },
     ],
     partial: false,
+    asOf: RECENCY.as_of,
+    recentSeconds: 86400,
   });
 });
 
@@ -430,7 +434,8 @@ test("board count accepts a valid 200-row response larger than 64KB within the b
   }));
   const json = JSON.stringify({
     contract: "relay-work-ref-counts/v1",
-    counts: refs.map((reference) => ({ ...reference, participant_count: 1 })),
+    ...RECENCY,
+    counts: refs.map((reference) => ({ ...reference, participant_count: 1, recent_participant_count: 1, dormant_participant_count: 0 })),
   });
   assert.ok(Buffer.byteLength(json) > 64 * 1024);
   assert.ok(Buffer.byteLength(json) < 256 * 1024);
@@ -468,6 +473,79 @@ test("board counts fail closed for duplicate, over-limit, malformed, reordered, 
     assert.equal(result.status, "invalid-response");
     assert.deepEqual(result.counts, []);
   }
+});
+
+test("recency split is upstream-owned and legacy counts have no detail fallback", async () => {
+  const config = parsePalliumConfig("http://127.0.0.1:19836");
+  for (const [recent, dormant] of [[2, 0], [0, 2], [1, 1]]) {
+    const result = await lookupPalliumParticipantCounts(config, [reference], {
+      fetchImpl: async () => Response.json({ contract: "relay-work-ref-counts/v1", ...RECENCY, counts: [{
+        ...reference, participant_count: 2, recent_participant_count: recent, dormant_participant_count: dormant,
+      }] }),
+    });
+    assert.equal(result.status, "ok");
+    assert.equal(result.counts[0].recent_participant_count, recent);
+    assert.equal(result.counts[0].dormant_participant_count, dormant);
+  }
+  let calls = 0;
+  const legacy = await lookupPalliumParticipantCounts(config, [reference], {
+    fetchImpl: async (url) => {
+      calls += 1;
+      assert.equal(new URL(url).pathname, "/relay/work-refs/participant-counts");
+      return Response.json({ contract: "relay-work-ref-counts/v1", counts: [{ ...reference, participant_count: 2 }] });
+    },
+  });
+  assert.equal(legacy.status, "unsupported");
+  assert.deepEqual(legacy.counts, []);
+  assert.equal(calls, 1);
+});
+
+test("partial or invalid recency metadata and counts fail closed", async () => {
+  const row = { ...reference, participant_count: 2, recent_participant_count: 1, dormant_participant_count: 1 };
+  const valid = { contract: "relay-work-ref-counts/v1", ...RECENCY, counts: [row] };
+  const payloads = [
+    { ...valid, as_of: undefined }, { ...valid, recent_seconds: undefined },
+    ...["yesterday", "2026-02-30T10:00:00Z", "2026-09-12T10:00:00+01:00", null].map((as_of) => ({ ...valid, as_of })),
+    ...[0, 86401, "86400", null].map((recent_seconds) => ({ ...valid, recent_seconds })),
+    ...[
+      { participant_count: 3 }, { recent_participant_count: -1 }, { dormant_participant_count: -1 },
+      { recent_participant_count: undefined }, { dormant_participant_count: undefined },
+      { recent_participant_count: 0.5 }, { dormant_participant_count: Number.MAX_SAFE_INTEGER + 1 },
+      { recent_participant_count: undefined, dormant_participant_count: undefined },
+    ].map((overrides) => ({ ...valid, counts: [{ ...row, ...overrides }] })),
+  ];
+  for (const payload of payloads) {
+    let calls = 0;
+    const result = await lookupPalliumParticipantCounts(parsePalliumConfig("http://127.0.0.1:19836"), [reference], {
+      fetchImpl: async () => { calls += 1; return Response.json(payload); },
+    });
+    assert.equal(result.status, "invalid-response");
+    assert.deepEqual(result.counts, []);
+    assert.equal(calls, 1);
+  }
+});
+
+test("detail metadata is optional and does not claim a multi-page snapshot", async () => {
+  const config = parsePalliumConfig("http://127.0.0.1:19836");
+  const old = await lookupPalliumParticipants(config, reference, { fetchImpl: async () => page(0, []) });
+  assert.equal(old.status, "ok");
+  assert.equal(Object.hasOwn(old, "asOf"), false);
+  const current = await lookupPalliumParticipants(config, reference, { fetchImpl: async () => page(0, [participant()], RECENCY) });
+  assert.equal(current.asOf, RECENCY.as_of);
+  assert.equal(current.recentSeconds, 86400);
+  for (const overrides of [{ as_of: RECENCY.as_of }, { recent_seconds: 86400 }, { ...RECENCY, as_of: "bad" }, { ...RECENCY, recent_seconds: 1 }]) {
+    assert.equal((await lookupPalliumParticipants(config, reference, { fetchImpl: async () => page(0, [], overrides) })).status, "invalid-response");
+  }
+  const multiple = await lookupPalliumParticipants(config, reference, {
+    fetchImpl: async (url) => {
+      const offset = Number(new URL(url).searchParams.get("offset"));
+      return page(offset, offset ? [] : Array.from({ length: 50 }, (_, index) => participant(index)), {
+        ...RECENCY, as_of: offset ? "2026-09-12T10:01:00Z" : RECENCY.as_of,
+      });
+    },
+  });
+  assert.equal(multiple.status, "ok");
+  assert.equal(Object.hasOwn(multiple, "asOf"), false);
 });
 
 test("board count lookup does not post when its caller signal was aborted before identity resolution finished", async () => {
