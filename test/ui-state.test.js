@@ -9,6 +9,7 @@ test("createState returns initial state with default appMode and empty repoPath"
   assert.equal(v.repoPath, "");
   assert.equal(v.activeLens, "board");
   assert.equal(v.boardLayout, "list");
+  assert.equal(v.inPlay, false);
 });
 
 test("createState returns initial spec subtree with default review tab", () => {
@@ -21,10 +22,11 @@ test("createState returns initial spec subtree with default review tab", () => {
 });
 
 test("initialOverrides shallow-merge into the top level", () => {
-  const s = createState({ scopeCollapsed: true, scopeWidth: 320 });
+  const s = createState({ scopeCollapsed: true, scopeWidth: 320, inPlay: true });
   const v = s.get();
   assert.equal(v.scopeCollapsed, true);
   assert.equal(v.scopeWidth, 320);
+  assert.equal(v.inPlay, true);
   assert.equal(v.appMode, "roadmap"); // not overridden
 });
 

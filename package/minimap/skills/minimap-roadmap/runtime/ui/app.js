@@ -180,6 +180,7 @@ let boardParticipantStatus = "idle";
 let boardParticipantPartial = false;
 let boardParticipantGeneration = 0;
 let boardParticipantController = null;
+let boardParticipantIncludeCompleted = null;
 let workspaceLoadGeneration = 0;
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
@@ -243,6 +244,7 @@ const boardLayoutListButton = document.querySelector("#board-layout-list");
 const boardLayoutColumnsButton = document.querySelector("#board-layout-columns");
 const boardFocusMilestoneSelect = document.querySelector("#board-focus-milestone");
 const boardFocusUnfinishedButton = document.querySelector("#board-focus-unfinished");
+const boardFocusInPlayButton = document.querySelector("#board-focus-in-play");
 const boardParticipantStatusElement = document.querySelector("#board-participant-status");
 const boardFilterToggleButton = document.querySelector("#board-filter-toggle");
 const boardClearFiltersButton = document.querySelector("#board-clear-filters");
@@ -714,16 +716,16 @@ function serializeRouteFilters(params, filters) {
 }
 
 function isSearchActive() {
-  return Boolean(state.searchQuery) || Object.keys(state.activeFilters).length > 0;
+  return state.inPlay || Boolean(state.searchQuery) || Object.keys(state.activeFilters).length > 0;
 }
 
 function itemMatchesCurrentFilters(itemId, workspace = state.workspace) {
   const item = getBoardItemById(itemId, workspace);
-  return itemMatchesFilters(item, { searchQuery: state.searchQuery, activeFilters: state.activeFilters });
+  return itemMatchesFilters(item, { searchQuery: state.searchQuery, activeFilters: state.activeFilters, inPlay: state.inPlay, participantCounts: boardParticipantCounts });
 }
 
 function getFilteredBoardItemIds(workspace = state.workspace) {
-  return filterBoardItemIds(workspace, { searchQuery: state.searchQuery, activeFilters: state.activeFilters });
+  return filterBoardItemIds(workspace, { searchQuery: state.searchQuery, activeFilters: state.activeFilters, inPlay: state.inPlay, participantCounts: boardParticipantCounts });
 }
 
 function getVisibleBoardGroups(workspace = state.workspace) {
@@ -747,6 +749,8 @@ function getVisibleBoardGroups(workspace = state.workspace) {
   return buildDerivedVisibleGroups(workspace, activeLens, {
     searchQuery: state.searchQuery,
     activeFilters: state.activeFilters,
+    inPlay: state.inPlay,
+    participantCounts: boardParticipantCounts,
     defaultLensKey: DEFAULT_LENS_KEY,
     unassignedKey: UNASSIGNED_GROUP_KEY,
     unassignedLabel: UNASSIGNED_GROUP_LABEL,
@@ -1161,6 +1165,7 @@ function readRouteState() {
     lensSpecified: params.has("lens"),
     layout: normalizeBoardLayout(params.get("layout") || DEFAULT_BOARD_LAYOUT),
     query: normalizeSearchQuery(params.get("q") || ""),
+    inPlay: params.get("inPlay") === "1",
     filters: parseRouteFilters(params),
     repo: params.get("repo") || "",
   };
@@ -1207,6 +1212,7 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
   }
 
   serializeRouteFilters(params, state.activeFilters);
+  if (state.inPlay) params.set("inPlay", "1");
 
   const serialized = params.toString();
   return serialized ? `#${serialized}` : "";
@@ -1419,10 +1425,27 @@ function isUnfinishedFocused() {
   return values.length > 0 && values.length === selected.length && values.every((value) => selected.includes(value));
 }
 
+function boardPresenceIncludesCompleted() {
+  const statuses = state.activeFilters.status || [];
+  return state.inPlay && (statuses.length === 0 || statuses.some((status) => FINISHED_STATUSES.has(status.trim().toLowerCase())));
+}
+
+function boardInPlayResultsIncomplete() {
+  return state.inPlay && (boardParticipantStatus !== "ok" || boardParticipantPartial
+    || boardParticipantIncludeCompleted !== boardPresenceIncludesCompleted());
+}
+
 function renderBoardParticipantStatus() {
   if (!boardParticipantStatusElement) return;
   const status = boardParticipantStatus;
-  const message = status === "loading" ? "Updating session badges…"
+  const incomplete = boardInPlayResultsIncomplete();
+  const message = incomplete ? `In play results incomplete: ${status === "loading" || status === "idle" ? "checking attached sessions…"
+    : status === "ok" && boardParticipantPartial ? "session counts limited to 200 items"
+    : status === "disabled" ? "session lookup disabled"
+    : status === "unsupported" ? "session lookup needs a newer Pallium"
+    : status === "server-unsupported" ? "completed session lookup needs a newer Minimap"
+    : "session lookup unavailable"}`
+    : status === "loading" ? "Updating session badges…"
     : status === "ok" && boardParticipantPartial ? "Session badges limited to 200 items"
     : status === "unsupported" ? "Participant recency needs a newer Pallium"
     : ["disabled", "idle", "ok"].includes(status) ? ""
@@ -1430,6 +1453,7 @@ function renderBoardParticipantStatus() {
   boardParticipantStatusElement.hidden = !message || state.appMode !== "roadmap" || !state.workspace;
   boardParticipantStatusElement.textContent = message;
   boardParticipantStatusElement.title = message;
+  boardParticipantStatusElement.classList.toggle("is-incomplete", incomplete);
 }
 
 function renderSearchControls() {
@@ -1451,6 +1475,9 @@ function renderSearchControls() {
   boardFocusUnfinishedButton.disabled = getUnfinishedStatusValues().length === 0 || state.boardEditMode;
   boardFocusUnfinishedButton.setAttribute("aria-pressed", isUnfinishedFocused() ? "true" : "false");
   boardFocusUnfinishedButton.classList.toggle("is-active", isUnfinishedFocused());
+  boardFocusInPlayButton.disabled = !state.workspace || state.boardEditMode;
+  boardFocusInPlayButton.setAttribute("aria-pressed", state.inPlay ? "true" : "false");
+  boardFocusInPlayButton.classList.toggle("is-active", state.inPlay);
 
   boardSearchInput.value = state.searchQuery;
   boardSearchInput.disabled = !state.workspace || state.boardEditMode;
@@ -1606,14 +1633,15 @@ function renderEditorChrome() {
   }
 }
 
-function syncWorkspaceChrome() {
+function syncWorkspaceChrome({ preserveBoardControls = false } = {}) {
   const setupMode = isSetupMode();
   document.body.dataset.setupMode = String(setupMode);
   layoutElement.dataset.setupMode = String(setupMode);
   layoutElement.dataset.boardLayout = normalizeBoardLayout(state.boardLayout);
   updateDocumentTitle();
   updateWorkspaceSummary();
-  renderBoardChrome();
+  if (preserveBoardControls) renderBoardParticipantStatus();
+  else renderBoardChrome();
   renderScopeChrome();
   renderEditorChrome();
   renderEditorPresentation();
@@ -2158,7 +2186,7 @@ function clearBoardDragState() {
 }
 
 function buildBoardParticipantBadge(item) {
-  if (FINISHED_STATUSES.has(String(getBadgeMetadata(item).status || "").trim().toLowerCase())) return "";
+  if (!state.inPlay && FINISHED_STATUSES.has(String(getBadgeMetadata(item).status || "").trim().toLowerCase())) return "";
   const counts = boardParticipantCounts.get(item.id);
   if (!counts) return "";
   return buildParticipantRecencyBadges(counts.recentParticipantCount, counts.dormantParticipantCount);
@@ -2540,7 +2568,7 @@ function renderBoardColumnsMode() {
   if (visibleGroups.length === 0) {
     boardGroupsElement.innerHTML = `
       <div class="empty-state">
-        <div>No roadmap items match the current view.</div>
+        <div>${boardInPlayResultsIncomplete() ? "No confirmed roadmap items match yet; In play results are incomplete." : "No roadmap items match the current view."}</div>
         <div class="board-empty-hint">Clear the query or filters to see the full board again.</div>
       </div>
     `;
@@ -2836,7 +2864,7 @@ function renderBoardReadMode() {
   if (visibleGroups.length === 0) {
     boardGroupsElement.innerHTML = `
       <div class="empty-state">
-        <div>No roadmap items match the current view.</div>
+        <div>${boardInPlayResultsIncomplete() ? "No confirmed roadmap items match yet; In play results are incomplete." : "No roadmap items match the current view."}</div>
         <div class="board-empty-hint">Clear the query or filters to see the full board again.</div>
       </div>
     `;
@@ -4192,14 +4220,22 @@ function resetAncillaryEditModes() {
 }
 
 async function syncVisibleSelection(options = {}) {
+  if (options.refreshPresence !== false && boardParticipantIncludeCompleted !== boardPresenceIncludesCompleted()) void refreshBoardPresence();
   const visibleItemIds = getVisibleBoardItemIds();
   const preferredItemId = options.preferredItemId || "";
+  const pendingPresenceItemId = state.inPlay && ["idle", "loading"].includes(boardParticipantStatus)
+    && preferredItemId && state.workspace?.items?.[preferredItemId] ? preferredItemId : "";
   const useOverlay = shouldUseEditorOverlay();
 
-  syncWorkspaceChrome();
+  syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
   renderBoard();
 
-  if (visibleItemIds.length === 0) {
+  if (options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges()) {
+    if (options.syncRoute !== false) syncRouteState({ replace: options.replaceRoute !== false });
+    return;
+  }
+
+  if (visibleItemIds.length === 0 && !pendingPresenceItemId) {
     resetEditor();
     if (options.syncRoute !== false) {
       syncRouteState({ replace: options.replaceRoute !== false });
@@ -4207,17 +4243,17 @@ async function syncVisibleSelection(options = {}) {
     return;
   }
 
-  const nextItemId = [preferredItemId, state.selectedItemId, visibleItemIds[0]].find((itemId) => itemId && visibleItemIds.includes(itemId)) || visibleItemIds[0];
+  const nextItemId = [preferredItemId, state.selectedItemId, visibleItemIds[0]].find((itemId) => itemId && (itemId === pendingPresenceItemId || visibleItemIds.includes(itemId))) || visibleItemIds[0];
   const shouldShowItem = !useOverlay || state.editorOverlayOpen || Boolean(preferredItemId) || options.forceReloadItem === true;
 
   if (!shouldShowItem) {
     if (useOverlay) {
       resetEditor();
-      syncWorkspaceChrome();
+      syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
       renderBoard();
     } else if (state.selectedItemId && !visibleItemIds.includes(state.selectedItemId)) {
       resetEditor();
-      syncWorkspaceChrome();
+      syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
       renderBoard();
     }
 
@@ -4233,13 +4269,15 @@ async function syncVisibleSelection(options = {}) {
       syncRoute: options.syncRoute,
       replaceRoute: options.replaceRoute === true,
       openOverlay: useOverlay,
+      preserveDirtyItem: options.preserveDirtyItem,
+      preserveBoardControls: options.preserveBoardControls,
     });
     return;
   }
 
   if (useOverlay) {
     state.editorOverlayOpen = true;
-    syncWorkspaceChrome();
+    syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
     renderBoard();
   }
 
@@ -4272,6 +4310,7 @@ async function applyRouteStateFromLocation() {
   state.boardLayout = normalizeBoardLayout(route.layout);
   state.editorOverlayOpen = route.layout === "columns" && Boolean(route.itemId);
   state.searchQuery = route.query;
+  state.inPlay = route.inPlay;
   state.activeFilters = route.filters;
   state.filtersExpanded = Object.keys(route.filters).length > 0;
 
@@ -4312,11 +4351,12 @@ function boardPresenceIsVisible() {
     && state.dragColumnIndex === null;
 }
 
-function invalidateBoardPresence() {
+function invalidateBoardPresence({ keepCounts = false } = {}) {
   boardParticipantController?.abort();
   boardParticipantController = null;
   boardParticipantGeneration += 1;
-  boardParticipantCounts = new Map();
+  if (!keepCounts) boardParticipantCounts = new Map();
+  boardParticipantIncludeCompleted = null;
   boardParticipantStatus = "idle";
   boardParticipantPartial = false;
   renderBoardParticipantStatus();
@@ -4324,7 +4364,15 @@ function invalidateBoardPresence() {
 }
 
 async function refreshBoardPresence() {
-  if (!boardPresenceIsVisible() || boardParticipantController) return;
+  if (!boardPresenceIsVisible()) return;
+  const includeCompleted = boardPresenceIncludesCompleted();
+  if (boardParticipantIncludeCompleted !== includeCompleted) {
+    invalidateBoardPresence({ keepCounts: true });
+    boardParticipantIncludeCompleted = includeCompleted;
+    boardParticipantStatus = "loading";
+    renderBoardParticipantStatus();
+  }
+  if (boardParticipantController) return;
   const controller = new AbortController();
   const generation = boardParticipantGeneration;
   const repoPath = state.repoPath;
@@ -4335,7 +4383,10 @@ async function refreshBoardPresence() {
   }
   try {
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]);
-    const result = await api.readBoardParticipantCounts({ signal });
+    let result = await api.readBoardParticipantCounts({ signal, includeCompleted });
+    if (includeCompleted && result.status === "ok" && result.includeCompleted !== true) {
+      result = { status: "server-unsupported", counts: [] };
+    }
     if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || !boardPresenceIsVisible()) return;
     if (result.status === "ok") {
       if (!Array.isArray(result.counts) || result.counts.length > 200
@@ -4355,17 +4406,40 @@ async function refreshBoardPresence() {
     }
     boardParticipantStatus = result.status;
     boardParticipantPartial = result.status === "ok" && result.partial === true;
-    syncBoardParticipantBadges();
+    await syncBoardPresenceView();
     renderBoardParticipantStatus();
   } catch (error) {
     if (controller.signal.aborted || generation !== boardParticipantGeneration || repoPath !== state.repoPath) return;
     boardParticipantCounts = new Map();
     boardParticipantStatus = "unavailable";
     boardParticipantPartial = false;
-    syncBoardParticipantBadges();
+    await syncBoardPresenceView();
     renderBoardParticipantStatus();
   } finally {
     if (boardParticipantController === controller) boardParticipantController = null;
+  }
+}
+
+async function syncBoardPresenceView() {
+  if (!state.inPlay) {
+    syncBoardParticipantBadges();
+    return;
+  }
+  const scrollLeft = captureColumnScrollState();
+  const scrollTop = boardGroupsElement.scrollTop;
+  const focused = document.activeElement;
+  const focusedCard = focused?.closest(".board-item[data-item-id], .board-column-card-main[data-item-dblopen]");
+  const focusedItemId = focusedCard?.dataset.itemId || focusedCard?.dataset.itemDblopen;
+  const focusedOpenItemId = focused?.getAttribute("data-item-open");
+  const focusedGroup = focused?.getAttribute("data-group-toggle");
+  await syncVisibleSelection({ replaceRoute: true, preserveDirtyItem: true, preserveBoardControls: true });
+  restoreColumnScrollState(scrollLeft);
+  boardGroupsElement.scrollTop = scrollTop;
+  if (focused && !focused.isConnected) {
+    const selector = focusedOpenItemId ? `[data-item-open="${CSS.escape(focusedOpenItemId)}"]`
+      : focusedItemId ? `.board-item[data-item-id="${CSS.escape(focusedItemId)}"], .board-column-card-main[data-item-dblopen="${CSS.escape(focusedItemId)}"]`
+      : focusedGroup ? `[data-group-toggle="${CSS.escape(focusedGroup)}"]` : "";
+    if (selector) boardGroupsElement.querySelector(selector)?.focus({ preventScroll: true });
   }
 }
 
@@ -4400,6 +4474,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       syncRoute: options.syncRoute,
       replaceRoute: options.replaceRoute,
       forceReloadItem: options.forceReloadItem === true || Boolean(preferredItemId),
+      refreshPresence: false,
     });
     if (generation === workspaceLoadGeneration && repoPath === state.repoPath) void refreshBoardPresence();
   } catch (error) {
@@ -4426,6 +4501,8 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
 }
 
 async function loadItem(itemId, rerenderBoard = true, options = {}) {
+  const previousItem = state.currentItem;
+  const previousItemId = state.selectedItemId;
   if (options.mode) {
     state.editorMode = normalizeEditorMode(options.mode);
   }
@@ -4437,10 +4514,11 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   try {
     const item = await api.readItem(itemId, { signal: intent.controller.signal });
     if (!itemIntentIsCurrent(intent) || intent.controller.signal.aborted) return;
+    if (options.preserveDirtyItem && (state.currentItem !== previousItem || state.selectedItemId !== previousItemId || hasUnsavedCurrentItemChanges())) return;
     state.selectedItemId = itemId;
     renderItem(item);
     applyEditorMode();
-    syncWorkspaceChrome();
+    syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
     if (rerenderBoard) {
       renderBoard();
     }
@@ -5483,6 +5561,12 @@ boardFocusUnfinishedButton.addEventListener("click", () => {
   void syncVisibleSelection({ replaceRoute: true });
 });
 
+boardFocusInPlayButton.addEventListener("click", () => {
+  if (!state.workspace || state.boardEditMode) return;
+  state.inPlay = !state.inPlay;
+  void syncVisibleSelection({ replaceRoute: true, preserveDirtyItem: true });
+});
+
 boardFilterToggleButton.addEventListener("click", () => {
   if (!state.workspace?.availableFilters?.length || state.boardEditMode) {
     return;
@@ -5497,6 +5581,7 @@ boardFilterToggleButton.addEventListener("click", () => {
 
 boardClearFiltersButton.addEventListener("click", () => {
   state.searchQuery = "";
+  state.inPlay = false;
   state.activeFilters = {};
   state.filtersExpanded = false;
   void syncVisibleSelection({ replaceRoute: true });
@@ -5626,6 +5711,7 @@ state.lensExplicit = initialRoute.lensSpecified;
 state.boardLayout = initialRoute.layout;
 state.editorMode = initialRoute.mode;
 state.searchQuery = initialRoute.query;
+state.inPlay = initialRoute.inPlay;
 state.activeFilters = initialRoute.filters;
 state.filtersExpanded = Object.keys(initialRoute.filters).length > 0;
 renderScopeChrome();
@@ -5641,7 +5727,7 @@ void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state
     return;
   }
 
-  if (initialRoute.itemId || initialRoute.mode !== "preview" || initialRoute.lensSpecified || initialRoute.layout !== DEFAULT_BOARD_LAYOUT || initialRoute.query || Object.keys(initialRoute.filters).length > 0) {
+  if (initialRoute.itemId || initialRoute.mode !== "preview" || initialRoute.lensSpecified || initialRoute.layout !== DEFAULT_BOARD_LAYOUT || initialRoute.query || initialRoute.inPlay || Object.keys(initialRoute.filters).length > 0) {
     void applyRouteStateFromLocation();
     return;
   }

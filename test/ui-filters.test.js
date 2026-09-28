@@ -48,6 +48,37 @@ test("itemMatchesFilters: returns false for null item", () => {
   assert.equal(itemMatchesFilters(null, {}), false);
 });
 
+test("In play matches exact normalized in-progress or a confirmed attached participant total", () => {
+  const participantCounts = new Map([
+    ["dormant", { participantCount: 2, recentParticipantCount: 0, dormantParticipantCount: 2 }],
+    ["zero", { participantCount: 0 }],
+    ["recent-only", { recentParticipantCount: 2 }],
+    ["invalid", { participantCount: "2" }],
+  ]);
+  const ctx = { inPlay: true, participantCounts };
+  assert.equal(itemMatchesFilters({ id: "progress", metadata: { status: " IN-PROGRESS " } }, ctx), true);
+  assert.equal(itemMatchesFilters({ id: "fallback", status: "in-progress" }, ctx), true);
+  assert.equal(itemMatchesFilters({ id: "dormant", metadata: { status: "done" } }, ctx), true);
+  for (const status of ["active", "in progress", "blocked", "queued", "done", "shipped", "superseded", "cancelled", "canceled"]) {
+    assert.equal(itemMatchesFilters({ id: "missing", metadata: { status } }, ctx), false, status);
+  }
+  for (const id of ["zero", "missing", "recent-only", "invalid"]) {
+    assert.equal(itemMatchesFilters({ id, metadata: { status: "queued" } }, ctx), false, id);
+  }
+  assert.equal(itemMatchesFilters({ id: "progress", metadata: { status: "in-progress" } }, { inPlay: true }), true);
+});
+
+test("In play composes with search and all metadata filters using AND", () => {
+  const item = { id: "a", searchText: "alpha release", metadata: { status: "queued", milestone: "v1" } };
+  const ctx = { inPlay: true, participantCounts: new Map([["a", { participantCount: 1 }]]), searchQuery: "alpha", activeFilters: { status: ["queued"], milestone: ["v1"] } };
+  assert.equal(itemMatchesFilters(item, ctx), true);
+  assert.equal(itemMatchesFilters(item, { ...ctx, searchQuery: "missing" }), false);
+  assert.equal(itemMatchesFilters(item, { ...ctx, activeFilters: { status: ["in-progress"] } }), false);
+  assert.equal(itemMatchesFilters(item, { ...ctx, activeFilters: { milestone: ["v2"] } }), false);
+  assert.equal(itemMatchesFilters(item, { ...ctx, participantCounts: new Map() }), false);
+  assert.equal(itemMatchesFilters(item, { ...ctx, inPlay: false, participantCounts: new Map() }), true);
+});
+
 test("filterBoardItemIds: with no filters returns all non-missing ids in board order", () => {
   const workspace = {
     boardGroups: [
@@ -131,6 +162,25 @@ test("buildDerivedVisibleGroups: empty preferred values still groups by encounte
   );
   assert.equal(groups.length, 1);
   assert.equal(groups[0].name, "queued");
+});
+
+test("In play filters board order and derived groups without empty or missing groups", () => {
+  const workspace = {
+    boardGroups: [{ name: "G1", items: [{ id: "queued" }, { id: "done" }, { id: "missing", missing: true }] }, { name: "G2", items: [{ id: "progress" }, { id: "unassigned" }] }],
+    items: {
+      queued: { id: "queued", metadata: { status: "queued", milestone: "v1" } },
+      done: { id: "done", metadata: { status: "done", milestone: "v2" } },
+      progress: { id: "progress", metadata: { status: "in-progress", milestone: "v1" } },
+      unassigned: { id: "unassigned", metadata: { status: "queued" } },
+    },
+  };
+  const ctx = { inPlay: true, participantCounts: new Map([["done", { participantCount: 1 }], ["unassigned", { participantCount: 2 }]]) };
+  assert.deepEqual(filterBoardItemIds(workspace, ctx), ["done", "progress", "unassigned"]);
+  const groups = buildDerivedVisibleGroups(workspace, { key: "milestone", values: ["v2", "empty", "v1"], draggable: true }, {
+    ...ctx, defaultLensKey: "board", unassignedKey: "__u__", unassignedLabel: "Unassigned", showEmptyGroups: true,
+  });
+  assert.deepEqual(groups.map((group) => [group.name, group.items.map((item) => item.id)]), [["v2", ["done"]], ["v1", ["progress"]], ["Unassigned", ["unassigned"]]]);
+  assert.deepEqual(filterBoardItemIds(workspace, { ...ctx, activeFilters: { status: ["queued", "in-progress"] } }), ["progress", "unassigned"]);
 });
 
 test("buildDerivedVisibleGroups: showEmptyGroups keeps preferred values with no items", () => {
