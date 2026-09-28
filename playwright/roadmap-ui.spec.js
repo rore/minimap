@@ -1335,26 +1335,90 @@ test("status columns keep configured empty lanes visible in columns mode", async
   }
 });
 test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
-  await page.setViewportSize({ width: 1180, height: 1100 });
+  await page.setViewportSize({ width: 1697, height: 1100 });
+  await page.route(/\/api\/board\/participant-counts$/, (route) => route.fulfill({
+    json: { status: "unreachable", counts: [], partial: false, asOf: null, recentSeconds: 86400 },
+  }));
   await page.goto(repoUrl());
+  await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
+  await page.locator("#board-focus-unfinished").click();
+  await expect(page.locator("#board-filter-toggle")).toHaveText("Filters (1)");
+  await expect(page.locator("#board-participant-status")).toHaveText("Session badges unavailable");
 
-  const modeRow = page.locator(".board-mode-row");
-  const groupBy = page.locator("#board-view-toggle");
-  const layoutControls = page.locator("#board-layout-controls");
-  const searchRow = page.locator(".board-toolbar-row");
-
-  const modeRowBox = await modeRow.boundingBox();
-  const groupByBox = await groupBy.boundingBox();
-  const layoutBox = await layoutControls.boundingBox();
-  const searchRowBox = await searchRow.boundingBox();
-
-  expect(modeRowBox).not.toBeNull();
-  expect(groupByBox).not.toBeNull();
-  expect(layoutBox).not.toBeNull();
-  expect(searchRowBox).not.toBeNull();
+  const toolbar = page.locator(".board-toolbar-row");
+  const modeRowBox = await page.locator(".board-mode-row").boundingBox();
+  const groupByBox = await page.locator("#board-view-toggle").boundingBox();
+  const layoutBox = await page.locator("#board-layout-controls").boundingBox();
   expect(modeRowBox.height).toBeLessThan(52);
   expect(layoutBox.x).toBeGreaterThan(groupByBox.x + groupByBox.width - 4);
-  expect(searchRowBox.y).toBeGreaterThan(modeRowBox.y + modeRowBox.height - 2);
+  expect((await toolbar.boundingBox()).y).toBeGreaterThan(modeRowBox.y + modeRowBox.height - 2);
+  const controlSelectors = ["#board-search", "#board-filter-toggle", "#board-clear-filters",
+    "#board-focus-milestone", "#board-focus-unfinished", "#board-focus-in-play", "#board-participant-status"];
+  async function checkToolbar(compact = true) {
+    const { bounds, boxes } = await toolbar.evaluate((element, selectors) => ({
+      bounds: element.getBoundingClientRect().toJSON(),
+      boxes: selectors.map((selector) => document.querySelector(selector).getBoundingClientRect().toJSON()),
+    }), controlSelectors);
+    for (const box of boxes) {
+      expect(box).not.toBeNull();
+      expect(box.x).toBeGreaterThanOrEqual(bounds.x - 1);
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+      expect(box.y).toBeGreaterThanOrEqual(bounds.y - 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
+    }
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (const other of boxes.slice(i + 1)) {
+        const box = boxes[i];
+        expect(box.x + box.width <= other.x + 1 || other.x + other.width <= box.x + 1
+          || box.y + box.height <= other.y + 1 || other.y + other.height <= box.y + 1).toBe(true);
+      }
+    }
+    if (compact) {
+      const sameRow = (a, b) => expect(Math.abs(a.y + a.height / 2 - b.y - b.height / 2)).toBeLessThan(2);
+      sameRow(boxes[0], boxes[1]);
+      sameRow(boxes[0], boxes[2]);
+      sameRow(boxes[3], boxes[4]);
+      sameRow(boxes[3], boxes[5]);
+      expect(boxes[3].y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
+    }
+    return boxes;
+  }
+
+  for (const width of [320, 390, 400, 420, 460, 500, 560]) {
+    await page.locator("#layout-shell").evaluate((element, width) => element.style.setProperty("--board-width", `${width}px`), width);
+    expect((await page.locator(".board-panel").boundingBox()).width).toBeCloseTo(width, 0);
+    await checkToolbar();
+    // Label-only geometry stress: this does not create twelve real filters.
+    await page.locator("#board-filter-toggle").evaluate((element) => { element.textContent = "Filters (12)"; });
+    await checkToolbar();
+    await page.locator("#board-filter-toggle").evaluate((element) => { element.textContent = "Filters (1)"; });
+  }
+
+  await page.locator("#board-focus-in-play").click();
+  const warning = page.locator("#board-participant-status");
+  await expect(warning).toHaveClass(/is-incomplete/);
+  await expect(warning).toHaveText("In play results incomplete: session lookup unavailable");
+  const warningBox = await warning.boundingBox();
+  const toolbarBox = await toolbar.boundingBox();
+  expect(warningBox.width).toBeCloseTo(toolbarBox.width, 0);
+  expect(warningBox.y).toBeGreaterThan((await page.locator("#board-focus-in-play").boundingBox()).y);
+  expect(await warning.evaluate((element) => element.scrollWidth <= element.clientWidth
+    && getComputedStyle(element).color !== "rgba(0, 0, 0, 0)" && getComputedStyle(element).whiteSpace === "normal")).toBe(true);
+  await checkToolbar();
+  await page.locator("#board-focus-in-play").click();
+  await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "false");
+
+  await page.setViewportSize({ width: 390, height: 1100 });
+  await checkToolbar();
+  await page.locator("#board-layout-columns").click();
+  await expect(page.locator("#board-layout-columns")).toHaveClass(/is-active/);
+  await checkToolbar();
+
+  await page.setViewportSize({ width: 1697, height: 1100 });
+  const wideBoxes = await checkToolbar(false);
+  const searchCap = await page.evaluate(() => 34 * parseFloat(getComputedStyle(document.documentElement).fontSize));
+  expect(wideBoxes[0].width).toBeLessThanOrEqual(searchCap + 1);
+  expect(wideBoxes[0].width).toBeGreaterThan(searchCap - 1);
 });
 
 test("uses a board-first columns layout when many groups are visible", async ({ page }) => {
