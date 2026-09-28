@@ -40,4 +40,8 @@ As roadmap size grows, minimap needs faster navigation more than it needs heavie
 
 ## Notes
 
-This is the most important next visibility feature because it improves review and navigation without changing the product's editing model.
+Search and dynamic filters are implemented and improve review and navigation without changing the product's editing model.
+
+2026-09-28 toolbar polish on fix/list-toolbar-wrapping: reproduced Clear orphaned on a third row in the real Dictation board at 390–420px pane widths with Unfinished / Filters (1). Extended the existing compact toolbar layout through 560px and reserved first-row space for Filters/Clear, keeping milestone / Unfinished / In play together below. Wide Columns retains the capped Search field. Both packaged runtime mirrors are synchronized; no filter semantics, backend, or real project data changed.
+
+Verification: the expanded existing Playwright regression passed twice and failed as expected with the old CSS. It covers 320–560px panes, actual Filters (1), label-only Filters (12) geometry stress, readable incomplete-lookup warnings, 390px List/Columns, wide Columns, bounds/non-overlap, and the original mode-row assertions. Read-only browser QA also passed 12 desktop/mobile List/Columns cases across Pallium, Minimap, and Dictation; screenshots were visually inspected. The shared server stayed on PID 39532 without a restart. Exact-head manager review and full CI gate the authorized merge.

@@ -4051,10 +4051,10 @@ textarea {
   flex-wrap: wrap;
 }
 
-@container (max-width: 380px) {
+@container (max-width: 560px) {
   .board-toolbar-row .board-control-actions { display: contents; }
   .board-controls .board-toolbar-row .board-search-field {
-    flex: 1 1 7rem;
+    flex: 1 1 calc(100% - 12rem);
     width: auto;
   }
   .board-toolbar-row .board-search-field input { min-width: 0; }
