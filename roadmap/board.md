@@ -1,5 +1,4 @@
 # Now
-- protect-shared-server-runtime
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- protect-shared-server-runtime
 - distinguish-recent-dormant-participants
 - show-board-work-presence
 - foundation-local-server
