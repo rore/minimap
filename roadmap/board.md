@@ -1,5 +1,4 @@
 # Now
-- add-in-play-quick-filter
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- add-in-play-quick-filter
 - protect-shared-server-runtime
 - distinguish-recent-dormant-participants
 - show-board-work-presence

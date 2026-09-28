@@ -1,7 +1,7 @@
 ---
 id: add-in-play-quick-filter
 title: Focus the board on items in play
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -11,7 +11,7 @@ labels:
 
 ## Summary
 
-Add an In play quick filter for items whose status is in-progress OR which have any attached, nonclosed session, including dormant sessions.
+In play focuses on items whose status is in-progress OR which have any attached, nonclosed session, including dormant sessions.
 
 ## Why
 
@@ -38,6 +38,8 @@ The OR predicate and AND composition work, edge cases and bounded fetching are t
 
 Accepted 2026-09-28 from minimap-manager. Root is the sole canonical roadmap writer in C:\Dev\rore\minimap; branch feat/in-play-quick-filter. Preserve unrelated artifacts. Existing Agent Workflow is not configured and will not be installed.
 
-Implementation and independent smart-model review are complete. Local Node verification: 304 passed and two documented Windows signal skips, followed by focused compatibility and mirror checks. Browser verification: all three new dense-board tests passed; the full run had 97 passes, one duplicate-phrase spec anchoring failure, and 13 skipped tests. The failing test and skipped tail passed together (14/14); three traced anchoring repeats also passed. The original failure remains unexplained, so clean full CI is required before merge.
+Completed 2026-09-28 in PR #27: https://github.com/rore/minimap/pull/27. Independent smart-model and manager review accepted production head 11aca9e6e5e6f5d296d7000a6eae48ea7948db16. Full Linux CI 36410165481 attempt 2 passed 306 Node tests, 111 browser tests, and both mirror gates with no skips or failures. All three new dense-board tests passed. A prior local duplicate-phrase anchoring failure passed the exact case plus skipped tail (14/14) and three traced repeats; an initial CI worker-exit hang was not reproduced in exact Node 22.23.2 Linux checks (single test and 130/130 tests in its file). Their original causes remain unexplained; no assertions were weakened.
 
-Read-only rendered QA passed 48 cases across Pallium, Minimap, and dictation boards at desktop and narrow widths, List/Columns, Board/Milestone, and In play with/without Unfinished. No empty filtered groups, overlapping cards, toolbar overflow, or page overflow; real Pallium project data was not changed. Both packaged runtime trees are synchronized. PR/manager acceptance, full CI, and the coordinated shared-server restart remain delivery gates.
+Read-only rendered QA passed 48 cases across Pallium, Minimap, and dictation boards at desktop and narrow widths, List/Columns, Board/Milestone, and In play with/without Unfinished. No empty filtered groups, overlapping cards, toolbar overflow, or page overflow; real Pallium project data was not changed. Both packaged runtime trees are synchronized.
+
+One authorized packaged same-runtime restart deployed the reviewed implementation on port 4312 (PID 39532, version 0.3.6, API 1); participant lookup and links stayed enabled. Live Pallium verification passed desktop/narrow List/Columns, confirmed includeCompleted=true for all 155 observed board items, composed Unfinished and Clear correctly, and made zero project-write API requests. Deployed screenshots were inspected, including the actual narrow List board after returning from its item pane. The personal spec-review skill was backed up and updated with 39 byte-identical files; owner-managed copies in other repositories were not changed.
