@@ -114,11 +114,13 @@ Each skill exposes the same four scripts under `scripts/`. Agents use these only
 | Script | What it does |
 |---|---|
 | `start-server.mjs` | Start, or detect + reuse a running instance. |
-| `status.mjs` | Print port/pid/version. Exit 0 running, 1 stale, 3 not running. |
+| `status.mjs` | Print live runtime version/API/source and process status. Exit 0 running, 1 stale, 3 not running. |
 | `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
-| `restart-server.mjs` | Compose stop + start. |
+| `restart-server.mjs [--replace-runtime]` | Restart the same runtime; explicitly opt in to replacing a different or unknown shared runtime. |
 
 A single running server is shared across both skills and across any number of repos.
+
+Start reuses compatible server APIs even across package releases; unknown/incompatible APIs are left untouched. Status shows the live runtime version, API compatibility, and canonical source path. Restart requires the same version and source path by default; coordinate before `--replace-runtime`, which interrupts shared clients and can downgrade the server. Update every relevant installed skill copy using the same copy-in method (or a checkout link); old launcher copies cannot be retroactively protected, and updating files does not itself restart the server.
 
 ## Tests
 

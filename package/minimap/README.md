@@ -90,11 +90,11 @@ Each skill exposes the same four scripts under `scripts/`. Agents use these only
 | Script | What it does |
 |---|---|
 | `start-server.mjs` | Start, or detect + reuse a running instance. |
-| `status.mjs` | Print port/pid/version. Exit 0 running, 1 stale, 3 not running. |
+| `status.mjs` | Print live runtime version/API/source and process status. Exit 0 running, 1 stale, 3 not running. |
 | `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
-| `restart-server.mjs` | Compose stop + start. |
+| `restart-server.mjs [--replace-runtime]` | Restart the same runtime; explicitly opt in to replacing a different or unknown shared runtime. |
 
-The launcher detects an already-running instance via `$MINIMAP_HOME/server.json` and reuses it — one server serves both skills and any number of repos.
+The launcher probes `$MINIMAP_HOME/server.json` and live health. Compatible APIs can reuse different releases; unknown/incompatible runtimes remain untouched. Status prints live version/API/source. Routine restart requires the same version and canonical runtime source path; coordinate shared-client impact before `--replace-runtime`, which can replace or downgrade a different/unknown server. No adjacent-port sweep is performed. Update relevant installed skill copies via the existing copy-in method or checkout links; old launchers cannot be retroactively guarded. File updates alone do not replace a running server.
 
 Optional roadmap Participants lookup is configured separately from agent MCP availability. Validated loopback `MINIMAP_PALLIUM_ENDPOINT` and optional `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT` values supplied to a successful start or restart command are remembered locally; an explicit empty dashboard value disables links while retaining lookup, and an explicit empty lookup value clears both. Reuse verifies the exact effective settings, and `status.mjs` reports lookup and link state without exposing either origin.
 

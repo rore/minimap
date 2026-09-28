@@ -26,8 +26,10 @@ const startedAt = entry.startedAt ?? "unknown";
 process.stdout.write(
   `Minimap is running.\n`
   + `  port:      ${entry.port}\n`
-  + `  pid:       ${entry.pid ?? "?"}\n`
-  + `  version:   ${entry.version ?? "?"}\n`
+  + `  pid:       ${probe.pid ?? "unknown"}\n`
+  + `  version:   ${probe.runtime?.version ?? "unknown"}\n`
+  + `  API:       ${probe.runtime?.apiCompatibility ?? "unknown"}\n`
+  + `  source:    ${probe.runtime?.sourcePath ?? "unknown"}\n`
   + `  startedAt: ${startedAt}\n`
   + `  participants: ${probe.participantMode || "unknown"}\n`
   + `  participant links: ${probe.participantLinks || "unknown"}\n`
