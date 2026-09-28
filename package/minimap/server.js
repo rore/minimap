@@ -434,7 +434,12 @@ async function handleItemParticipants(request, response, ctx) {
   }
 }
 
-async function handleBoardParticipantCounts(request, response) {
+async function handleBoardParticipantCounts(request, response, ctx) {
+  const includeCompletedValues = ctx.url.searchParams.getAll("includeCompleted");
+  if (includeCompletedValues.length > 1 || includeCompletedValues.some((value) => !["0", "1"].includes(value))) {
+    throw new AppError("includeCompleted must be 0 or 1 and appear at most once.", 400, "bad_request");
+  }
+  const includeCompleted = includeCompletedValues[0] === "1";
   if (!palliumConfig.configured) {
     sendJson(response, 200, { status: "disabled", counts: [], partial: false });
     return;
@@ -454,7 +459,7 @@ async function handleBoardParticipantCounts(request, response) {
         const status = String(fullItem?.status || "").trim().toLowerCase();
         if (
           item?.missing || !fullItem || seen.has(item.id)
-          || ["done", "shipped", "superseded", "cancelled", "canceled"].includes(status)
+          || (!includeCompleted && ["done", "shipped", "superseded", "cancelled", "canceled"].includes(status))
         ) continue;
         seen.add(item.id);
         boardIds.push(item.id);
@@ -463,7 +468,9 @@ async function handleBoardParticipantCounts(request, response) {
     const partial = boardIds.length > 200;
     const itemIds = boardIds.slice(0, 200);
     if (!itemIds.length) {
-      if (!response.destroyed) sendJson(response, 200, { status: "ok", counts: [], partial });
+      if (!response.destroyed) sendJson(response, 200, {
+        status: "ok", counts: [], partial, ...(includeCompleted ? { includeCompleted: true } : {}),
+      });
       return;
     }
     const references = await resolveRoadmapItemReferences(repoRoot, workspace.roadmapPath, itemIds);
@@ -482,6 +489,7 @@ async function handleBoardParticipantCounts(request, response) {
       sendJson(response, 200, {
         status: result.status, counts, partial,
         ...(result.status === "ok" ? { asOf: result.asOf, recentSeconds: result.recentSeconds } : {}),
+        ...(result.status === "ok" && includeCompleted ? { includeCompleted: true } : {}),
       });
     }
   } catch (error) {

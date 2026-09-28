@@ -2179,6 +2179,8 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   gap: 10px;
 }
 
+.layout[data-board-layout="list"] .board-groups { align-content: start; }
+
 .board-group {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -4051,12 +4053,15 @@ textarea {
 
 @container (max-width: 380px) {
   .board-toolbar-row .board-control-actions { display: contents; }
-  .board-toolbar-row .board-search-field {
-    flex: 1 1 10rem;
+  .board-controls .board-toolbar-row .board-search-field {
+    flex: 1 1 7rem;
     width: auto;
   }
-  .board-toolbar-row .board-clear-button { order: 0; }
-  .board-toolbar-row .board-participant-status:not([hidden]) {
+  .board-toolbar-row .board-search-field input { min-width: 0; }
+  .board-toolbar-row .ghost-button { padding: 4px 8px; }
+  .board-toolbar-row .board-clear-button,
+  .board-toolbar-row .board-filter-toggle { order: 0; }
+  .board-toolbar-row .board-participant-status:not([hidden]):not(.is-incomplete) {
     order: 0;
     position: relative;
     flex: 0 0 20px;
@@ -4065,16 +4070,20 @@ textarea {
     white-space: nowrap;
     color: transparent;
   }
-  .board-toolbar-row .board-participant-status:not([hidden])::after {
+  .board-toolbar-row .board-participant-status:not([hidden]):not(.is-incomplete)::after {
     content: "ⓘ";
     position: absolute;
     inset: 0;
     color: var(--muted);
     text-align: center;
   }
+  .board-toolbar-row .board-participant-status.is-incomplete {
+    order: 2;
+    flex: 1 1 100%;
+    white-space: normal;
+  }
   .board-toolbar-row .board-focus-label,
-  .board-toolbar-row .board-focus-unfinished,
-  .board-toolbar-row .board-filter-toggle { order: 1; }
+  .board-toolbar-row .board-focus-unfinished { order: 1; }
   .board-toolbar-row .board-focus-label,
   .board-toolbar-row .board-focus-label select { width: 7rem; max-width: 7rem; }
 }
@@ -4223,10 +4232,15 @@ textarea {
 }
 
 @media (max-width: 760px) {
-  .board-mode-row,
-  .board-toolbar-row {
+  .board-mode-row {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .board-toolbar-row .board-control-actions { display: contents; }
+  .board-toolbar-row .board-search-field {
+    flex: 1 1 14rem;
+    width: auto;
   }
 
   .board-mode-actions,

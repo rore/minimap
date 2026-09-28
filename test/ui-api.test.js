@@ -37,6 +37,20 @@ test("item participant reads use the exact roadmap endpoint and forward cancella
   assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/repo");
 });
 
+test("board participant counts include completed rows only when explicitly requested", async () => {
+  const f = fakeFetch([{}]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/repo" });
+  const controller = new AbortController();
+  await api.readBoardParticipantCounts({ includeCompleted: true, signal: controller.signal, cache: "no-store" });
+  await api.readBoardParticipantCounts({ includeCompleted: false });
+  assert.equal(f.calls[0].url, "/api/board/participant-counts?includeCompleted=1");
+  assert.equal(f.calls[1].url, "/api/board/participant-counts");
+  assert.equal(f.calls[0].opts.signal, controller.signal);
+  assert.equal(f.calls[0].opts.cache, "no-store");
+  assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/repo");
+  assert.ok(f.calls.every(({ opts }) => !Object.hasOwn(opts, "includeCompleted")));
+});
+
 test("board participant counts use one repo-scoped request and forward cancellation", async () => {
   const f = fakeFetch([{ body: { status: "ok", counts: [] } }]);
   const api = createApi({ fetch: f, getRepo: () => "C:/repo" });

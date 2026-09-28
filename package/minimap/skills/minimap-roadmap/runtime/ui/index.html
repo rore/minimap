@@ -253,6 +253,7 @@
               <div class="board-control-actions">
                 <label class="board-focus-label" for="board-focus-milestone"><span class="visually-hidden">Focus milestone</span><select id="board-focus-milestone" aria-label="Focus milestone"><option value="">All milestones</option></select></label>
                 <button id="board-focus-unfinished" class="ghost-button board-focus-unfinished" type="button" aria-pressed="false" title="Hide done, shipped, superseded, and canceled items">Unfinished</button>
+                <button id="board-focus-in-play" class="ghost-button board-focus-unfinished" type="button" aria-pressed="false" title="Show in-progress items or items with attached non-closed sessions, including dormant sessions. Association does not mean work is happening now.">In play</button>
                 <button id="board-filter-toggle" class="ghost-button board-filter-toggle" type="button" aria-expanded="false">Filters</button>
                 <button id="board-clear-filters" class="ghost-button board-clear-button" type="button">Clear</button>
                 <span id="board-participant-status" class="board-participant-status" role="status" hidden></span>
@@ -422,4 +423,3 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
-

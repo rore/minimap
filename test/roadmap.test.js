@@ -4502,16 +4502,16 @@ test("createTextAnchor disambiguates same-line duplicates via quoteOffset hint",
   assert.equal(nearSecond.offset, secondOffset);
 });
 
-test("board participant-count route batches only unfinished board items and omits completed or over-limit results", async () => {
+test("board participant-count route validates completed inclusion and preserves one deduplicated bounded batch", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-board-counts-"));
   const roadmapRoot = path.join(repoRoot, "roadmap");
   const featuresRoot = path.join(roadmapRoot, "features");
   await fs.mkdir(featuresRoot, { recursive: true });
   await fs.mkdir(path.join(roadmapRoot, "ideas"), { recursive: true });
-  const itemIds = Array.from({ length: 205 }, (_, index) => `item-${String(index).padStart(3, "0")}`);
-  const terminal = new Map([[0, "done"], [3, "shipped"], [4, "cancelled"], [5, "canceled"]]);
+  const itemIds = Array.from({ length: 206 }, (_, index) => `item-${String(index).padStart(3, "0")}`);
+  const terminal = new Map([[0, "done"], [3, "shipped"], [4, "cancelled"], [5, "canceled"], [6, "superseded"]]);
   await fs.writeFile(path.join(roadmapRoot, "scope.md"), "Test scope.\n", "utf8");
-  await fs.writeFile(path.join(roadmapRoot, "board.md"), `# Now\n${itemIds.map((id) => `- ${id}`).join("\n")}\n`, "utf8");
+  await fs.writeFile(path.join(roadmapRoot, "board.md"), `# Now\n- missing-item\n${itemIds.map((id) => `- ${id}`).join("\n")}\n\n# Later\n- item-001\n- item-000\n`, "utf8");
   await Promise.all(itemIds.map((id, index) => fs.writeFile(
     path.join(featuresRoot, `${id}.md`),
     `---\nid: ${id}\ntitle: ${id}\nstatus: ${terminal.get(index) || "queued"}\npriority: medium\ncommitment: committed\n---\n\n## Summary\nTest item.\n`,
@@ -4547,7 +4547,7 @@ test("board participant-count route batches only unfinished board items and omit
   await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
   const upstreamPort = upstream.address().port;
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
-  const child = await startServerOnPort(4452, {
+  let child = await startServerOnPort(4452, {
     cwd: repoRoot,
     env: { MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: `http://127.0.0.1:${upstreamPort}` },
   });
@@ -4561,6 +4561,7 @@ test("board participant-count route batches only unfinished board items and omit
     assert.equal(body.status, "ok");
     assert.equal(body.counts.length, 200);
     assert.equal(body.partial, true);
+    assert.equal(Object.hasOwn(body, "includeCompleted"), false);
     assert.deepEqual(body.counts.map((row) => row.itemId), selectedIds.slice(0, 200));
     assert.equal(body.counts[0].participantCount, 0);
     assert.equal(body.counts[1].participantCount, 2);
@@ -4570,12 +4571,32 @@ test("board participant-count route batches only unfinished board items and omit
     assert.equal(body.counts[1].dormantParticipantCount, 1);
     assert.equal(body.asOf, "2026-09-27T10:00:00Z");
     assert.equal(body.recentSeconds, 86400);
-    assert.equal(body.counts.some((row) => ["item-000", "item-003", "item-004", "item-005", "item-204"].includes(row.itemId)), false);
+    assert.equal(body.counts.some((row) => ["item-000", "item-003", "item-004", "item-005", "item-006", "item-205", "missing-item"].includes(row.itemId)), false);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");
     assert.equal(requests[0].url, "/relay/work-refs/participant-counts");
     assert.equal(requests[0].payload.references.length, 200);
     assert.ok(requests[0].payload.references.every((ref) => ref.scope_ref === requests[0].payload.references[0].scope_ref));
+
+    const excludedResponse = await fetch(`${url}?includeCompleted=0`, { headers });
+    assert.deepEqual(await excludedResponse.json(), body);
+    const includedResponse = await fetch(`${url}?includeCompleted=1`, { headers });
+    const included = await includedResponse.json();
+    assert.equal(includedResponse.status, 200);
+    assert.equal(included.status, "ok");
+    assert.equal(included.includeCompleted, true);
+    assert.equal(included.partial, true);
+    assert.deepEqual(included.counts.map((row) => row.itemId), itemIds.slice(0, 200));
+    assert.equal(requests.length, 3, "one Pallium batch per valid nonempty request");
+    assert.equal(requests[2].payload.references.length, 200);
+    assert.deepEqual(requests[2].payload.references.map((ref) => ref.local_ref), itemIds.slice(0, 200).map((id) => `item:v1:${id}`));
+
+    for (const query of ["includeCompleted=", "includeCompleted=true", "includeCompleted=2", "includeCompleted=1&includeCompleted=1", "includeCompleted=0&includeCompleted=1"]) {
+      const invalidResponse = await fetch(`${url}?${query}`, { headers });
+      assert.equal(invalidResponse.status, 400, query);
+      assert.equal((await invalidResponse.json()).error.code, "bad_request");
+    }
+    assert.equal(requests.length, 3, "invalid selection must not call Pallium");
 
     await Promise.all(itemIds.map(async (id) => {
       const itemPath = path.join(featuresRoot, `${id}.md`);
@@ -4584,9 +4605,36 @@ test("board participant-count route batches only unfinished board items and omit
     }));
     const emptyResponse = await fetch(url, { headers });
     assert.deepEqual(await emptyResponse.json(), { status: "ok", counts: [], partial: false });
-    assert.equal(requests.length, 1, "empty unfinished selection must not call Pallium");
-  } finally {
+    assert.equal(requests.length, 3, "empty unfinished selection must not call Pallium");
+    const completedResponse = await fetch(`${url}?includeCompleted=1`, { headers });
+    const completed = await completedResponse.json();
+    assert.equal(completed.status, "ok");
+    assert.equal(completed.includeCompleted, true);
+    assert.equal(completed.partial, true);
+    assert.deepEqual(completed.counts.map((row) => row.itemId), itemIds.slice(0, 200));
+    assert.equal(requests.length, 4);
+
+    await fs.writeFile(path.join(roadmapRoot, "board.md"), "# Now\n- missing-item\n", "utf8");
+    const emptyIncluded = await fetch(`${url}?includeCompleted=1`, { headers });
+    assert.deepEqual(await emptyIncluded.json(), { status: "ok", counts: [], partial: false, includeCompleted: true });
+    assert.equal(requests.length, 4, "empty completed-inclusive selection must not call Pallium");
+
     await stopServer(child);
+    child = null;
+    child = await startServerOnPort(4452, {
+      cwd: repoRoot,
+      env: { MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: "", MINIMAP_PALLIUM_DASHBOARD_ENDPOINT: "" },
+    });
+    for (const query of ["", "?includeCompleted=0", "?includeCompleted=1"]) {
+      const disabledResponse = await fetch(`${url}${query}`, { headers: { "X-Minimap-Repo": path.join(repoRoot, "missing-repo") } });
+      assert.equal(disabledResponse.status, 200);
+      assert.deepEqual(await disabledResponse.json(), { status: "disabled", counts: [], partial: false });
+    }
+    const disabledInvalid = await fetch(`${url}?includeCompleted=1&includeCompleted=1`, { headers });
+    assert.equal(disabledInvalid.status, 400);
+    assert.equal(requests.length, 4, "disabled provider must make no Pallium requests or per-item fallback");
+  } finally {
+    if (child) await stopServer(child);
     await new Promise((resolve) => upstream.close(resolve));
   }
 });
