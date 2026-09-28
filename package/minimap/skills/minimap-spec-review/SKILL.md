@@ -25,6 +25,8 @@ The launcher prints one line: `Minimap running at http://localhost:<port>` (just
 
 For status / stop / restart, see [references/server.md](references/server.md).
 
+Compatible APIs can reuse different releases. A refused start/restart is not permission to stop the shared server: inspect running/source identity and coordinate before explicitly replacing it with `restart-server.mjs --replace-runtime`.
+
 ### 3a. Showing the session
 
 Attach, then reply with the URL:

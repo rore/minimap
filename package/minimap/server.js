@@ -31,7 +31,7 @@ import {
   updateFileSessionSuggestionStatus,
   updateFileSessionCommentStatus,
 } from "./src/sessions.js";
-import { readServerRegistry, writeServerRegistry, deleteServerRegistry } from "./src/server-registry.js";
+import { readServerRegistry, writeServerRegistry, deleteServerRegistry, readRuntimeIdentity } from "./src/server-registry.js";
 import { matchRoute } from "./src/router.js";
 import {
   isTrustedLocalRequest,
@@ -60,8 +60,8 @@ const palliumConfig = parsePalliumConfig(
   process.env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT,
 );
 
-const packageJsonPath = path.join(__dirname, "package.json");
-const serverVersion = JSON.parse(await fs.readFile(packageJsonPath, "utf8")).version || "0.0.0";
+const runtimeIdentity = await readRuntimeIdentity(__filename);
+const serverVersion = runtimeIdentity.version;
 
 // Set when /api/shutdown has been observed once; prevents a second concurrent
 // caller from scheduling a duplicate shutdown() (which would race process.exit
@@ -220,7 +220,7 @@ async function buildSpecSessionsByItemId(repoRoot, workspace) {
 // ---------------------------------------------------------------------------
 
 async function handleHealth(request, response) {
-  sendJson(response, 200, { ok: true, participants: {
+  sendJson(response, 200, { ok: true, runtime: runtimeIdentity, pid: process.pid, participants: {
     mode: palliumConfig.endpoint ? "enabled" : "disabled",
     links: palliumConfig.dashboardEndpoint ? "enabled" : "disabled",
     configId: palliumConfigId(palliumConfig),

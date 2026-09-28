@@ -213,7 +213,7 @@ Apply and rollback use a per-session lock across Minimap CLI/server processes. T
 
 ### `GET /health`
 
-Returns `{ "ok": true }`. Useful to confirm the server is alive at a given port.
+Returns `{ "ok": true, "pid": <live-process-id>, "runtime": { "version": <package-version>, "apiCompatibility": 1, "sourcePath": <canonical-absolute-server-path> }, "participants": { "mode": <enabled|disabled>, "links": <enabled|disabled>, "configId": <effective-settings-id> } }`. Runtime identity is captured at startup, not taken from the shared registry. Missing legacy fields mean unknown, not compatibility. Use bundled lifecycle scripts for discovery and replacement.
 
 ### `POST /api/shutdown`
 

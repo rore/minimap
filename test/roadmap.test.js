@@ -1093,7 +1093,12 @@ test("self-contained spec-review skill runs when copied outside the repo", async
     });
 
     const health = await fetch(`http://localhost:${serverPort}/health`);
-    assert.deepEqual(await health.json(), { ok: true, participants: { mode: "disabled", links: "disabled", configId: "disabled" } });
+    const payload = await health.json();
+    assert.equal(payload.ok, true);
+    assert.deepEqual(payload.participants, { mode: "disabled", links: "disabled", configId: "disabled" });
+    assert.equal(payload.runtime.apiCompatibility, 1);
+    assert.equal(payload.runtime.sourcePath, await fs.realpath(path.join(installedSkill, "runtime", "server.js")));
+    assert.equal(typeof payload.pid, "number");
   } finally {
     server.kill();
   }
@@ -2725,7 +2730,7 @@ test("start-server rejects a legacy healthy server whose Participants identity i
       proc.on("exit", (code) => resolve({ code, stderr }));
     });
     assert.equal(result.code, 1);
-    assert.match(result.stderr, /different or unknown Participants configuration/);
+    assert.match(result.stderr, /API is incompatible or unknown/);
     assert.equal((await fetch(`http://localhost:${port}/health`).then((response) => response.json())).ok, true);
     await assert.rejects(() => fs.readFile(path.join(home, "pallium-preference.json"), "utf8"), { code: "ENOENT" });
   } finally {
@@ -3592,7 +3597,7 @@ test("restart-server.mjs cycles a running server: new pid, same port, healthy", 
     "package", "minimap", "skills", "minimap-spec-review", "scripts", "restart-server.mjs",
   );
   const result = await new Promise((resolve) => {
-    const proc = spawn(process.execPath, [restartScript], {
+    const proc = spawn(process.execPath, [restartScript, "--replace-runtime"], {
       cwd: repoRoot,
       env: { ...process.env, PORT: "4438", MINIMAP_HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
@@ -3702,16 +3707,6 @@ test("restart-server cleans up its detached child when post-launch config verifi
     "utf8",
   );
 
-  const restartPath = path.join(skillRoot, "scripts", "restart-server.mjs");
-  const restartSource = await fs.readFile(restartPath, "utf8");
-  await fs.writeFile(
-    restartPath,
-    restartSource
-      .replace("const SWEEP_PORTS_FROM = 4312;", "const SWEEP_PORTS_FROM = 4446;")
-      .replace("const SWEEP_PORTS_TO = 4320;", "const SWEEP_PORTS_TO = 4446;"),
-    "utf8",
-  );
-
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
   const run = (scriptName) => new Promise((resolve) => {
@@ -3763,7 +3758,7 @@ test("restart-server.mjs survives back-to-back restarts (Windows TIME_WAIT regre
   );
 
   const runRestart = () => new Promise((resolve) => {
-    const proc = spawn(process.execPath, [restartScript], {
+    const proc = spawn(process.execPath, [restartScript, "--replace-runtime"], {
       cwd: repoRoot,
       env: { ...process.env, PORT: "4441", MINIMAP_HOME: home },
       stdio: ["ignore", "pipe", "pipe"],

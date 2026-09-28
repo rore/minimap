@@ -224,6 +224,12 @@ Do not assume in v1:
 
 ## Package Contents
 
+### Shared server lifecycle
+
+Both self-contained skills share a per-home server. Live health reports runtime package version, API compatibility integer (currently 1), canonical server source path, and PID. Start may reuse different releases only when the API is compatible and effective participant settings match; unknown/incompatible health is refused without replacing the server.
+
+Restart preflights registered/requested targets before any shutdown. By default the live version and canonical source path must match the caller's bundled runtime, and live PID/port must match the home registry. An unregistered requested-port target requires explicit replacement even when its runtime matches. In-place development edits remain routine; different copies/checkouts require `--replace-runtime`, even at the same version. The flag explicitly allows unknown, incompatible, or older replacement and interrupts all shared clients. Restarts retain per-home serialization, bindability/IPC checks, and PID-scoped failed-child cleanup; they never sweep unrelated adjacent ports. Status prints live runtime identity, not stale registry version. Installed folders must be updated using the copy-in method or checkout links; old launchers cannot be retroactively guarded, and file updates do not replace a running server.
+
 A copy-in minimap package should include:
 
 - app/server files (shared by both workspaces)
