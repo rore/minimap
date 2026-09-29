@@ -31,17 +31,18 @@ async function freePort() {
   await new Promise((resolve) => server.close(resolve));
   return port;
 }
-function launch(home, port, skill, command, preload) {
+function launch(home, port, skill, command, preload, ipc = false) {
   const env = { ...process.env, MINIMAP_HOME: home, PORT: String(port), MINIMAP_PALLIUM_ENDPOINT: "", MINIMAP_PALLIUM_DASHBOARD_ENDPOINT: "" };
   delete env.NODE_OPTIONS;
   const args = [...(preload ? ["--import", `data:text/javascript,${encodeURIComponent(preload)}`] : []), path.join(scripts(skill), command)];
-  const child = spawn(process.execPath, args, { cwd: home, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, args, { cwd: home, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", ...(ipc ? ["ipc"] : [])] });
   let stdout = "", stderr = "";
   child.stdout.on("data", (chunk) => { stdout += chunk; });
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   const done = new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("close", (code) => resolve({ code, stdout, stderr }));
+    // Windows IPC disconnect can leave close pending after the process exited.
+    child.once(ipc ? "exit" : "close", (code) => resolve({ code, stdout, stderr }));
   });
   return { child, done };
 }
@@ -116,6 +117,7 @@ test("fatal throw and unhandled rejection preserve nonzero default exit and stal
     const preload = `import fs from 'node:fs'; import path from 'node:path'; const timer=setInterval(()=>{ if (fs.existsSync(path.join(process.env.MINIMAP_HOME,'server.json'))) { clearInterval(timer); const error=new TypeError('PRIVATE_SENTINEL\\nsecret continuation'); error.code='ERR_INVALID_ARG_TYPE'; error.stack+='\\n    at PRIVATE_SENTINEL ('+${JSON.stringify(path.join(runtimeRoot, "skills/minimap-roadmap/runtime/server.js"))}+':42:3)'; ${failure}; } },20); timer.unref();`;
     const result = await launch(home, port, roadmap, "start-server.mjs", preload).done;
     assert.equal(result.code, 1, result.stderr);
+    assert.match(result.stderr, /PRIVATE_SENTINEL/, "default fatal stderr must remain unchanged");
     const raw = await fs.readFile(lifecycleLogPath(home), "utf8");
     assert.ok(!raw.includes("PRIVATE_SENTINEL"));
     const events = await records(home);
@@ -125,6 +127,22 @@ test("fatal throw and unhandled rejection preserve nonzero default exit and stal
     assert.equal(status.code, 1);
     assert.match(status.stdout, /"event":"fatal"/);
     assert.equal((await run(home, port, roadmap, "stop-server.mjs")).code, 0);
+  }
+});
+
+test("signal handlers and pre-ACK parent disconnect retain shutdown reason and exit code", { timeout: 20000 }, async (t) => {
+  for (const [reason, code] of [["SIGTERM", 0], ["SIGINT", 130], ["RESTART_PARENT_DISCONNECTED", 0]]) {
+    const home = await temp(t), port = await freePort();
+    const ipc = reason === "RESTART_PARENT_DISCONNECTED";
+    const preload = ipc ? undefined : `import fs from 'node:fs'; import path from 'node:path'; const timer=setInterval(()=>{if(fs.existsSync(path.join(process.env.MINIMAP_HOME,'server.json'))){clearInterval(timer);process.emit(${JSON.stringify(reason)});}},20);timer.unref();`;
+    const launched = launch(home, port, roadmap, "start-server.mjs", preload, ipc);
+    if (ipc) launched.child.once("message", () => launched.child.disconnect());
+    const result = await launched.done;
+    assert.equal(result.code, code, result.stderr);
+    const events = await records(home);
+    assert.equal(events.filter((e) => e.event === "shutdown" && e.reason === reason).length, 1);
+    assert.equal(events.filter((e) => e.event === "exit" && e.code === code).length, 1);
+    assert.equal((await run(home, port, roadmap, "status.mjs")).code, 3);
   }
 });
 
