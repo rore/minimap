@@ -11,11 +11,19 @@ The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must com
 | Command | Exit codes | What it does |
 | --- | --- | --- |
 | `node <skill>/scripts/start-server.mjs` | 0 = running (started or reused); 1 = incompatible/unknown API, settings mismatch, or occupied port | Probe the registry and live `/health`; reuse only a compatible API with matching participant settings. |
-| `node <skill>/scripts/status.mjs` | 0 = running; 1 = stale registry; 3 = not running | Print live pid, runtime version, API compatibility and source, plus registry port/startedAt. Legacy identity prints unknown. |
+| `node <skill>/scripts/status.mjs` | 0 = running; 1 = stale registry; 3 = not running | Print live identity, registry port/startedAt, and local lifecycle log path/recent evidence, including when stale or stopped. Legacy identity prints unknown. |
 | `node <skill>/scripts/stop-server.mjs` | 0 = stopped (or was already not running, or stale cleaned); 1 = shutdown failed | `POST /api/shutdown`, wait for the port to free. |
 | `node <skill>/scripts/restart-server.mjs [--replace-runtime]` | 0 = restarted; 1 = refusal, stop, start, or verification failure | Preflight registered/requested targets before any stop; default permits only the same runtime. Serialize per home, then stop/spawn and verify the child-reported port/identity/configuration. Failed cleanup targets only its own child PID. |
 
 Exit codes follow `systemctl` conventions for `status` (0/1/3 = running/stale/not-running).
+
+## Local lifecycle diagnostics
+
+The common server entry records startup identity (PID/parent PID, runtime source/version, port and known launch mode), graceful shutdown reasons, observed exit codes, and sanitized startup/cleanup/fatal errors under the resolved `$MINIMAP_HOME`. Foreground starts and detached restarts use the same logger. `server-lifecycle.jsonl` rotates at 128 KiB to one backup, `server-lifecycle.jsonl.1`, with a 4 KiB event limit. `status.mjs` shows the path and the last eight retained events without changing its exit codes.
+
+These local records contain no request bodies, roadmap/spec content, environment dump, raw stderr or arbitrary error messages. Error evidence retains only recognized native class/code and up to five runtime-relative JavaScript source locations. Message detail is deliberately lost to avoid storing private content or credentials. The fatal monitor is observational: errors still terminate normally and normal stderr is unchanged. Logging I/O failure cannot block startup or shutdown.
+
+Historical events are not proof of the current failure's cause. Forced termination (including Windows hard kills/job teardown) and failures before the logger loads may leave no final event; missing exit evidence means **unknown**, not a diagnosed crash. Concurrent launch races can lose rotation evidence or briefly exceed the rotation threshold. This is bounded best-effort diagnostics, not telemetry, a watchdog, or a guarantee of recovery.
 
 ## Discovery
 

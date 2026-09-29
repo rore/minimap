@@ -1,4 +1,5 @@
 # Now
+- add-server-lifecycle-logging
 
 # Next
 - fix-shared-server-registry-test-isolation
