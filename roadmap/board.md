@@ -1,6 +1,7 @@
 # Now
 
 # Next
+- add-worktree-aware-roadmap-view
 - fix-shared-server-registry-test-isolation
 - add-work-item-dependencies
 
