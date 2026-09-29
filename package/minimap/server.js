@@ -33,6 +33,7 @@ import {
 } from "./src/sessions.js";
 import { readServerRegistry, writeServerRegistry, deleteServerRegistry, readRuntimeIdentity } from "./src/server-registry.js";
 import { matchRoute } from "./src/router.js";
+import { createLifecycleLog, lifecycleError } from "./src/server-lifecycle-log.js";
 import {
   isTrustedLocalRequest,
   lookupPalliumParticipantCounts,
@@ -50,9 +51,17 @@ export { matchRoute };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const launchMode = process.send ? "ipc-detached-restart"
+  : path.basename(process.argv[1] || "") === "start-server.mjs" ? "foreground-start" : "direct";
+let lifecycleLog = createLifecycleLog({ sourcePath: __filename, launchMode });
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  try { lifecycleLog("fatal", { origin, error: lifecycleError(error, __dirname) }); } catch {}
+});
+process.once("exit", (code) => lifecycleLog("exit", { code }));
 const staticRoot = path.join(__dirname, "ui");
 const cwdFallback = process.cwd();
 const requestedPort = Number(process.env.PORT || 4312);
+lifecycleLog("startup", { port: Number.isInteger(requestedPort) ? requestedPort : null });
 const maxPortAttempts = 20;
 const LOCAL_SERVER_HOST = "127.0.0.1";
 const palliumConfig = parsePalliumConfig(
@@ -62,6 +71,7 @@ const palliumConfig = parsePalliumConfig(
 
 const runtimeIdentity = await readRuntimeIdentity(__filename);
 const serverVersion = runtimeIdentity.version;
+lifecycleLog = createLifecycleLog({ ...runtimeIdentity, launchMode });
 
 // Set when /api/shutdown has been observed once; prevents a second concurrent
 // caller from scheduling a duplicate shutdown() (which would race process.exit
@@ -81,7 +91,12 @@ if (process.send) {
 }
 
 async function clearOwnRegistry() {
-  if ((await readServerRegistry())?.pid === process.pid) await deleteServerRegistry();
+  try {
+    if ((await readServerRegistry())?.pid === process.pid) await deleteServerRegistry();
+  } catch (error) {
+    lifecycleLog("registry-cleanup-failed", { error: lifecycleError(error, __dirname) });
+    throw error;
+  }
 }
 
 const contentTypes = new Map([
@@ -681,9 +696,11 @@ async function startServer() {
       participantMode: palliumConfig.endpoint ? "enabled" : "disabled",
       participantConfigId: palliumConfigId(palliumConfig),
     });
+    lifecycleLog("started", { port: boundPort });
     process.send?.({ type: "minimap-ready", pid: process.pid, port: boundPort });
     process.stdout.write(`Minimap running at http://localhost:${boundPort}${fallbackNote}\n`);
   } catch (error) {
+    lifecycleLog("startup-failed", { error: lifecycleError(error, __dirname) });
     if (error && error.code === "EADDRINUSE" && noFallback) {
       // The launcher will re-probe.
       throw error;
@@ -695,6 +712,7 @@ async function startServer() {
 }
 
 async function shutdown(signal) {
+  lifecycleLog("shutdown", { reason: signal });
   try {
     await clearOwnRegistry();
   } catch (error) {
