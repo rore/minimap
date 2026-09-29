@@ -1,5 +1,4 @@
 # Now
-- add-server-lifecycle-logging
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- add-server-lifecycle-logging
 - add-in-play-quick-filter
 - protect-shared-server-runtime
 - distinguish-recent-dormant-participants
