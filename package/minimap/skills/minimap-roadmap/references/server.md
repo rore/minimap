@@ -23,7 +23,7 @@ The common server entry records startup identity (PID/parent PID, runtime source
 
 These local records contain no request bodies, roadmap/spec content, environment dump, raw stderr or arbitrary error messages. Error evidence retains only recognized native class/code and up to five runtime-relative JavaScript source locations. Message detail is deliberately lost to avoid storing private content or credentials. The fatal monitor is observational: errors still terminate normally and normal stderr is unchanged. Logging I/O failure cannot block startup or shutdown.
 
-Historical events are not proof of the current failure's cause. Forced termination (including Windows hard kills/job teardown) and failures before the logger loads may leave no final event; missing exit evidence means **unknown**, not a diagnosed crash. Concurrent launch races can lose rotation evidence or briefly exceed the rotation threshold. This is bounded best-effort diagnostics, not telemetry, a watchdog, or a guarantee of recovery.
+Historical events are not proof of the current failure's cause. A verified live PID does not receive a missing-exit warning. Forced termination (including Windows hard kills/job teardown) and failures before the logger loads may leave no final event; missing exit evidence means **unknown**, not a diagnosed crash. Concurrent launch races can lose rotation evidence or briefly exceed the rotation threshold. This is bounded best-effort diagnostics, not telemetry, a watchdog, or a guarantee of recovery.
 
 ## Discovery
 
