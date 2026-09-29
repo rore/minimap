@@ -92,7 +92,17 @@ test("packaged foreground and detached restart share logging; both statuses reta
   const home = await temp(t), port = await freePort();
   const foreground = launch(home, port, roadmap, "start-server.mjs");
   await waitStarted(home);
-  assert.equal((await run(home, port, roadmap, "status.mjs")).code, 0);
+  for (const skill of [roadmap, spec]) {
+    const healthy = await run(home, port, skill, "status.mjs");
+    assert.equal(healthy.code, 0);
+    assert.doesNotMatch(healthy.stdout, /Final exit: unknown|hard kill\/job teardown/);
+  }
+  createLifecycleLog({ home, sourcePath: "unrelated historical PID fixture" })("startup", { port });
+  for (const skill of [roadmap, spec]) {
+    const healthy = await run(home, port, skill, "status.mjs");
+    assert.equal(healthy.code, 0);
+    assert.match(healthy.stdout, /Final exit: unknown/, "a different historical PID must not be inferred live");
+  }
   const restarted = await run(home, port, roadmap, "restart-server.mjs");
   assert.equal(restarted.code, 0, restarted.stderr);
   assert.equal((await foreground.done).code, 0);
@@ -166,7 +176,11 @@ test("logger I/O failure cannot prevent packaged startup or graceful shutdown", 
     assert.ok(Date.now() < deadline, "startup must not depend on successful logging");
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert.equal((await run(home, port, spec, "status.mjs")).code, 0);
+  for (const skill of [roadmap, spec]) {
+    const healthy = await run(home, port, skill, "status.mjs");
+    assert.equal(healthy.code, 0);
+    assert.doesNotMatch(healthy.stdout, /Final exit: unknown|hard kill\/job teardown/, "verified live PID with unavailable history is not a missing-exit failure");
+  }
   assert.equal((await run(home, port, roadmap, "stop-server.mjs")).code, 0);
   assert.equal((await foreground.done).code, 0);
 });

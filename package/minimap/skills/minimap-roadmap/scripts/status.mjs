@@ -38,5 +38,5 @@ process.stdout.write(
   + `  participant links: ${probe.participantLinks || "unknown"}\n`
   + `  url:       http://localhost:${entry.port}/\n`,
 );
-printLifecycleHistory();
+printLifecycleHistory(undefined, probe.pid);
 process.exit(0);

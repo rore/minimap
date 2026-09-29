@@ -54,7 +54,7 @@ export function createLifecycleLog({ home = resolveMinimapHome(), sourcePath, ve
   };
 }
 
-export function printLifecycleHistory(home = resolveMinimapHome()) {
+export function printLifecycleHistory(home = resolveMinimapHome(), livePid = null) {
   const logPath = lifecycleLogPath(home);
   process.stdout.write(`  lifecycle log: ${logPath}\n`);
   const events = [];
@@ -75,7 +75,8 @@ export function printLifecycleHistory(home = resolveMinimapHome()) {
   if (!recent.length) process.stdout.write("    unavailable\n");
   for (const event of recent) process.stdout.write(`    ${JSON.stringify(event)}\n`);
   const latestStart = events.findLast((event) => ["startup", "started"].includes(event.event));
-  if (!latestStart || !events.some((event) => event.event === "exit" && event.pid === latestStart.pid && event.timestamp >= latestStart.timestamp)) {
+  const latestIsLive = Number.isSafeInteger(livePid) && (!latestStart || latestStart.pid === livePid);
+  if (!latestIsLive && (!latestStart || !events.some((event) => event.event === "exit" && event.pid === latestStart.pid && event.timestamp >= latestStart.timestamp))) {
     process.stdout.write("  Final exit: unknown (no recorded exit; hard kill/job teardown cannot be logged).\n");
   }
 }
