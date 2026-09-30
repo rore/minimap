@@ -12,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- polish-worktree-view-usability
 - add-worktree-aware-roadmap-view
 - add-server-lifecycle-logging
 - add-in-play-quick-filter
