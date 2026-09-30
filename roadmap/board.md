@@ -1,5 +1,4 @@
 # Now
-- load-worktree-board-progressively
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- load-worktree-board-progressively
 - polish-worktree-view-usability
 - add-worktree-aware-roadmap-view
 - add-server-lifecycle-logging
