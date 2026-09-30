@@ -68,6 +68,19 @@ test("worktree inventory is immediate and selected source loads are fresh and so
 
   const baseUrl = `http://127.0.0.1:${env.PORT}`;
   const headers = { "x-minimap-repo": root };
+  for (const query of ["openedOnly=0", "openedOnly=true", "openedOnly=1&openedOnly=1"]) {
+    const invalid = await fetch(`${baseUrl}/api/worktree-workspace?${query}`, { headers });
+    assert.equal(invalid.status, 400);
+  }
+  const provisionalResponse = await fetch(`${baseUrl}/api/worktree-workspace?openedOnly=1`, { headers });
+  assert.equal(provisionalResponse.status, 200);
+  const provisional = await provisionalResponse.json();
+  assert.equal(provisional.provisional, true);
+  assert.equal(provisional.partial, true);
+  assert.equal(provisional.coverage.pending, true);
+  assert.deepEqual(provisional.participantCounts, { status: "loading", counts: [], partial: true, includeCompleted: true });
+  assert.equal(provisional.sources.length, 1);
+
   const inventoryResponse = await fetch(`${baseUrl}/api/worktree-sources`, { headers });
   assert.equal(inventoryResponse.status, 200);
   const inventory = await inventoryResponse.json();

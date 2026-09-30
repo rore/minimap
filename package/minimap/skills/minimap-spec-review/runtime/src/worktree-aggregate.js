@@ -129,10 +129,20 @@ async function conflicts(versions, displayRevisions) {
 }
 
 /** Read-only, opened-first projection of compatible linked worktrees. */
-export async function loadWorktreeAggregate(openRepoRoot) {
-  const discovery = await discoverWorktreeSources(openRepoRoot);
+export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false } = {}) {
+  let discovery;
+  if (openedOnly) {
+    const opened = await readWorktreeIdentity(openRepoRoot);
+    discovery = { sources: opened ? [opened] : [], excluded: [], partial: false,
+      unavailable: opened ? null : { reason: "not-git-or-unavailable" } };
+  } else discovery = await discoverWorktreeSources(openRepoRoot);
   const result = { ...discovery, workspace: null, features: [], groups: [],
     coverage: { loaded: 0, excluded: 0, missingBoardRefs: [], identityUncertain: [] } };
+  if (openedOnly) {
+    result.provisional = true;
+    result.partial = true;
+    result.coverage.pending = true;
+  }
   if (!discovery.sources.length) return result;
   if (discovery.unavailable) result.partial = true;
 

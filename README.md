@@ -177,6 +177,8 @@ The UI never holds a second copy. Editing through the UI writes the markdown bac
 
 When the repository has linked Git worktrees, the board's checkout picker can show **This checkout** or **Across worktrees**. Across is a read-only combined view: it identifies shared features from Git ancestry, keeps divergent checkout versions and their exact values visible, and marks unavailable sources as partial coverage. Choose a version in the item panel before editing; Save changes only that selected checkout and refuses a changed checkout or stale file. Across never synchronizes roadmap files or reorders multiple worktrees. The selected checkout version is retained in the URL on reload. If a checkout fails to open, Refresh or reselecting **This checkout** retries with fresh discovery.
 
+Across shows the opened checkout first while other worktrees load, with an explicit incomplete-coverage label. Feature totals and In play are provisional; session information waits for the full scan. Refresh keeps the current board and editor usable, and failed reads retain the last usable view with a retry through Refresh.
+
 Default layout:
 
 ```text

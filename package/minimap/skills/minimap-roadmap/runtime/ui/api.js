@@ -76,7 +76,7 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource } = {}) {
   return {
     // Roadmap
     loadWorkspace: () => request("/api/workspace"),
-    loadWorktreeWorkspace: () => request("/api/worktree-workspace", {}, { unbound: true }),
+    loadWorktreeWorkspace: ({ openedOnly = false } = {}) => request(`/api/worktree-workspace${openedOnly ? "?openedOnly=1" : ""}`, {}, { unbound: true }),
     discoverWorktreeSources: () => request("/api/worktree-sources", {}, { unbound: true }),
     loadSourceWorkspace: (identity) => request("/api/worktree-source-workspace", {
       headers: { "X-Minimap-Source-Context": JSON.stringify(identity).replace(/[\u007f-\uffff]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`) },
