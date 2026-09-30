@@ -33,6 +33,8 @@ The running server transparently serves spec sessions and any roadmap that reque
 
 When the roadmap browser opens a spec from a selected Git checkout, it may use the source-bound `/api/source/spec-sessions/...` route family. Those requests require a live `X-Minimap-Source-Context`, and every target file path must resolve inside that checkout. This does not replace the ordinary unbound spec-review CLI or the routes documented in [http.md](http.md) for reviews of arbitrary files.
 
+The roadmap source menu uses `GET /api/worktree-sources` only for lightweight discovery. Those choices do not authorize edits: `GET /api/worktree-source-workspace` validates the selected Git identity and roadmap location and returns fresh `{source, workspace}` context before bound operations. Background discovery refresh does not replace the captured editor context or draft. A failed checkout open can be retried with Refresh or the current-source choice, which rediscovers before binding. Aggregate roadmap and participant coverage remain separate from discovery.
+
 ## Shared runtime replacement
 
 Health reports `runtime: { version, apiCompatibility, sourcePath }` and live `pid`. API compatibility is integer 1; it changes only for incompatible server API changes, independently of package release versions.

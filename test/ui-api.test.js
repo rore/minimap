@@ -116,6 +116,19 @@ test("aggregate read keeps the selected repo even without a bound item source", 
   assert.ok(f.calls.every((call) => new Headers(call.opts.headers).get("X-Minimap-Repo") === "C:/different/project"));
 });
 
+test("inventory ignores the editor pin and fresh workspace binds the explicitly selected checkout", async () => {
+  const f = fakeFetch([{}, {}]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/board", getSource: () => ({ mode: "across", identity: null }) });
+  await api.discoverWorktreeSources();
+  const selected = { repoRoot: "C:/other/β", sourceKey: "selected", git: { branchRef: "refs/heads/β" } };
+  await api.loadSourceWorkspace(selected);
+  assert.deepEqual(f.calls.map((call) => call.url), ["/api/worktree-sources", "/api/worktree-source-workspace"]);
+  assert.equal(new Headers(f.calls[0].opts.headers).get("X-Minimap-Repo"), "C:/board");
+  const headers = new Headers(f.calls[1].opts.headers);
+  assert.equal(headers.get("X-Minimap-Repo-Encoded"), encodeURIComponent(selected.repoRoot));
+  assert.deepEqual(JSON.parse(headers.get("X-Minimap-Source-Context")), selected);
+});
+
 test("bound roadmap and spec requests carry an ASCII-safe Unicode source context", async () => {
   const f = fakeFetch([{}, {}, {}]);
   const identity = { repoRoot: "C:/projects/β", sourceKey: "abc", label: "β branch", git: { branchRef: "refs/heads/β" } };

@@ -66,7 +66,7 @@ When editing items:
 
 ## Scope
 
-Use `scope.md` for short current-focus narrative and near-term direction. Item state belongs in item files, not in scope. Milestone and Unfinished reuse the existing filters. In play matches status `in-progress` OR any confirmed attached, nonclosed session, including dormant sessions; it AND-composes with search, metadata, and Unfinished in every lens and layout. Clear resets it and `inPlay=1` preserves it in the URL. Unknown or partial participant results show an incomplete-results notice while retaining known in-progress matches. These controls do not edit item metadata or reorder the canonical board.
+Use `scope.md` for short current-focus narrative and near-term direction. Item state belongs in item files, not in scope. Milestone and Unfinished reuse the existing filters. In play matches normalized status `active` or `in-progress`, OR any confirmed attached, nonclosed session, including dormant sessions; it AND-composes with search, metadata, and Unfinished in every lens and layout. Clear resets it and `inPlay=1` preserves it in the URL. Unknown or partial participant results show an incomplete-results notice while retaining known active and in-progress matches. These controls do not edit item metadata or reorder the canonical board.
 
 ## Manual Metadata-First Migration
 

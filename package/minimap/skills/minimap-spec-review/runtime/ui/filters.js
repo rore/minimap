@@ -30,7 +30,7 @@ export function itemMatchesFilters(item, ctx = {}) {
   const { searchQuery = "", activeFilters = {}, inPlay = false, participantCounts } = ctx;
   if (inPlay) {
     const inProgress = normalizeFilterValues(item.metadata?.status ?? item.status)
-      .some((status) => status.toLowerCase() === "in-progress");
+      .some((status) => ["active", "in-progress"].includes(status.toLowerCase()));
     const count = participantCounts?.get(item.id)?.participantCount;
     if (!inProgress && !(Number.isSafeInteger(count) && count > 0)) return false;
   }

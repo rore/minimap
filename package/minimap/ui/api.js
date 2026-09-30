@@ -8,6 +8,8 @@
 const ROADMAP_PREFIXES = [
   "/api/workspace",
   "/api/worktree-workspace",
+  "/api/worktree-sources",
+  "/api/worktree-source-workspace",
   "/api/board",
   "/api/scope",
   "/api/items/",
@@ -36,7 +38,7 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource } = {}) {
   const repo = typeof getRepo === "function" ? getRepo : () => "";
   const source = typeof getSource === "function" ? getSource : () => null;
 
-  async function request(url, init = {}, { unbound = false } = {}) {
+  async function request(url, init = {}, { unbound = false, repoRoot = null } = {}) {
     const headers = new Headers(init.headers || {});
     const setRepoHeader = (value) => {
       if (/[^\x20-\x7e]/.test(value)) headers.set("X-Minimap-Repo-Encoded", encodeURIComponent(value));
@@ -53,7 +55,7 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource } = {}) {
       headers.set("X-Minimap-Source-Context", JSON.stringify({ repoRoot, sourceKey, git, roadmapBinding }).replace(/[\u007f-\uffff]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`));
       url = url.replace(/^\/api\//, "/api/source/");
     }
-    const repoValue = repo();
+    const repoValue = repoRoot ?? repo();
     if (!selection && isRoadmapEndpoint(url) && repoValue) {
       setRepoHeader(repoValue);
     }
@@ -75,6 +77,10 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource } = {}) {
     // Roadmap
     loadWorkspace: () => request("/api/workspace"),
     loadWorktreeWorkspace: () => request("/api/worktree-workspace", {}, { unbound: true }),
+    discoverWorktreeSources: () => request("/api/worktree-sources", {}, { unbound: true }),
+    loadSourceWorkspace: (identity) => request("/api/worktree-source-workspace", {
+      headers: { "X-Minimap-Source-Context": JSON.stringify(identity).replace(/[\u007f-\uffff]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`) },
+    }, { unbound: true, repoRoot: identity.repoRoot }),
     initializeWorkspace: () => request("/api/setup/initialize", { method: "POST" }),
     saveBoard: (groups, expectedRevision) => postJson("/api/board", { groups, expectedRevision }),
     reorderMetadata: (payload) => postJson("/api/metadata-order", payload),
