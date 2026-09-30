@@ -66,14 +66,16 @@ export async function discoverWorktreeSources(openRepoRoot) {
   result.sources.push(opened);
   let records;
   try { records = parsePorcelain(await git(opened.repoRoot, ["worktree", "list", "--porcelain", "-z"])); }
-  catch (error) { result.unavailable = { reason: "git-worktree-list-failed", message: error.message }; return result; }
+  catch (error) { result.partial = true; result.unavailable = { reason: "git-worktree-list-failed", message: error.message }; return result; }
   const candidates = records.filter((record) => canonical(record.worktree) !== opened.repoRoot);
   for (const record of candidates) {
-    if (record.prunable) { result.excluded.push({ repoRoot: record.worktree, reason: "prunable" }); continue; }
+    if (result.sources.length >= MAX_SOURCES) {
+      result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "source-limit" }); continue;
+    }
+    if (record.prunable) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "prunable" }); continue; }
     const candidate = await readWorktreeIdentity(record.worktree);
-    if (!candidate) { result.excluded.push({ repoRoot: record.worktree, reason: "missing-or-unavailable" }); continue; }
+    if (!candidate) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "missing-or-unavailable" }); continue; }
     if (candidate.git.commonDir !== opened.git.commonDir) { result.excluded.push({ repoRoot: record.worktree, reason: "different-common-git-dir" }); continue; }
-    if (result.sources.length >= MAX_SOURCES) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "source-limit" }); continue; }
     result.sources.push(candidate);
   }
   return result;

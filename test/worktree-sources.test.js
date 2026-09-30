@@ -6,23 +6,25 @@ import path from "node:path";
 import { afterEach, test } from "node:test";
 import { discoverWorktreeSources, readWorktreeIdentity } from "../package/minimap/src/worktree-sources.js";
 
-const roots = [];
+const containers = [];
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, windowsHide: true, encoding: "utf8" }).trim();
 async function repo() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-worktrees-")); roots.push(root);
+  const container = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-worktrees-")); containers.push(container);
+  const root = path.join(container, "repo"); await fs.mkdir(root);
   git(root, "init", "-b", "main"); git(root, "config", "user.name", "Test"); git(root, "config", "user.email", "test@example.invalid");
   await fs.writeFile(path.join(root, "file"), "initial\n"); git(root, "add", "file"); git(root, "commit", "-m", "initial");
   return root;
 }
-afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
+afterEach(async () => { for (const container of containers.splice(0)) await fs.rm(container, { recursive: true, force: true }); });
 
 test("discovers registered linked worktrees in Git order and identifies branch or detached context", async () => {
   const root = await repo();
-  const one = path.join(root, "..", "linked-one"); const two = path.join(root, "..", "linked-two"); roots.push(one, two);
+  const one = path.join(path.dirname(root), "linked-one"); const two = path.join(path.dirname(root), "linked-two");
   git(root, "worktree", "add", "-b", "feature/one", one);
   git(root, "worktree", "add", "--detach", two, "HEAD");
   const result = await discoverWorktreeSources(root);
-  assert.deepEqual(result.sources.map((source) => source.repoRoot), [root.toLowerCase(), one.toLowerCase(), two.toLowerCase()]);
+  const canonical = (value) => process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value);
+  assert.deepEqual(result.sources.map((source) => source.repoRoot), [root, one, two].map(canonical));
   assert.equal(result.sources[1].git.branchRef, "refs/heads/feature/one");
   assert.equal(result.sources[2].git.branchRef, null);
   const before = await readWorktreeIdentity(one);
@@ -30,29 +32,30 @@ test("discovers registered linked worktrees in Git order and identifies branch o
   assert.deepEqual((await readWorktreeIdentity(one)).git, before.git);
   git(one, "checkout", "--detach", "HEAD");
   assert.notEqual((await readWorktreeIdentity(one)).git.branchRef, before.git.branchRef);
+  await fs.rm(two, { recursive: true, force: true });
+  const afterRemoval = await discoverWorktreeSources(root);
+  assert.equal(afterRemoval.partial, true);
+  assert.ok(afterRemoval.excluded.some((entry) => canonical(entry.repoRoot) === canonical(two)
+    && ["missing-or-unavailable", "prunable"].includes(entry.reason)));
 });
 
 test("non-Git paths fall back cleanly and a separate clone is never a sibling", async () => {
-  const root = await repo(); const outside = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-nongit-")); roots.push(outside);
+  const root = await repo(); const container = path.dirname(root);
+  const outside = path.join(container, "nongit"); await fs.mkdir(outside);
   assert.deepEqual(await discoverWorktreeSources(outside), { sources: [], excluded: [], partial: false, unavailable: { reason: "not-git-or-unavailable" } });
-  const clone = path.join(root, "..", "clone"); roots.push(clone); git(root, "clone", "--shared", root, clone);
+  const clone = path.join(container, "clone"); git(root, "clone", "--shared", root, clone);
   const result = await discoverWorktreeSources(root);
-  assert.equal(result.sources.some((source) => source.repoRoot === clone.toLowerCase()), false);
+  assert.equal(result.sources.some((source) => source.repoRoot === (process.platform === "win32" ? clone.toLowerCase() : clone)), false);
 });
 
-test("removed worktree registrations are excluded and source discovery is capped", async () => {
+test("source discovery is capped", async () => {
   const root = await repo();
   for (let i = 0; i < 17; i += 1) {
-    const target = path.join(root, "..", `linked-${i}`); roots.push(target);
+    const target = path.join(path.dirname(root), `linked-${i}`);
     git(root, "worktree", "add", "--detach", target, "HEAD");
   }
   const result = await discoverWorktreeSources(root);
   assert.equal(result.sources.length, 16);
   assert.equal(result.partial, true);
   assert.ok(result.excluded.some((entry) => entry.reason === "source-limit"));
-  const removed = path.join(root, "..", "linked-0");
-  await fs.rm(removed, { recursive: true, force: true });
-  const after = await discoverWorktreeSources(root);
-  assert.ok(after.excluded.some((entry) => path.resolve(entry.repoRoot).toLowerCase() === path.resolve(removed).toLowerCase()
-    && ["missing-or-unavailable", "prunable"].includes(entry.reason)));
 });
