@@ -14,6 +14,7 @@ import {
   saveScopeText,
 } from "./src/roadmap.js";
 import { loadWorktreeAggregate } from "./src/worktree-aggregate.js";
+import { discoverWorktreeSources } from "./src/worktree-sources.js";
 import { selectWorktreeParticipantCandidates } from "./src/worktree-presence.js";
 import { requirePathInSource, requireRoadmapInSource, verifySourceContext } from "./src/source-bound.js";
 import { withSourceWriteGuard } from "./src/source-write-guard.js";
@@ -432,6 +433,54 @@ async function handleWorkspace(request, response) {
   sendJson(response, 200, workspace);
 }
 
+async function handleWorktreeSources(request, response) {
+  const repoRoot = await resolveRoadmapRepo(request);
+  sendJson(response, 200, await discoverWorktreeSources(repoRoot));
+}
+
+async function handleWorktreeSourceWorkspace(request, response) {
+  const rawContext = request.headers["x-minimap-source-context"];
+  if (typeof rawContext !== "string" || !rawContext) {
+    throw new AppError("Source context is required.", 400, "source_context_required");
+  }
+  let expected;
+  try { expected = JSON.parse(rawContext); }
+  catch { throw new AppError("Invalid source context.", 400, "bad_request"); }
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) {
+    throw new AppError("Invalid source context.", 400, "bad_request");
+  }
+  if (expected.roadmapBinding !== undefined && (!expected.roadmapBinding
+    || typeof expected.roadmapBinding !== "object" || Array.isArray(expected.roadmapBinding)
+    || typeof expected.roadmapBinding.roadmapPath !== "string"
+    || typeof expected.roadmapBinding.resolvedPath !== "string"
+    || !path.isAbsolute(expected.roadmapBinding.resolvedPath))) {
+    throw new AppError("Invalid source context.", 400, "bad_request");
+  }
+
+  const repoRoot = await resolveRoadmapRepo(request);
+  await verifySourceContext(repoRoot, expected);
+  const roadmap = await requireRoadmapInSource(repoRoot);
+  const workspace = await loadWorkspace(repoRoot);
+  workspace.specSessionsByItemId = await buildSpecSessionsByItemId(repoRoot, workspace);
+
+  const source = await verifySourceContext(repoRoot, expected);
+  const currentRoadmap = await requireRoadmapInSource(repoRoot);
+  const samePath = (left, right) => typeof left === "string" && typeof right === "string"
+    && path.isAbsolute(left) && path.isAbsolute(right)
+    && (process.platform === "win32"
+      ? path.normalize(left).toLowerCase() === path.normalize(right).toLowerCase()
+      : path.normalize(left) === path.normalize(right));
+  if (roadmap.roadmapPath !== workspace.roadmapPath || !samePath(roadmap.resolvedPath, workspace.resolvedPath)
+    || roadmap.roadmapPath !== currentRoadmap.roadmapPath || !samePath(roadmap.resolvedPath, currentRoadmap.resolvedPath)
+    || (expected.roadmapBinding && (expected.roadmapBinding.roadmapPath !== roadmap.roadmapPath
+      || !samePath(expected.roadmapBinding.resolvedPath, roadmap.resolvedPath)))) {
+    throw new AppError("Roadmap location changed. Reload this source before continuing.", 409, "source_changed");
+  }
+  sendJson(response, 200, { source: { ...source, roadmapBinding: {
+    roadmapPath: roadmap.roadmapPath, resolvedPath: roadmap.resolvedPath,
+  } }, workspace });
+}
+
 async function handleWorktreeWorkspace(request, response) {
   const repoRoot = await resolveRoadmapRepo(request);
   const aggregate = await loadWorktreeAggregate(repoRoot);
@@ -644,6 +693,8 @@ async function handleSaveItem(request, response, ctx) {
 const routes = [
   { method: "GET",    pattern: /^\/health$/, handler: handleHealth },
   { method: "POST",   pattern: /^\/api\/shutdown$/, handler: handleShutdown },
+  { method: "GET",    pattern: /^\/api\/worktree-sources$/, handler: handleWorktreeSources },
+  { method: "GET",    pattern: /^\/api\/worktree-source-workspace$/, handler: handleWorktreeSourceWorkspace },
   { method: "GET",    pattern: /^\/api\/worktree-workspace$/, handler: handleWorktreeWorkspace },
   { method: "POST",   pattern: /^\/api\/spec-sessions\/attach$/, handler: handleSpecAttach },
   { method: "GET",    pattern: /^\/api\/spec-sessions$/, handler: handleListSpecSessions },

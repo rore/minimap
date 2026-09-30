@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { countDistinctWorktreeFeatures, projectWorktreeGroups } from "../package/minimap/ui/worktrees.js";
+import { countDistinctWorktreeFeatures, projectWorktreeGroups, versionDifferences } from "../package/minimap/ui/worktrees.js";
 
 function fixture(versions, { availableLenses = [] } = {}) {
   const features = versions.map(({ key, id, entries }) => ({ key, id, versions: entries, conflicts: [] }));
@@ -18,6 +18,17 @@ function fixture(versions, { availableLenses = [] } = {}) {
 
 const version = (sourceKey, group, summary, groupKind = "board") => ({
   sourceKey, repoRoot: sourceKey, itemId: summary.id, summary, group, groupKind,
+});
+
+test("version differences use the selected version and line-ending-normalized content evidence", () => {
+  const selected = { sourceKey: "main", summary: { status: "done", priority: "low", revision: "raw-a" }, displayRevision: "same-content" };
+  const identical = { sourceKey: "other", summary: { ...selected.summary, revision: "raw-crlf" }, displayRevision: "same-content" };
+  assert.deepEqual(versionDifferences(identical, selected), []);
+  const changed = { sourceKey: "blue", summary: { status: "active", priority: "high", revision: "raw-b" }, displayRevision: "changed-content" };
+  assert.deepEqual(versionDifferences(changed, selected), ["Status: active (selected: done)", "Priority: high (selected: low)", "Content differs"]);
+  assert.deepEqual(versionDifferences(selected, changed), ["Status: done (selected: active)", "Priority: low (selected: high)", "Content differs"]);
+  assert.deepEqual(versionDifferences({ ...identical, displayRevision: "body-only" }, selected), ["Content differs"]);
+  assert.deepEqual(versionDifferences(selected, selected), []);
 });
 
 test("search and metadata filters must match one version, not combine siblings", () => {

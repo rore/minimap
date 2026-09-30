@@ -3126,6 +3126,13 @@ test("selecting one of two duplicate phrases anchors a comment to the right occu
   expect(selectionInfo.ok, `selection setup failed: ${selectionInfo.reason}`).toBe(true);
   expect(selectionInfo.renderedText).toBe("DUPLICATE_PHRASE_ABC");
 
+  // A pending session load can re-render the document after the composer opens.
+  // That must not discard the captured source position before submission.
+  await page.evaluate(() => window.__minimapSpec.rerenderSpecDocument());
+  const capturedAnchor = await page.evaluate(() => window.__minimapSpec.getSpecStateSnapshot());
+  expect(capturedAnchor.selectedQuoteOffset).toEqual(expect.any(Number));
+  expect(capturedAnchor.selectedQuoteLineRange).not.toBeNull();
+
   const commentText = `auto test - duplicate phrase ${Date.now()}`;
   await page.locator("#spec-comment-text").fill(commentText);
   await page.locator("#spec-comment-form button[type='submit']").click();

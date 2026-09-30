@@ -4,6 +4,15 @@ const UNASSIGNED_KEY = "__unassigned__";
 const UNASSIGNED_LABEL = "Unassigned";
 const CONFLICT_FIELDS = ["title", "status", "priority", "commitment", "milestone", "kind", "revision"];
 
+export function versionDifferences(version, selected) {
+  if (!selected || version.sourceKey === selected.sourceKey) return [];
+  const differences = CONFLICT_FIELDS.filter((field) => field !== "revision")
+    .filter((field) => JSON.stringify(version.summary[field] ?? "") !== JSON.stringify(selected.summary[field] ?? ""))
+    .map((field) => `${field[0].toUpperCase()}${field.slice(1)}: ${version.summary[field] || "not set"} (selected: ${selected.summary[field] || "not set"})`);
+  if ((version.displayRevision ?? version.summary.revision) !== (selected.displayRevision ?? selected.summary.revision)) differences.push("Content differs");
+  return differences;
+}
+
 function conflictsForVersions(versions) {
   return CONFLICT_FIELDS.flatMap((field) => {
     const entries = versions.map((version) => ({ field, sourceKey: version.sourceKey, value: version.summary[field] ?? "" }));

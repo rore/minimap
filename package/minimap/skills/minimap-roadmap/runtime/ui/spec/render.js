@@ -777,9 +777,11 @@ export function renderSpecFile() {
   // anchor.quote on every render. Built once after the DOM is in place.
   rebuildSpecLineIndex();
 
-  STATE.spec.selectedQuote = "";
-  STATE.spec.selectedQuoteLineRange = null;
-  STATE.spec.selectedQuoteOffset = null;
+  if (!STATE.spec.commentComposerOpen && !STATE.spec.suggestionComposerOpen) {
+    STATE.spec.selectedQuote = "";
+    STATE.spec.selectedQuoteLineRange = null;
+    STATE.spec.selectedQuoteOffset = null;
+  }
   STATE.spec.activeAnchorCommentId = "";
   clearSpecAnchorHighlight();
   HELPERS.hideSpecContextToolbar();

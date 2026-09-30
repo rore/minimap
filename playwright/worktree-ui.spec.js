@@ -30,20 +30,25 @@ async function fixture(count = 84) {
   git(root, "config", "core.autocrlf", "false");
   git(root, "add", ".");
   git(root, "commit", "-m", "base");
-  git(root, "worktree", "add", "-b", "feature/blue", sibling);
+  const branch = "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls";
+  git(root, "worktree", "add", "-b", branch, sibling);
   const changed = path.join(sibling, "roadmap", "features", "large-01.md");
   await fs.writeFile(changed, (await fs.readFile(changed, "utf8")).replace("status: done", "status: in-progress"));
+  const contentOnly = path.join(sibling, "roadmap", "features", "large-02.md");
+  await fs.writeFile(contentOnly, (await fs.readFile(contentOnly, "utf8")).replace("Description for large-02.", "Body-only change for large-02."));
   await fs.writeFile(path.join(sibling, "roadmap", "features", "blue-only.md"), "---\nid: blue-only\ntitle: Blue-only untracked feature\nstatus: queued\npriority: high\ncommitment: committed\n---\n\n## Summary\n\nUntracked work must be visible.\n");
   return { owned, root, sibling };
 }
 
-test("combined large board stays usable in List and Columns at desktop and narrow widths", async ({ page }, testInfo) => {
+test("combined large board stays usable in List and Columns at desktop and narrow widths", async ({ page, request }, testInfo) => {
   test.setTimeout(90_000);
   const apiFailures = [];
   page.on("response", (response) => {
     if (response.status() >= 400 && response.url().includes("/api/")) apiFailures.push({ url: response.url(), status: response.status() });
   });
   const { owned, root } = await fixture();
+  const inventory = await (await request.get("/api/worktree-sources", { headers: { "X-Minimap-Repo": root } })).json();
+  const blueSource = inventory.sources.find((source) => source.repoRoot.toLowerCase() !== root.toLowerCase());
   testInfo.attach("fixture", { body: root, contentType: "text/plain" });
   try {
     await page.goto(`/#repo=${encodeURIComponent(root)}`);
@@ -54,18 +59,37 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await expect(page.locator("#workspace-summary")).toContainText("85 features");
     await expect(page.locator("#editor-title")).toContainText("large-01");
     await expect(page.locator("#editor-source-label")).toBeVisible();
-    await expect(page.locator("#editor-source-select option")).toHaveCount(2);
+    await page.locator("#editor-source-summary").click();
+    await expect(page.locator("#editor-source-label [data-editor-source]")).toHaveCount(2);
     expect(apiFailures).toEqual([]);
-    await page.locator("#editor-source-select").selectOption({ index: 1 });
+    await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "feature/blue" }).click();
     await expect(page.locator("#field-status")).toHaveValue("in-progress");
-    await expect(page.getByText("Status differs").first()).toBeVisible();
+    await expect(page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "main" })).toContainText("Status: done (selected: in-progress)");
     await expect(page).toHaveURL(/source=/);
     await page.reload();
     await expect(page.locator("#field-status")).toHaveValue("in-progress");
-    await expect(page.locator("#editor-source-select option:checked")).toContainText("feature/blue · in-progress");
+    await page.locator("#editor-source-summary").click();
+    await expect(page.locator('#editor-source-label [data-editor-source][aria-pressed="true"]')).toContainText("feature/blue/with-an-intentionally-long-name-for-narrow-version-controls");
+    await expect(page.locator('#editor-source-label [data-editor-source][aria-pressed="true"]')).toContainText("in-progress");
     await page.getByRole("button", { name: "Unfinished" }).click();
-    await expect(page.locator("#editor-source-select option").first()).toContainText("filtered out");
+    const filteredMain = page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "main" });
+    await expect(filteredMain).toContainText("filtered out");
+    await filteredMain.click();
+    await expect(page.locator("#field-status")).toHaveValue("done");
+    await expect(filteredMain).toHaveAttribute("aria-pressed", "true");
+    await page.locator("#editor-source-summary").click();
+    await expect(page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" }))
+      .toContainText("Status: in-progress (selected: done)");
+    await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" }).click();
     await page.getByRole("button", { name: "Unfinished" }).click();
+    await page.getByRole("button", { name: /Open large-02/ }).first().click();
+    await page.locator("#editor-source-summary").click();
+    const contentOnlyVersion = page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" });
+    await expect(contentOnlyVersion).toContainText("Content differs");
+    await expect(contentOnlyVersion).not.toContainText(/Status:/);
+    await contentOnlyVersion.click();
+    await page.locator("#editor-source-summary").click();
+    await expect(contentOnlyVersion).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("combined-list-desktop.png"), fullPage: true });
     await page.locator('[data-group-toggle="unlisted:Not on a board"]').click();
     await expect(page.getByText("Blue-only untracked feature")).toBeVisible();
@@ -78,12 +102,22 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await page.locator("#board-layout-list").click();
     await page.screenshot({ path: testInfo.outputPath("combined-list-narrow.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 840 });
+    await page.locator("#board-layout-columns").click();
+    await page.getByRole("button", { name: /Open large-02/ }).first().click();
+    if (!(await page.locator("#editor-source-label").evaluate((element) => element.open))) await page.locator("#editor-source-summary").click();
+    await expect(contentOnlyVersion).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("expanded-versions-columns-390.png"), fullPage: true });
+    await page.keyboard.press("Escape");
+    await page.locator("#board-layout-list").click();
+    await page.screenshot({ path: testInfo.outputPath("expanded-versions-list-390.png") });
     await page.locator("#board-source-toggle").click();
     const menuBounds = await page.locator("#board-source-menu").evaluate((menu) => ({
       right: menu.getBoundingClientRect().right,
-      boardRight: menu.closest(".board-panel").getBoundingClientRect().right,
+      left: menu.getBoundingClientRect().left,
+      viewportRight: window.innerWidth,
     }));
-    expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.boardRight + 1);
+    expect(menuBounds.right).toBeLessThanOrEqual(menuBounds.viewportRight + 1);
+    expect(menuBounds.left).toBeGreaterThanOrEqual(-1);
     await page.locator("#board-source-menu").press("Escape");
     const overflowing = await page.locator(".board-item, .board-column-card").evaluateAll((cards) => cards.filter((card) => {
       const parent = card.parentElement;
@@ -98,7 +132,228 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await page.locator("#refresh-button").click();
     await expect(page.locator("#raw-text")).toHaveValue(draft);
     await expect(page.locator("#tab-raw")).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator("#editor-source-select option:checked")).toContainText("feature/blue · in-progress");
+    await expect(page.locator('#editor-source-label [data-editor-source][aria-pressed="true"]')).toContainText("feature/blue/with-an-intentionally-long-name-for-narrow-version-controls");
+    await expect(page.locator('#editor-source-label [data-editor-source][aria-pressed="true"]')).toContainText("in-progress");
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("source menu stays responsive during discovery, deduplicates refresh, and ignores a closed response", async ({ page }) => {
+  const { owned, root } = await fixture(2);
+  let inventoryCalls = 0;
+  let releaseFirst;
+  let releaseSecond;
+  let releaseThird;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const secondGate = new Promise((resolve) => { releaseSecond = resolve; });
+  const thirdGate = new Promise((resolve) => { releaseThird = resolve; });
+  const aggregates = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/worktree-workspace")) aggregates.push(request.url());
+  });
+  await page.route("**/api/worktree-sources**", async (route) => {
+    inventoryCalls += 1;
+    if (inventoryCalls === 1) {
+      await firstGate;
+      await route.continue();
+      return;
+    }
+    if (inventoryCalls === 2) {
+      await secondGate;
+      await route.continue();
+      return;
+    }
+    if (inventoryCalls === 3) {
+      await thirdGate;
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "inventory unavailable" } }) });
+      return;
+    }
+    await route.continue();
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(root)}`);
+    const firstRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator("#board-source-menu")).toBeVisible();
+    await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toBeVisible();
+    await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeVisible();
+    await firstRequest;
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator("#board-source-menu")).toBeHidden();
+    expect(aggregates).toEqual([]);
+    const firstResponse = page.waitForResponse((response) => response.url().includes("/api/worktree-sources"));
+    releaseFirst();
+    await firstResponse;
+    await expect(page.locator("#board-source-menu")).toBeHidden();
+
+    const secondRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
+    await page.locator("#board-source-toggle").click();
+    await secondRequest;
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator("#board-source-menu")).toBeHidden();
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator("#board-source-menu")).toBeVisible();
+    expect(inventoryCalls).toBe(2);
+    await page.locator('#board-source-menu [data-source-choice="this"]').focus();
+    const secondResponse = page.waitForResponse((response) => response.url().includes("/api/worktree-sources"));
+    releaseSecond();
+    await secondResponse;
+    await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toBeFocused();
+    await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
+
+    const thirdRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
+    await page.locator("#board-source-toggle").click();
+    await page.locator("#board-source-toggle").click();
+    await thirdRequest;
+    await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
+    const thirdResponse = page.waitForResponse((response) => response.url().includes("/api/worktree-sources"));
+    releaseThird();
+    expect((await thirdResponse).status()).toBe(503);
+    await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
+    await expect(page.locator("#board-source-menu")).toContainText(/last-known|unavailable/i);
+    await expect(page.locator("#board-source-menu")).toBeVisible();
+    expect(aggregates).toEqual([]);
+
+    const acrossRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-workspace"));
+    await page.locator('#board-source-menu [data-source-choice="across"]').click();
+    await acrossRequest;
+    expect(aggregates).toHaveLength(1);
+  } finally {
+    releaseFirst();
+    releaseSecond();
+    releaseThird();
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("inventory from a previous repository cannot replace the current repository menu", async ({ page }) => {
+  const a = await fixture(2);
+  const b = await fixture(2);
+  let releaseA;
+  const gateA = new Promise((resolve) => { releaseA = resolve; });
+  await page.route("**/api/worktree-sources**", async (route) => {
+    if (route.request().headers()["x-minimap-repo"]?.toLowerCase() === a.root.toLowerCase()) await gateA;
+    await route.continue();
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(a.root)}`);
+    const inventoryA = page.waitForRequest((request) => request.url().includes("/api/worktree-sources")
+      && request.headers()["x-minimap-repo"]?.toLowerCase() === a.root.toLowerCase());
+    await page.locator("#board-source-toggle").click();
+    await inventoryA;
+
+    const workspaceB = page.waitForResponse((response) => response.url().endsWith("/api/workspace")
+      && response.request().headers()["x-minimap-repo"]?.toLowerCase() === b.root.toLowerCase());
+    await page.evaluate((repo) => {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      params.set("repo", repo);
+      window.location.hash = params.toString();
+    }, b.root);
+    await workspaceB;
+    if (await page.locator("#board-source-menu").isVisible()) await page.locator("#board-source-toggle").click();
+    const inventoryB = page.waitForRequest((request) => request.url().includes("/api/worktree-sources")
+      && request.headers()["x-minimap-repo"]?.toLowerCase() === b.root.toLowerCase());
+    await page.locator("#board-source-toggle").click();
+    await inventoryB;
+    await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toContainText(b.root);
+
+    const responseA = page.waitForResponse((response) => response.url().includes("/api/worktree-sources")
+      && response.request().headers()["x-minimap-repo"]?.toLowerCase() === a.root.toLowerCase());
+    releaseA();
+    await responseA;
+    await expect(page.locator("#board-source-menu")).toBeVisible();
+    await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toContainText(b.root);
+  } finally {
+    releaseA();
+    await fs.rm(a.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    await fs.rm(b.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("partial worktree discovery is explicit and does not imply complete coverage", async ({ page }) => {
+  const { owned, root } = await fixture(2);
+  const missing = path.join(owned, "missing-checkout");
+  git(root, "worktree", "add", "-b", "feature/missing", missing);
+  await fs.rm(missing, { recursive: true, force: true });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(root)}`);
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeEnabled();
+    await page.locator('#board-source-menu [data-source-choice="across"]').click();
+    await expect(page.locator("#board-source-status")).toContainText(/partial/i);
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator("#board-source-menu")).toContainText(/unavailable|excluded/i);
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("a raw draft survives same-path source replacement and stale saves are rejected", async ({ page }) => {
+  const { owned, root, sibling } = await fixture(2);
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(root)}`);
+    await page.locator("#board-source-toggle").click();
+    await page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" }).click();
+    await expect(page).toHaveURL(/sources=this&bound=1/);
+    await expect(page.locator("#editor-title")).toContainText("large-01");
+    await page.locator("#tab-structured").click();
+    await page.locator("#tab-raw").click();
+    const draft = `${await page.locator("#raw-text").inputValue()}\n<!-- same-path replacement draft -->\n`;
+    await page.locator("#raw-text").fill(draft);
+
+    git(sibling, "switch", "--detach", "HEAD");
+    await page.locator("#save-button").click();
+    await expect(page.locator("#raw-text")).toHaveValue(draft);
+    await expect(page.locator("#status-banner")).toContainText(/source|checkout|changed|stale/i);
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("a discovered checkout selection uses its fresh inventory binding", async ({ page, request }) => {
+  const { owned, root } = await fixture(2);
+  try {
+    const inventory = await (await request.get("/api/worktree-sources", { headers: { "X-Minimap-Repo": root } })).json();
+    const blueSource = inventory.sources.find((source) => source.repoRoot.toLowerCase() !== root.toLowerCase());
+    await page.goto(`/#repo=${encodeURIComponent(root)}`);
+    await page.locator("#board-source-toggle").click();
+    const blueChoice = page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" });
+    await expect(blueChoice).toBeVisible();
+    const bindingRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-source-workspace"));
+    await blueChoice.click();
+    const binding = await bindingRequest;
+    expect(JSON.parse(binding.headers()["x-minimap-source-context"])).toEqual(blueSource);
+    await page.locator("#board-source-toggle").click();
+    const aggregateResponse = page.waitForResponse((response) => response.url().includes("/api/worktree-workspace"));
+    await page.locator('#board-source-menu [data-source-choice="across"]').click();
+    expect((await aggregateResponse).status()).toBe(200);
+    await expect(page.locator("#workspace-summary")).toContainText("3 features");
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("a failed checkout load can retry through Refresh and the current-source choice", async ({ page }) => {
+  const { owned, root } = await fixture(2);
+  let attempts = 0;
+  await page.route("**/api/worktree-source-workspace", async (route) => {
+    attempts += 1;
+    if (attempts <= 2) await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "temporary checkout failure" } }) });
+    else await route.continue();
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(root)}`);
+    await page.locator("#board-source-toggle").click();
+    await page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" }).click();
+    await expect(page.locator("#status-banner")).toContainText("temporary checkout failure");
+    await expect(page.locator("#board-groups")).not.toContainText("large-01");
+    await page.locator("#refresh-button").click();
+    await expect.poll(() => attempts).toBe(2);
+    await page.locator("#board-source-toggle").click();
+    await page.locator('#board-source-menu [data-source-choice="this"]').click();
+    await expect(page.locator("#editor-title")).toContainText("large-01");
+    expect(attempts).toBe(3);
   } finally {
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
@@ -219,19 +474,22 @@ test("cross-group versions and missing board references stay visible in derived 
     await page.goto(`/#repo=${encodeURIComponent(root)}`);
     await page.locator("#board-source-toggle").click();
     await page.locator('[data-source-choice="across"]').click();
-    await expect(page.locator("#board-source-status")).toContainText("3 features · 4 appearances");
-    await expect(page.locator("#board-source-status")).toContainText("1 missing ref");
+    await expect(page.locator("#board-source-status-summary")).toContainText("3 features");
+    await page.locator("#board-source-status-summary").click();
+    await expect(page.locator("#board-source-status-details")).toContainText("4 placements in 3 groups");
+    await expect(page.locator("#board-source-status-details")).toContainText("1 missing board references");
     await expect(page.getByText("Also in Lane 02")).toBeVisible();
     await page.locator("#board-source-toggle").click();
     await expect(page.locator("#board-source-menu")).toContainText("1 missing board reference");
     await page.locator("#board-source-menu .board-source-missing summary").click();
-    await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText("feature/blue · Lane 02");
+    await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText(/blue · feature\/blue\/.+ · Lane 02/);
     await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText("vanished-feature");
     const url = new URL(page.url());
     const params = new URLSearchParams(url.hash.slice(1));
     params.set("lens", "milestone");
     await page.goto(`/#${params.toString()}`);
-    await expect(page.locator("#board-source-status")).toContainText("1 missing ref");
+    await expect(page.locator("#board-source-status-summary")).toContainText("3 features");
+    await expect(page.locator("#board-source-status-details")).toContainText("1 missing board references");
     await expect(page.locator("#board-source-status")).toBeVisible();
   } finally {
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -269,6 +527,7 @@ test("independent same-ID features do not acquire participant detail from each o
     await page.goto(`/#repo=${encodeURIComponent(root)}`);
     await page.locator("#board-source-toggle").click();
     await page.locator('[data-source-choice="across"]').click();
+    await expect(page.locator("#workspace-summary")).toContainText("5 features");
     await expect(page.getByRole("button", { name: "Open Ambiguous main" })).toBeVisible();
     await page.getByRole("button", { name: "Open Ambiguous main" }).click();
     await expect(page.locator("#item-participants-status")).toHaveText("Association ambiguous");

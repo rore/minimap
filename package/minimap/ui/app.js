@@ -65,7 +65,7 @@ import {
 import { initSpec } from "/spec/index.js";
 import { detectSpecFileChange } from "/spec/file-change.js";
 import { createState } from "/state.js";
-import { projectWorktreeGroups, countDistinctWorktreeFeatures } from "/worktrees.js";
+import { projectWorktreeGroups, countDistinctWorktreeFeatures, versionDifferences } from "/worktrees.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -177,6 +177,8 @@ const state = stateContainer.get();
 state.worktreeMode = "this";
 state.worktreeData = null;
 state.sourceMenuData = null;
+state.workspaceScope = null;
+state.workspaceStale = false;
 state.selectedSource = null;
 state.pinnedSource = null;
 state.boundRequired = false;
@@ -195,6 +197,7 @@ let boardParticipantGeneration = 0;
 let boardParticipantController = null;
 let boardParticipantIncludeCompleted = null;
 let workspaceLoadGeneration = 0;
+let sourceInventoryRequest = null;
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
 const specModeButton = document.querySelector("#spec-mode-button");
@@ -248,6 +251,8 @@ const boardControlsElement = document.querySelector("#board-controls");
 const boardSourceToggleButton = document.querySelector("#board-source-toggle");
 const boardSourceMenuElement = document.querySelector("#board-source-menu");
 const boardSourceStatusElement = document.querySelector("#board-source-status");
+const boardSourceStatusSummaryElement = document.querySelector("#board-source-status-summary");
+const boardSourceStatusDetailsElement = document.querySelector("#board-source-status-details");
 const boardGroupsElement = document.querySelector("#board-groups");
 const boardEditButton = document.querySelector("#board-edit-button");
 const boardSaveButton = document.querySelector("#board-save-button");
@@ -285,6 +290,7 @@ const modeEyebrowElement = document.querySelector("#mode-eyebrow");
 const editorTitleElement = document.querySelector("#editor-title");
 const editorSubtitleElement = document.querySelector("#editor-subtitle");
 const editorSourceLabelElement = document.querySelector("#editor-source-label");
+const editorSourceSummaryElement = document.querySelector("#editor-source-summary");
 const editorSourceSelectElement = document.querySelector("#editor-source-select");
 const editorPanelElement = document.querySelector("#editor-panel");
 const editorPanelAnchor = document.querySelector("#editor-panel-anchor");
@@ -679,15 +685,24 @@ function renderBoardSourceControl() {
   if (!boardSourceToggleButton) return;
   boardSourceToggleButton.textContent = state.worktreeMode === "across" ? "Across worktrees ▾" : "This checkout ▾";
   const aggregate = state.worktreeData;
-  const excluded = aggregate?.coverage?.excluded || 0;
   const missing = aggregate?.coverage?.missingBoardRefs || [];
-  const message = state.worktreeMode !== "across" ? ""
-    : `${aggregate?.coverage?.loaded || 0} checkouts · ${workspaceSummaryElement.textContent}${aggregate?.partial ? ` · partial coverage${excluded ? ` (${excluded} excluded)` : ""}` : ""}${missing.length ? ` · ${missing.length} missing ${missing.length === 1 ? "ref" : "refs"}` : ""}`;
-  boardSourceStatusElement.textContent = message;
-  boardSourceStatusElement.hidden = !message;
-  boardSourceStatusElement.title = [...(aggregate?.excluded || []).map((entry) => `${entry.repoRoot}: ${sourceExclusionReason(entry)}`),
-    ...missing.slice(0, 20).map((entry) => `${sourceDisplayName(aggregate, entry.sourceKey)}: ${entry.group} / ${entry.itemId} (missing file)`),
-    ...(missing.length > 20 ? [`+${missing.length - 20} more missing refs`] : [])].join("\n") || message;
+  const groups = state.workspace ? getVisibleBoardGroups() : [];
+  const across = state.worktreeMode === "across";
+  const total = across ? aggregate?.features?.length || 0 : getBoardItems().filter((item) => !item.missing).length;
+  const shown = across ? countDistinctWorktreeFeatures(groups) : getVisibleBoardItemIds().length;
+  const partial = Boolean(aggregate?.partial || state.workspaceStale);
+  boardSourceStatusElement.hidden = !state.workspace;
+  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? '<span class="coverage-partial">Partial coverage</span>' : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
+  const placements = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
+  const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} roadmap checkouts loaded from ${escapeHtml(String(aggregate?.sources?.length || 0))} discovered checkouts. This covers local registered worktrees only.</p><p>${escapeHtml(String(placements))} placements in ${groups.length} groups. A feature can appear in multiple groups when its versions differ.</p>` : `<p>${total} items on this checkout's board. ${escapeHtml(String(shown))} match the current view.</p>`;
+  const exclusions = (aggregate?.excluded || []).map((entry) => `<li>${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}</li>`).join("");
+  const missingRows = missing.slice(0, 20).map((entry) => `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId} (missing file)`)}</li>`).join("");
+  const sessions = boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session information has partial coverage." : "Session information is available for the loaded items.") : "Session information is unavailable; status-based matches still apply.";
+  const missingNotice = missingRows ? `<p>${missing.length} missing board references:</p><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}` : "";
+  boardSourceStatusDetailsElement.innerHTML = coverage
+    + (state.workspaceStale ? "<p>The refresh failed. These are the last-known results; refresh before relying on coverage.</p>" : "")
+    + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
+    + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
 }
 
 function sourceExclusionReason(entry) {
@@ -710,26 +725,61 @@ function closeBoardSourceMenu() {
   boardSourceToggleButton.setAttribute("aria-expanded", "false");
 }
 
-function renderBoardSourceMenu(aggregate) {
+function isOpenedSource(source) {
+  const normalize = (value) => /^[a-z]:[\\/]/i.test(value || "") ? normalizeSpecUiPath(value) : String(value || "").replaceAll("\\", "/");
+  return normalize(source.repoRoot) === normalize(state.repoPath);
+}
+
+function renderBoardSourceMenu(inventory) {
+  const focusedChoice = boardSourceMenuElement.contains(document.activeElement)
+    ? document.activeElement.closest("[data-source-choice]")?.dataset.sourceChoice : null;
   const current = state.worktreeMode;
   const thisSelected = current === "this" ? "true" : "false";
   const acrossSelected = current === "across" ? "true" : "false";
-  const acrossDisabled = (aggregate.coverage?.loaded || 0) < 2 ? "disabled" : "";
+  const sources = inventory?.sources || [];
+  const acrossDisabled = inventory && !inventory.loading && sources.length < 2 ? "disabled" : "";
   const choices = [
-    `<button type="button" data-source-choice="this" aria-current="${thisSelected}">This checkout · ${escapeHtml(state.repoPath || aggregate.sources?.[0]?.repoRoot || "current repo")}</button>`,
-    `<button type="button" data-source-choice="across" aria-current="${acrossSelected}" ${acrossDisabled}>Across worktrees · ${escapeHtml(String(aggregate.coverage?.loaded || 0))} available</button>`,
-    ...(aggregate.sources || []).filter((source) => source.repoRoot !== state.repoPath && source.roadmapBinding)
-      .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(`${source.label} · ${source.git.branchRef || source.git.headCommit.slice(0, 8)}`)}<br><small>${escapeHtml(source.repoRoot)}</small></button>`),
+    `<button type="button" data-source-choice="this" aria-current="${thisSelected}">This checkout<small>${escapeHtml(state.repoPath || "current repo")}</small></button>`,
+    `<button type="button" data-source-choice="across" aria-current="${acrossSelected}" ${acrossDisabled}>Across worktrees<small>${sources.length ? `${sources.length} discovered checkouts · roadmaps checked when opened` : "Combine readable local roadmaps"}</small></button>`,
+    ...sources.filter((source) => !isOpenedSource(source))
+      .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(sourceDisplayName(inventory, source.sourceKey))}<small>${escapeHtml(source.repoRoot)}</small></button>`),
   ];
-  const excluded = (aggregate.excluded || []).map((entry) => `<div class="board-source-badge" title="${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}">Unavailable: ${escapeHtml(`${entry.repoRoot.split(/[\\/]/).filter(Boolean).at(-1) || entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
-  const missing = aggregate.coverage?.missingBoardRefs || [];
+  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">Unavailable: ${escapeHtml(`${entry.repoRoot.split(/[\\/]/).filter(Boolean).at(-1) || entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
+  const aggregate = state.worktreeMode === "across" ? state.worktreeData : null;
+  const missing = aggregate?.coverage?.missingBoardRefs || [];
   const missingRows = missing.slice(0, 20).map((entry) => {
     return `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId}`)}</li>`;
   }).join("");
   const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
-  boardSourceMenuElement.innerHTML = `${choices.join("")}${excluded}${missingNotice}`;
-  boardSourceMenuElement.hidden = false;
-  boardSourceToggleButton.setAttribute("aria-expanded", "true");
+  const status = inventory?.error ? "Discovery unavailable · showing last-known choices" : inventory?.loading ? "Checking local checkouts…" : inventory?.partial ? "Partial discovery · some checkouts are unavailable" : inventory?.unavailable ? "Worktree discovery unavailable" : "";
+  boardSourceMenuElement.innerHTML = `${choices.join("")}${status ? `<p class="source-menu-status" role="status">${escapeHtml(status)}</p>` : ""}${excluded}${missingNotice}`;
+  if (focusedChoice) [...boardSourceMenuElement.querySelectorAll("[data-source-choice]")]
+    .find((button) => button.dataset.sourceChoice === focusedChoice)?.focus({ preventScroll: true });
+}
+
+async function refreshSourceInventory() {
+  const repoPath = state.repoPath;
+  const generation = workspaceLoadGeneration;
+  if (sourceInventoryRequest?.repoPath === repoPath && sourceInventoryRequest.generation === generation) return sourceInventoryRequest.promise;
+  const previous = state.sourceMenuData?.repoPath === repoPath ? state.sourceMenuData : null;
+  state.sourceMenuData = { ...previous, repoPath, loading: true };
+  renderBoardSourceMenu(state.sourceMenuData);
+  const request = { repoPath, generation };
+  sourceInventoryRequest = request;
+  request.promise = (async () => {
+    try {
+      const inventory = await api.discoverWorktreeSources();
+      if (repoPath !== state.repoPath || generation !== workspaceLoadGeneration) return;
+      state.sourceMenuData = { ...inventory, repoPath, loading: false };
+    } catch (error) {
+      if (repoPath !== state.repoPath || generation !== workspaceLoadGeneration) return;
+      state.sourceMenuData = { ...previous, repoPath, loading: false, error: error.message };
+    } finally {
+      if (sourceInventoryRequest === request) sourceInventoryRequest = null;
+      if (repoPath === state.repoPath && generation === workspaceLoadGeneration && !boardSourceMenuElement.hidden) renderBoardSourceMenu(state.sourceMenuData);
+    }
+  })();
+  return request.promise;
 }
 
 function getBoardItemById(itemId, workspace = state.workspace) {
@@ -1807,7 +1857,7 @@ function syncWorkspaceChrome({ preserveBoardControls = false } = {}) {
   layoutElement.dataset.boardLayout = normalizeBoardLayout(state.boardLayout);
   updateDocumentTitle();
   updateWorkspaceSummary();
-  if (preserveBoardControls) renderBoardParticipantStatus();
+  if (preserveBoardControls) { renderBoardSourceControl(); renderBoardParticipantStatus(); }
   else renderBoardChrome();
   renderScopeChrome();
   renderEditorChrome();
@@ -3801,12 +3851,16 @@ function renderEditorSourceSelect() {
   const versions = feature ? [...new Map(feature.versions.map((version) => [version.sourceKey, version])).values()] : [];
   editorSourceLabelElement.hidden = state.worktreeMode !== "across" || versions.length === 0;
   const matchingSources = new Set(card?.matchingVersions?.map((version) => version.sourceKey) || []);
+  const selected = versions.find((version) => version.sourceKey === state.selectedSource?.sourceKey) || versions[0];
+  const branchName = (version) => version?.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version?.sourceContext.git.headCommit.slice(0, 8) || "Unavailable checkout";
+  editorSourceSummaryElement.textContent = `${versions.length === 1 ? "Checkout" : `${versions.length} versions`} · ${branchName(selected)}`;
+  editorSourceSummaryElement.title = branchName(selected);
   editorSourceSelectElement.innerHTML = versions.map((version) => {
-    const branch = version.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version.sourceContext.git.headCommit.slice(0, 8);
-    const label = `${branch} · ${version.summary.status || "unknown"} · ${version.sourceContext.label}${matchingSources.has(version.sourceKey) ? "" : " · filtered out"}`;
-    return `<option value="${escapeHtml(version.sourceKey)}" title="${escapeHtml(version.repoRoot)}">${escapeHtml(label)}</option>`;
+    const active = version.sourceKey === selected?.sourceKey;
+    const differences = versionDifferences(version, selected);
+    const label = active ? "Selected version" : differences.length ? differences.join(" · ") : "Same content and metadata";
+    return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${escapeHtml(version.summary.status || "unknown")} · ${escapeHtml(version.sourceContext.label)}${matchingSources.has(version.sourceKey) ? "" : " · filtered out"}</span><span class="editor-source-difference">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Checkout path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
   }).join("");
-  if (versions.length > 1) editorSourceSelectElement.value = state.selectedSource?.sourceKey || "";
 }
 
 function renderItem(item) {
@@ -3938,6 +3992,8 @@ function applyAppMode() {
   roadmapPathElement.hidden = specMode;
   workspaceSummaryElement.hidden = specMode;
   repoNameElement.hidden = specMode;
+  boardSourceToggleButton.closest(".board-source-control").hidden = specMode;
+  if (specMode) closeBoardSourceMenu();
   // In spec mode, the workbench owns the chrome — keep the topbar quiet so
   // the spec page reads as a real desk tool, not a hero-styled chat product.
   modeEyebrowElement.hidden = specMode;
@@ -4570,6 +4626,7 @@ async function applyRouteStateFromLocation() {
   // the user was in spec mode, so the badge counts in workspace.specSessionsByItemId
   // need a refresh.
   if (repoChanged || exitedSpecMode || worktreeModeChanged || boundChanged) {
+    closeBoardSourceMenu();
     await loadWorkspace(route.itemId || "", {
       syncRoute: false,
       preferredLens: route.lens,
@@ -4674,6 +4731,7 @@ async function refreshBoardPresence() {
 async function syncBoardPresenceView() {
   if (!state.inPlay) {
     syncBoardParticipantBadges();
+    renderBoardSourceControl();
     return;
   }
   const scrollLeft = captureColumnScrollState();
@@ -4698,20 +4756,40 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   const generation = ++workspaceLoadGeneration;
   const repoPath = state.repoPath;
   const worktreeMode = state.worktreeMode;
+  const sameScope = state.workspaceScope?.repoPath === repoPath && state.workspaceScope?.mode === worktreeMode
+    && (!state.boundRequired || (state.workspaceScope.sourceKey === state.pinnedSource?.sourceKey
+      && state.workspaceScope.sourceRef === sourceRef(state.pinnedSource)));
   const preserveDirtyItem = Boolean(options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges());
   const draftSource = preserveDirtyItem ? state.selectedSource : null;
   invalidateItemRequests();
   invalidateBoardPresence();
+  if (!sameScope && state.workspace) {
+    state.workspace = null;
+    state.worktreeData = null;
+    state.workspaceScope = null;
+    state.currentItem = null;
+    renderBoardSourceControl();
+    workspaceSummaryElement.textContent = "Opening checkout…";
+    boardGroupsElement.innerHTML = '<div class="empty-state">Opening checkout…</div>';
+    editorTitleElement.textContent = "Opening checkout…";
+    editorSubtitleElement.textContent = "";
+    renderPreview();
+    renderEditorChrome();
+  }
   try {
     const aggregate = worktreeMode === "across" ? (options.aggregate || await api.loadWorktreeWorkspace()) : null;
     if (aggregate && !aggregate.workspace) throw new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace.");
-    const workspace = aggregate ? buildCombinedWorkspace(aggregate) : await api.loadWorkspace();
+    const sourceWorkspace = options.sourceCandidate ? await api.loadSourceWorkspace(options.sourceCandidate) : null;
+    const workspace = aggregate ? buildCombinedWorkspace(aggregate) : sourceWorkspace?.workspace || await api.loadWorkspace();
     if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
     resetAncillaryEditModes();
     state.setupState = null;
+    state.workspaceStale = false;
+    if (sourceWorkspace) rememberPinnedSource(sourceWorkspace.source);
     state.worktreeData = aggregate;
-    state.selectedSource = draftSource || aggregate?.sources?.[0] || state.pinnedSource || null;
+    state.selectedSource = draftSource || aggregate?.sources?.[0] || sourceWorkspace?.source || state.pinnedSource || null;
     state.workspace = workspace;
+    state.workspaceScope = { repoPath, mode: worktreeMode, sourceKey: state.pinnedSource?.sourceKey, sourceRef: sourceRef(state.pinnedSource) };
     if (aggregate) {
       const presence = aggregate.participantCounts;
       const known = new Set(aggregate.features.map((feature) => feature.key));
@@ -4750,9 +4828,16 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     if (generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode) void refreshBoardPresence();
   } catch (error) {
     if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
-    if (preserveDirtyItem) { setBanner(error.message, "error"); return; }
+    if (sameScope && state.workspace) {
+      state.workspaceStale = true;
+      renderBoardSourceControl();
+      setBanner(`Refresh failed. Showing the last-known view. ${error.message}`, "error");
+      return;
+    }
     state.workspace = null;
     state.worktreeData = null;
+    state.workspaceScope = null;
+    state.workspaceStale = false;
     state.setupState = buildSetupState(error);
     roadmapPathElement.textContent = state.setupState?.roadmapPath || "Unavailable";
     resetAncillaryEditModes();
@@ -5102,11 +5187,22 @@ refreshButton.addEventListener("click", () => {
     return;
   }
 
-  void loadWorkspace(state.selectedItemId, {
+  const options = {
     forceReloadItem: Boolean(state.selectedItemId),
     replaceRoute: true,
     preserveDirtyItem: true,
-  });
+  };
+  if (state.boundRequired && !state.pinnedSource) {
+    const repoPath = state.repoPath;
+    void api.discoverWorktreeSources().then((inventory) => {
+      if (repoPath !== state.repoPath) return;
+      const sourceCandidate = inventory.sources.find(isOpenedSource);
+      if (!sourceCandidate) throw new Error("This checkout is unavailable. Reopen the source menu to choose a checkout.");
+      return loadWorkspace(state.selectedItemId, { ...options, sourceCandidate });
+    }).catch((error) => setBanner(error.message, "error"));
+    return;
+  }
+  void loadWorkspace(state.selectedItemId, options);
 });
 
 roadmapModeButton.addEventListener("click", () => {
@@ -5892,29 +5988,22 @@ boardFilterToggleButton.addEventListener("click", () => {
   renderBoardChrome();
 });
 
-boardSourceToggleButton.addEventListener("click", async () => {
+boardSourceToggleButton.addEventListener("click", () => {
   if (!boardSourceMenuElement.hidden) { closeBoardSourceMenu(); return; }
-  boardSourceToggleButton.disabled = true;
-  boardSourceStatusElement.hidden = false;
-  boardSourceStatusElement.textContent = "Checking worktrees…";
-  try {
-    const aggregate = state.worktreeData || await api.loadWorktreeWorkspace();
-    state.sourceMenuData = aggregate;
-    renderBoardSourceMenu(aggregate);
-  } catch (error) {
-    setBanner(error.message, "error");
-  } finally {
-    boardSourceToggleButton.disabled = false;
-    renderBoardSourceControl();
-  }
+  const cached = state.sourceMenuData?.repoPath === state.repoPath ? state.sourceMenuData : null;
+  renderBoardSourceMenu(cached);
+  boardSourceMenuElement.hidden = false;
+  boardSourceToggleButton.setAttribute("aria-expanded", "true");
+  void refreshSourceInventory();
 });
 
 boardSourceMenuElement.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-source-choice]");
   if (!button) return;
   const choice = button.dataset.sourceChoice;
-  const aggregate = state.sourceMenuData;
-  if (!aggregate) return;
+  const choiceRepoPath = state.repoPath;
+  if ((choice === "this" && state.worktreeMode === "this" && state.workspace && !state.workspaceStale)
+    || (choice === "across" && state.worktreeMode === "across")) { closeBoardSourceMenu(); return; }
   if ((hasUnsavedCurrentItemChanges() || state.boardDirty || state.scopeDirty)
     && !window.confirm("Discard unsaved item, board, or scope changes before switching checkouts?")) return;
   closeBoardSourceMenu();
@@ -5924,18 +6013,25 @@ boardSourceMenuElement.addEventListener("click", async (event) => {
     state.boundRequired = false;
     state.worktreeModeExplicit = true;
     saveWorktreePreference();
-    await loadWorkspace("", { aggregate, replaceRoute: true });
+    resetEditor();
+    await loadWorkspace("", { replaceRoute: true });
   } else {
+    if (choice === "this") await refreshSourceInventory();
+    if (choiceRepoPath !== state.repoPath) return;
+    const inventory = state.sourceMenuData?.repoPath === state.repoPath ? state.sourceMenuData : null;
     const selected = choice === "this"
-      ? aggregate.sources.find((source) => source.repoRoot === state.repoPath) || aggregate.sources[0]
-      : aggregate.sources.find((source) => source.sourceKey === choice);
+      ? inventory?.sources?.find(isOpenedSource) || state.worktreeData?.sources?.[0]
+      : inventory?.sources?.find((source) => source.sourceKey === choice);
+    if (!selected) { setBanner("This checkout choice is unavailable. Reopen the source menu to refresh it.", "error"); return; }
     if (selected) state.repoPath = selected.repoRoot;
     state.worktreeMode = "this";
     state.worktreeModeExplicit = true;
-    if (selected) rememberPinnedSource(selected);
-    state.selectedSource = selected || null;
+    state.boundRequired = true;
+    state.pinnedSource = null;
+    state.selectedSource = null;
     saveWorktreePreference();
-    await loadWorkspace("", { replaceRoute: true });
+    resetEditor();
+    await loadWorkspace("", { sourceCandidate: selected, replaceRoute: true });
   }
   renderBoardSourceControl();
 });
@@ -6020,16 +6116,18 @@ for (const button of modeButtons) {
   });
 }
 
-editorSourceSelectElement.addEventListener("change", () => {
+editorSourceSelectElement.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-editor-source]");
+  if (!button || button.getAttribute("aria-pressed") === "true") return;
   const itemId = state.selectedItemId;
   if (!itemId) return;
   if (hasUnsavedCurrentItemChanges() && !window.confirm("Discard unsaved changes before opening another checkout version?")) {
-    editorSourceSelectElement.value = state.selectedSource?.sourceKey || "";
     return;
   }
-  const selected = state.worktreeData?.sources.find((source) => source.sourceKey === editorSourceSelectElement.value);
+  const selected = state.worktreeData?.sources.find((source) => source.sourceKey === button.dataset.editorSource);
   if (selected) rememberPreferredVersion(itemId, selected);
   state.confirmedEditSource = null;
+  editorSourceLabelElement.open = false;
   void loadItem(itemId, true, { mode: "preview", openOverlay: state.editorOverlayOpen });
 });
 
@@ -6146,6 +6244,7 @@ window.__minimapSpec = Object.freeze({
     commentComposerOpen: state.spec.commentComposerOpen,
     suggestionComposerOpen: state.spec.suggestionComposerOpen,
   }),
+  rerenderSpecDocument: renderSpecFile,
   buildRenderedNormalizedMap,
   buildWhitespaceNormalizedMap,
   sourceQuoteForRenderedSelection: (renderedText, sourceContent) => {

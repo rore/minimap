@@ -87,6 +87,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     releaseFirst();
     await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["Recent 2", "Dormant 1"]);
     await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
+    await expect(page.locator("#board-source-status-details")).toContainText("Session information has partial coverage.");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
     expect(await originalCard.evaluate((element) => element.isConnected && document.activeElement === element)).toBe(true);
     expect(requests).toBe(1);
@@ -126,10 +127,12 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     });
     await expect.poll(() => requests).toBe(2);
     await expect(page.locator("#board-participant-status")).toHaveText("Session badges unavailable", { timeout: 10_000 });
+    await expect(page.locator("#board-source-status-details")).toContainText("Session information is unavailable");
 
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect.poll(() => requests).toBe(3);
     await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["Recent 2", "Dormant 1"]);
+    await expect(page.locator("#board-source-status-details")).toContainText("Session information has partial coverage.");
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
     await expect(page.locator('.board-column-card-main[data-item-dblopen="dense-001"] .board-item-participants:visible')).toHaveText(["Recent 2", "Dormant 1"]);
