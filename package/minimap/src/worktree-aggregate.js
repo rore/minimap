@@ -195,6 +195,8 @@ export async function loadWorktreeAggregate(openRepoRoot) {
   const groupMap = new Map();
   const appearanceOrder = [];
   for (const [sourceIndex, source] of loaded.entries()) {
+    const sourceContext = { sourceKey: source.sourceKey, repoRoot: source.repoRoot,
+      label: source.label, git: source.git, roadmapBinding: source.roadmapBinding };
     const memberships = new Map();
     for (const group of source.workspace.boardGroups) {
       const groupKey = `board:${group.name}`;
@@ -203,7 +205,7 @@ export async function loadWorktreeAggregate(openRepoRoot) {
         if (item.missing) {
           const key = hash(`${source.sourceKey}\0missing\0${group.name}\0${item.id}`);
           const version = { sourceKey: source.sourceKey, repoRoot: source.repoRoot, itemId: item.id,
-            summary: item, group: group.name, groupKind: "board", sourceContext: source };
+            summary: item, group: group.name, groupKind: "board", sourceContext };
           appearanceOrder.push({ groupKey, missing: { key, id: item.id, missing: true, versions: [version], conflicts: [] } });
           result.coverage.missingBoardRefs.push({ sourceKey: source.sourceKey, group: group.name, itemId: item.id });
         } else {
@@ -227,7 +229,7 @@ export async function loadWorktreeAggregate(openRepoRoot) {
         const groupKey = groupKind === "board" ? `board:${groupName}` : "unlisted";
         if (!groupMap.has(groupKey)) groupMap.set(groupKey, { name: groupName, kind: groupKind, items: [] });
         const version = { sourceKey: source.sourceKey, repoRoot: source.repoRoot, itemId: id,
-          summary, group: groupName, groupKind, sourceContext: source };
+          summary, group: groupName, groupKind, sourceContext };
         feature.versions.push(version);
         if (!feature.groups.some((entry) => entry.name === groupName && entry.kind === groupKind)) feature.groups.push({ name: groupName, kind: groupKind });
         if (!memberships.has(id)) appearanceOrder.push({ groupKey, sourceIndex, id });

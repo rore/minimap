@@ -165,3 +165,11 @@ test("line-ending-only copies keep raw revisions but have no display conflict", 
   assert.deepEqual(shared.conflicts, []);
   assert.deepEqual(result.groups[0].items[0].conflicts, []);
 });
+
+test("84 items keep source contexts small instead of repeating workspace per version", async () => {
+  const { main } = await fixture(item("shared"), 83);
+  const result = await loadWorktreeAggregate(main);
+  const context = result.features[0].versions[0].sourceContext;
+  assert.deepEqual(Object.keys(context), ["sourceKey", "repoRoot", "label", "git", "roadmapBinding"]);
+  assert.ok(JSON.stringify(result).length < 1_000_000);
+});
