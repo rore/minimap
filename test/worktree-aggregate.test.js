@@ -14,14 +14,16 @@ async function write(root, file, text) {
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, text);
 }
-async function fixture(ancestorText = item("shared")) {
+async function fixture(ancestorText = item("shared"), extra = 0) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-aggregate-")); dirs.push(dir);
   const main = path.join(dir, "main"), sibling = path.join(dir, "sibling");
   await fs.mkdir(main);
   git(main, "init", "-b", "main"); git(main, "config", "user.name", "Test"); git(main, "config", "user.email", "test@example.invalid");
+  git(main, "config", "core.autocrlf", "false");
   await write(main, "roadmap/board.md", "# Now\n- shared\n");
   await write(main, "roadmap/scope.md", "scope\n");
   await write(main, "roadmap/features/shared.md", ancestorText);
+  for (let i = 0; i < extra; i += 1) await write(main, `roadmap/features/extra-${i}.md`, item(`extra-${i}`));
   await write(main, "roadmap/ideas/.keep", "");
   git(main, "add", "."); git(main, "commit", "-m", "base");
   git(main, "worktree", "add", "-b", "feature/sibling", sibling);
@@ -138,4 +140,28 @@ test("different roadmap roots remain separate namespaces", async () => {
   const result = await loadWorktreeAggregate(main);
   assert.equal(result.coverage.loaded, 1);
   assert.equal(result.excluded.at(-1).reason, "incompatible-roadmap-config");
+});
+
+test("ancestor cap is inclusive at 500 and reports uncertain identity at 501", async () => {
+  const { main, sibling } = await fixture(item("shared"), 499);
+  const atLimit = await loadWorktreeAggregate(main);
+  assert.equal(atLimit.partial, false);
+  assert.equal(atLimit.features.filter((feature) => feature.id === "shared").length, 1);
+  await write(main, "roadmap/features/extra-499.md", item("extra-499"));
+  git(main, "add", "roadmap/features/extra-499.md"); git(main, "commit", "-m", "reach 501 items");
+  git(sibling, "merge", "--ff-only", "main");
+  const overLimit = await loadWorktreeAggregate(main);
+  assert.equal(overLimit.partial, true);
+  assert.equal(overLimit.coverage.identityUncertain[0].reason, "ancestor-item-limit");
+  assert.equal(overLimit.features.filter((feature) => feature.id === "shared").length, 2);
+});
+
+test("line-ending-only copies keep raw revisions but have no display conflict", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/shared.md", item("shared").replaceAll("\n", "\r\n"));
+  const result = await loadWorktreeAggregate(main);
+  const shared = result.features.find((feature) => feature.id === "shared");
+  assert.notEqual(shared.versions[0].summary.revision, shared.versions[1].summary.revision);
+  assert.deepEqual(shared.conflicts, []);
+  assert.deepEqual(result.groups[0].items[0].conflicts, []);
 });
