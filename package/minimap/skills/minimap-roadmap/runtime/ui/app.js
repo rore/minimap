@@ -176,6 +176,7 @@ const stateContainer = createState({
 const state = stateContainer.get();
 state.worktreeMode = "this";
 state.worktreeData = null;
+state.worktreeLoading = false;
 state.sourceMenuData = null;
 state.workspaceScope = null;
 state.workspaceStale = false;
@@ -690,9 +691,10 @@ function renderBoardSourceControl() {
   const across = state.worktreeMode === "across";
   const total = across ? aggregate?.features?.length || 0 : getBoardItems().filter((item) => !item.missing).length;
   const shown = across ? countDistinctWorktreeFeatures(groups) : getVisibleBoardItemIds().length;
-  const partial = Boolean(aggregate?.partial || state.workspaceStale);
+  const partial = Boolean(aggregate?.partial || state.workspaceStale || state.worktreeLoading);
+  const partialLabel = aggregate?.provisional ? "Opened checkout only" : "Partial coverage";
   boardSourceStatusElement.hidden = !state.workspace;
-  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? '<span class="coverage-partial">Partial coverage</span>' : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
+  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? `<span class="coverage-partial">${escapeHtml(partialLabel)}</span>` : ""}${state.worktreeLoading ? '<span class="coverage-partial" role="status">Loading other worktrees…</span>' : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
   const placements = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
   const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} roadmap checkouts loaded; ${escapeHtml(String(aggregate?.excluded?.length || 0))} excluded. Feature counts cover loaded local worktrees only.</p><p>${escapeHtml(String(placements))} placements in ${groups.length} groups. A feature can appear in multiple groups when its versions differ.</p>` : `<p>${total} items on this checkout's board. ${escapeHtml(String(shown))} match the current view.</p>`;
   const exclusions = (aggregate?.excluded || []).map((entry) => `<li>${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}</li>`).join("");
@@ -700,6 +702,7 @@ function renderBoardSourceControl() {
   const sessions = boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session information has partial coverage." : "Session information is available for the loaded items.") : "Session information is unavailable; status-based matches still apply.";
   const missingNotice = missingRows ? `<p>${missing.length} missing board references:</p><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}` : "";
   boardSourceStatusDetailsElement.innerHTML = coverage
+    + (aggregate?.provisional ? `<p>Only the opened checkout is shown. Other worktrees and session information ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; feature totals and In play are incomplete.</p>` : state.worktreeLoading ? "<p>Updating worktrees. The previous board remains available until the refresh finishes.</p>" : "")
     + (state.workspaceStale ? "<p>The refresh failed. These are the last-known results; refresh before relying on coverage.</p>" : "")
     + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
     + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
@@ -1406,7 +1409,7 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
     params.set("mode", normalizedMode);
   }
 
-  const lensKey = normalizeLensKey(state.activeLens);
+  const lensKey = state.worktreeData?.provisional && state.lensExplicit ? state.activeLens : normalizeLensKey(state.activeLens);
   if (state.lensExplicit) {
     params.set("lens", lensKey);
   }
@@ -1636,7 +1639,9 @@ function getUnfinishedStatusValues() {
 function isUnfinishedFocused() {
   const values = getUnfinishedStatusValues();
   const selected = state.activeFilters.status || [];
-  return values.length > 0 && values.length === selected.length && values.every((value) => selected.includes(value));
+  return selected.length > 0 && (values.length > 0
+    ? values.length === selected.length && values.every((value) => selected.includes(value))
+    : selected.every((value) => !FINISHED_STATUSES.has(value.toLowerCase())));
 }
 
 function boardPresenceIncludesCompleted() {
@@ -1687,7 +1692,7 @@ function renderSearchControls() {
   boardFocusMilestoneSelect.value = selectedMilestones.length > 1 ? "__multiple__" : (selectedMilestones[0] || "");
   boardFocusMilestoneSelect.title = selectedMilestones.length > 1 ? `${selectedMilestones.length} milestones selected` : (selectedMilestones[0] || "All milestones");
   boardFocusMilestoneSelect.disabled = milestones.length === 0 || state.boardEditMode;
-  boardFocusUnfinishedButton.disabled = getUnfinishedStatusValues().length === 0 || state.boardEditMode;
+  boardFocusUnfinishedButton.disabled = (getUnfinishedStatusValues().length === 0 && !isUnfinishedFocused()) || state.boardEditMode;
   boardFocusUnfinishedButton.setAttribute("aria-pressed", isUnfinishedFocused() ? "true" : "false");
   boardFocusUnfinishedButton.classList.toggle("is-active", isUnfinishedFocused());
   boardFocusInPlayButton.disabled = !state.workspace || state.boardEditMode;
@@ -3371,7 +3376,27 @@ function renderBoardEditMode() {
   }
 }
 
-function renderBoard() {
+function renderBoard(preserveInteraction = false) {
+  if (!preserveInteraction) return renderBoardContents();
+  const scrollLeft = captureColumnScrollState();
+  const scrollTop = boardGroupsElement.scrollTop;
+  const focused = document.activeElement;
+  const focusedCard = focused?.closest(".board-item[data-item-id], .board-column-card-main[data-item-dblopen]");
+  const focusedItemId = focusedCard?.dataset.itemId || focusedCard?.dataset.itemDblopen;
+  const focusedOpenItemId = focused?.getAttribute("data-item-open");
+  const focusedGroup = focused?.getAttribute("data-group-toggle");
+  renderBoardContents();
+  restoreColumnScrollState(scrollLeft);
+  boardGroupsElement.scrollTop = scrollTop;
+  if (focused && !focused.isConnected && document.activeElement === document.body) {
+    const selector = focusedOpenItemId ? `[data-item-open="${CSS.escape(focusedOpenItemId)}"]`
+      : focusedItemId ? `.board-item[data-item-id="${CSS.escape(focusedItemId)}"], .board-column-card-main[data-item-dblopen="${CSS.escape(focusedItemId)}"]`
+      : focusedGroup ? `[data-group-toggle="${CSS.escape(focusedGroup)}"]` : "";
+    if (selector) boardGroupsElement.querySelector(selector)?.focus({ preventScroll: true });
+  }
+}
+
+function renderBoardContents() {
   if (isSetupMode()) {
     const setup = state.setupState;
     boardGroupsElement.innerHTML = `
@@ -3642,6 +3667,13 @@ async function loadItemParticipants(itemId, generation = state.itemLoadGeneratio
   const intent = { generation, itemId, repoPath: state.repoPath, sourceKey: state.selectedSource?.sourceKey || null };
   if (!itemIntentIsCurrent(intent, { requireSelected: true })) return;
 
+  if (state.worktreeData?.provisional) {
+    state.itemParticipantsController?.abort();
+    state.itemParticipants = { status: "loading", reference: null, participants: [], partial: true, itemId };
+    renderItemParticipants();
+    return;
+  }
+
   if (state.worktreeMode === "across") {
     const featureKey = state.workspace?.items?.[itemId]?.featureKey;
     const feature = state.worktreeData?.features?.find((entry) => entry.key === featureKey);
@@ -3843,6 +3875,16 @@ function renderPreview() {
   `;
 }
 
+function positionEditorSourceMenu() {
+  editorSourceSelectElement.style.maxWidth = "";
+  editorSourceSelectElement.style.maxHeight = "";
+  if (!editorSourceLabelElement.open || getComputedStyle(editorSourceSelectElement).position === "static") return;
+  const panel = editorPanelElement.getBoundingClientRect();
+  const menu = editorSourceSelectElement.getBoundingClientRect();
+  editorSourceSelectElement.style.maxWidth = `${Math.max(0, panel.right - menu.left - 12)}px`;
+  editorSourceSelectElement.style.maxHeight = `${Math.max(0, Math.min(window.innerHeight * 0.6, panel.bottom - menu.top - 12))}px`;
+}
+
 function renderEditorSourceSelect() {
   const card = state.worktreeMode === "across"
     ? getVisibleBoardGroups().flatMap((group) => group.items).find((item) => item.id === state.selectedItemId)
@@ -3861,6 +3903,7 @@ function renderEditorSourceSelect() {
     const label = active ? "Selected version" : differences.length ? differences.join(" · ") : "Same content and metadata";
     return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${renderBadge(version.summary.status || "unknown", "status")}${matchingSources.has(version.sourceKey) ? "" : " filtered out"}</span><span class="editor-source-difference${differences.length ? " board-source-conflict" : ""}">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Checkout path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
   }).join("");
+  positionEditorSourceMenu();
 }
 
 function renderItem(item) {
@@ -4510,7 +4553,7 @@ async function syncVisibleSelection(options = {}) {
   const useOverlay = shouldUseEditorOverlay();
 
   syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
-  renderBoard();
+  renderBoard(options.preserveBoardControls === true);
   if (state.currentItem && state.worktreeMode === "across") renderEditorSourceSelect();
 
   if (options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges()) {
@@ -4533,11 +4576,11 @@ async function syncVisibleSelection(options = {}) {
     if (useOverlay) {
       resetEditor();
       syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
-      renderBoard();
+      renderBoard(options.preserveBoardControls === true);
     } else if (state.selectedItemId && !visibleItemIds.includes(state.selectedItemId)) {
       resetEditor();
       syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
-      renderBoard();
+      renderBoard(options.preserveBoardControls === true);
     }
 
     if (options.syncRoute !== false) {
@@ -4561,7 +4604,7 @@ async function syncVisibleSelection(options = {}) {
   if (useOverlay) {
     state.editorOverlayOpen = true;
     syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
-    renderBoard();
+    renderBoard(options.preserveBoardControls === true);
   }
 
   if (options.syncRoute !== false) {
@@ -4734,61 +4777,60 @@ async function syncBoardPresenceView() {
     renderBoardSourceControl();
     return;
   }
-  const scrollLeft = captureColumnScrollState();
-  const scrollTop = boardGroupsElement.scrollTop;
-  const focused = document.activeElement;
-  const focusedCard = focused?.closest(".board-item[data-item-id], .board-column-card-main[data-item-dblopen]");
-  const focusedItemId = focusedCard?.dataset.itemId || focusedCard?.dataset.itemDblopen;
-  const focusedOpenItemId = focused?.getAttribute("data-item-open");
-  const focusedGroup = focused?.getAttribute("data-group-toggle");
   await syncVisibleSelection({ replaceRoute: true, preserveDirtyItem: true, preserveBoardControls: true });
-  restoreColumnScrollState(scrollLeft);
-  boardGroupsElement.scrollTop = scrollTop;
-  if (focused && !focused.isConnected) {
-    const selector = focusedOpenItemId ? `[data-item-open="${CSS.escape(focusedOpenItemId)}"]`
-      : focusedItemId ? `.board-item[data-item-id="${CSS.escape(focusedItemId)}"], .board-column-card-main[data-item-dblopen="${CSS.escape(focusedItemId)}"]`
-      : focusedGroup ? `[data-group-toggle="${CSS.escape(focusedGroup)}"]` : "";
-    if (selector) boardGroupsElement.querySelector(selector)?.focus({ preventScroll: true });
-  }
 }
 
 async function loadWorkspace(preferredItemId = state.selectedItemId, options = {}) {
   const generation = ++workspaceLoadGeneration;
   const repoPath = state.repoPath;
   const worktreeMode = state.worktreeMode;
+  const stillCurrent = () => generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode;
   const sameScope = state.workspaceScope?.repoPath === repoPath && state.workspaceScope?.mode === worktreeMode
     && (!state.boundRequired || (state.workspaceScope.sourceKey === state.pinnedSource?.sourceKey
       && state.workspaceScope.sourceRef === sourceRef(state.pinnedSource)));
   const preserveDirtyItem = Boolean(options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges());
   const draftSource = preserveDirtyItem ? state.selectedSource : null;
-  invalidateItemRequests();
-  invalidateBoardPresence();
-  if (!sameScope && state.workspace) {
+  const originalSelection = state.selectedItemId;
+  let presented = sameScope;
+  if (!sameScope || worktreeMode !== "across") {
+    invalidateItemRequests();
+    invalidateBoardPresence();
+  }
+  const initialItemGeneration = state.itemLoadGeneration;
+  state.worktreeLoading = worktreeMode === "across";
+  if (!sameScope) {
     state.workspace = null;
     state.worktreeData = null;
     state.workspaceScope = null;
     state.currentItem = null;
-    renderBoardSourceControl();
+    state.setupState = null;
+    syncWorkspaceChrome();
     workspaceSummaryElement.textContent = "Opening checkout…";
-    boardGroupsElement.innerHTML = '<div class="empty-state">Opening checkout…</div>';
+    boardGroupsElement.innerHTML = '<div class="empty-state" role="status">Opening checkout…</div>';
     editorTitleElement.textContent = "Opening checkout…";
     editorSubtitleElement.textContent = "";
     renderPreview();
     renderEditorChrome();
+  } else {
+    renderBoardSourceControl();
   }
-  try {
-    const aggregate = worktreeMode === "across" ? (options.aggregate || await api.loadWorktreeWorkspace()) : null;
+
+  const present = async (aggregate, sourceWorkspace = null, workspace = sourceWorkspace?.workspace) => {
     if (aggregate && !aggregate.workspace) throw new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace.");
-    const sourceWorkspace = options.sourceCandidate ? await api.loadSourceWorkspace(options.sourceCandidate) : null;
-    const workspace = aggregate ? buildCombinedWorkspace(aggregate) : sourceWorkspace?.workspace || await api.loadWorkspace();
-    if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
+    workspace = aggregate ? buildCombinedWorkspace(aggregate) : workspace;
+    if (!stillCurrent()) return;
+    const reconcile = worktreeMode === "across" && presented;
+    const retainUnfinished = reconcile && isUnfinishedFocused();
+    const keepEditor = reconcile && (state.currentItem || state.itemLoadController);
     resetAncillaryEditModes();
     state.setupState = null;
     state.workspaceStale = false;
     if (sourceWorkspace) rememberPinnedSource(sourceWorkspace.source);
     state.worktreeData = aggregate;
-    state.selectedSource = draftSource || aggregate?.sources?.[0] || sourceWorkspace?.source || state.pinnedSource || null;
+    state.selectedSource = (keepEditor ? state.selectedSource : draftSource) || aggregate?.sources?.[0] || sourceWorkspace?.source || state.pinnedSource || null;
     state.workspace = workspace;
+    const unfinishedStatuses = retainUnfinished ? getUnfinishedStatusValues() : [];
+    if (unfinishedStatuses.length) state.activeFilters = normalizeFilterMap({ ...state.activeFilters, status: unfinishedStatuses });
     state.workspaceScope = { repoPath, mode: worktreeMode, sourceKey: state.pinnedSource?.sourceKey, sourceRef: sourceRef(state.pinnedSource) };
     if (aggregate) {
       const presence = aggregate.participantCounts;
@@ -4802,7 +4844,14 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       boardParticipantPartial = Boolean(presence?.partial || (presence?.status === "ok" && counts.length !== (presence.counts?.length || 0)));
       boardParticipantIncludeCompleted = true;
     }
-    if (Object.hasOwn(options, "routeLensSpecified")) {
+    if (reconcile) {
+      if (state.lensExplicit) applyLensRouteChoice(workspace, { lens: state.activeLens, lensSpecified: true });
+      else state.activeLens = normalizeLensKey(state.activeLens, workspace);
+    } else if (aggregate?.provisional && options.routeLensSpecified) {
+      // A requested grouping may exist only in worktrees that have not loaded yet.
+      state.activeLens = options.preferredLens || DEFAULT_LENS_KEY;
+      state.lensExplicit = true;
+    } else if (Object.hasOwn(options, "routeLensSpecified")) {
       applyLensRouteChoice(workspace, {
         lens: options.preferredLens,
         lensSpecified: options.routeLensSpecified,
@@ -4810,26 +4859,85 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     } else {
       state.activeLens = normalizeLensKey(options.preferredLens ?? state.activeLens, workspace);
     }
-    state.boardLayout = normalizeBoardLayout(options.preferredLayout ?? state.boardLayout);
-    if (!preserveDirtyItem) state.editorMode = worktreeMode === "across" ? "preview" : normalizeEditorMode(options.preferredMode ?? state.editorMode);
+    if (!reconcile) state.boardLayout = normalizeBoardLayout(options.preferredLayout ?? state.boardLayout);
+    if (!preserveDirtyItem && !keepEditor) state.editorMode = worktreeMode === "across" ? "preview" : normalizeEditorMode(options.preferredMode ?? state.editorMode);
     roadmapPathElement.textContent = workspace.roadmapPath;
     renderScope();
     clearTransientBanner();
 
+    const desiredItemId = reconcile ? state.selectedItemId || (state.itemLoadGeneration === initialItemGeneration ? preferredItemId : "") : preferredItemId;
+    const desiredSource = state.preferredVersions.get(desiredItemId);
+    const deferSelection = aggregate?.provisional && desiredItemId
+      && (!workspace.items[desiredItemId] || desiredSource && !aggregate.sources.some((source) => source.sourceKey === desiredSource.sourceKey));
+    presented = true;
+    if (reconcile) {
+      const focused = document.activeElement;
+      const filterKey = focused?.getAttribute("data-filter-key");
+      const filterValue = focused?.getAttribute("data-filter-value");
+      const lensKey = focused?.getAttribute("data-lens-key");
+      renderSearchControls();
+      if (focused && !focused.isConnected) {
+        const selector = filterKey ? `[data-filter-key="${CSS.escape(filterKey)}"][data-filter-value="${CSS.escape(filterValue)}"]`
+          : lensKey ? `[data-lens-key="${CSS.escape(lensKey)}"]` : "";
+        if (selector) document.querySelector(selector)?.focus({ preventScroll: true });
+      }
+    }
+    if (deferSelection || reconcile && state.itemLoadController) {
+      syncWorkspaceChrome({ preserveBoardControls: reconcile });
+      renderBoard(reconcile);
+      if (state.currentItem) renderEditorSourceSelect();
+      return;
+    }
     const fallbackItemId = shouldUseEditorOverlay() ? "" : (getFirstVisibleBoardItemId(workspace) || getFirstBoardItemId(workspace));
     await syncVisibleSelection({
-      preferredItemId: preferredItemId && workspace.items?.[preferredItemId] ? preferredItemId : fallbackItemId,
-      syncRoute: options.syncRoute,
+      preferredItemId: reconcile || worktreeMode === "across" ? desiredItemId : desiredItemId && workspace.items?.[desiredItemId] ? desiredItemId : fallbackItemId,
+      syncRoute: aggregate?.provisional ? false : options.syncRoute,
       replaceRoute: options.replaceRoute,
-      forceReloadItem: options.forceReloadItem === true || Boolean(preferredItemId),
-      preserveDirtyItem,
+      forceReloadItem: reconcile ? options.forceReloadItem === true && state.selectedItemId === originalSelection : options.forceReloadItem === true || Boolean(preferredItemId),
+      preserveDirtyItem: preserveDirtyItem || reconcile && hasUnsavedCurrentItemChanges(),
+      preserveBoardControls: reconcile,
       refreshPresence: false,
     });
-    if (generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode) void refreshBoardPresence();
+    if (stillCurrent() && aggregate && !aggregate.provisional && state.currentItem && !state.itemLoadController) void loadItemParticipants(state.selectedItemId);
+    if (stillCurrent()) void refreshBoardPresence();
+  };
+
+  try {
+    if (worktreeMode === "across" && !options.aggregate) {
+      // Render one guarded checkout while the full scan continues; no background service or cache.
+      const completed = api.loadWorktreeWorkspace().then((aggregate) => ({ aggregate }), (error) => ({ error }));
+      const opened = !sameScope ? api.loadWorktreeWorkspace({ openedOnly: true }).then((aggregate) => ({ aggregate, opened: true }), (error) => ({ error, opened: true })) : null;
+      const first = opened ? await Promise.race([completed, opened]) : await completed;
+      if (!stillCurrent()) return;
+      if (first.opened && !first.error && first.aggregate?.workspace) await present(first.aggregate);
+      const result = first.opened ? await completed : first;
+      if (!stillCurrent()) return;
+      if (result.error) {
+        if (!first.opened && opened) {
+          const fallback = await opened;
+          if (!stillCurrent()) return;
+          if (!fallback.error && fallback.aggregate?.workspace) await present(fallback.aggregate);
+        }
+        throw result.error;
+      }
+      state.worktreeLoading = false;
+      await present(result.aggregate);
+    } else {
+      const sourceWorkspace = options.sourceCandidate ? await api.loadSourceWorkspace(options.sourceCandidate) : null;
+      const workspace = options.aggregate ? null : sourceWorkspace?.workspace || await api.loadWorkspace();
+      if (!stillCurrent()) return;
+      state.worktreeLoading = false;
+      await present(options.aggregate || null, sourceWorkspace, workspace);
+    }
   } catch (error) {
-    if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
-    if (sameScope && state.workspace) {
+    if (!stillCurrent()) return;
+    state.worktreeLoading = false;
+    if (state.workspace && (sameScope || state.worktreeData?.provisional)) {
       state.workspaceStale = true;
+      if (state.worktreeData?.provisional) {
+        boardParticipantStatus = "unavailable";
+        renderBoardParticipantStatus();
+      }
       renderBoardSourceControl();
       setBanner(`Refresh failed. Showing the last-known view. ${error.message}`, "error");
       return;
@@ -4898,7 +5006,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     applyEditorMode();
     syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
     if (rerenderBoard) {
-      renderBoard();
+      renderBoard(options.preserveBoardControls === true);
     }
     if (options.syncRoute !== false) {
       syncRouteState({ replace: options.replaceRoute === true });
@@ -5094,7 +5202,15 @@ async function saveCurrentItem() {
     const currentBoardGroupIndex = getBoardGroupIndexForItem(state.selectedItemId);
     const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : state.selectedItemId;
 
-    await api.saveItem(actualItemId, { ...payload, expectedRevision: state.currentItem?.revision });
+    const savedItemId = state.selectedItemId;
+    const savedSourceKey = state.selectedSource?.sourceKey;
+    const savedMode = state.editorMode;
+    const savedItem = await api.saveItem(actualItemId, { ...payload, expectedRevision: state.currentItem?.revision });
+    if (state.selectedItemId === savedItemId && state.selectedSource?.sourceKey === savedSourceKey) {
+      const currentPayload = savedMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
+      if (state.editorMode === savedMode && JSON.stringify(currentPayload) === JSON.stringify(payload)) renderItem(savedItem);
+      else state.currentItem.revision = savedItem.revision;
+    }
     if (state.worktreeMode === "across" && state.selectedSource) {
       rememberPreferredVersion(state.selectedItemId, state.selectedSource);
     }
@@ -6154,7 +6270,10 @@ window.addEventListener("resize", () => {
   if (state.lensesExpanded) {
     positionLensControls();
   }
+  positionEditorSourceMenu();
 });
+editorSourceLabelElement.addEventListener("toggle", positionEditorSourceMenu);
+new ResizeObserver(positionEditorSourceMenu).observe(editorPanelElement);
 
 desktopScopeLayoutMedia.addEventListener("change", () => {
   renderScopeChrome();
@@ -6209,14 +6328,23 @@ state.activeFilters = initialRoute.filters;
 state.filtersExpanded = Object.keys(initialRoute.filters).length > 0;
 renderScopeChrome();
 applyEditorMode();
-void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state.selectedItemId), {
+const initialWorkspaceLoad = loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state.selectedItemId), {
   preferredLens: initialRoute.lens,
   routeLensSpecified: initialRoute.lensSpecified,
   preferredLayout: initialRoute.layout,
   syncRoute: false,
-}).then(() => {
+});
+const initialWorkspaceGeneration = workspaceLoadGeneration;
+void initialWorkspaceLoad.then(() => {
+  if (workspaceLoadGeneration !== initialWorkspaceGeneration) return;
   if (initialRoute.view === "spec") {
     void loadSpecSessions({ loadSelected: Boolean(initialRoute.specFile) });
+    return;
+  }
+
+  if (state.worktreeMode === "across") {
+    // The progressive load already applied the route and retained newer view intent.
+    syncRouteState({ replace: true });
     return;
   }
 

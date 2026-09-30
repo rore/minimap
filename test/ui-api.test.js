@@ -109,10 +109,11 @@ test("X-Minimap-Repo header is omitted when getRepo() returns empty", async () =
 });
 
 test("aggregate read keeps the selected repo even without a bound item source", async () => {
-  const f = fakeFetch([{}]);
+  const f = fakeFetch([{}, {}]);
   const api = createApi({ fetch: f, getRepo: () => "C:/different/project" });
   await api.loadWorktreeWorkspace();
-  assert.deepEqual(f.calls.map((call) => call.url), ["/api/worktree-workspace"]);
+  await api.loadWorktreeWorkspace({ openedOnly: true });
+  assert.deepEqual(f.calls.map((call) => call.url), ["/api/worktree-workspace", "/api/worktree-workspace?openedOnly=1"]);
   assert.ok(f.calls.every((call) => new Headers(call.opts.headers).get("X-Minimap-Repo") === "C:/different/project"));
 });
 

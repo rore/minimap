@@ -155,6 +155,7 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
   page.on("request", (request) => {
     if (request.url().includes("/api/worktree-workspace")) aggregates.push(request.url());
   });
+  const fullAggregates = () => aggregates.filter((url) => new URL(url).searchParams.get("openedOnly") !== "1");
   await page.route("**/api/worktree-sources**", async (route) => {
     inventoryCalls += 1;
     if (inventoryCalls === 1) {
@@ -221,7 +222,7 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     const acrossRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-workspace"));
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
     await acrossRequest;
-    expect(aggregates).toHaveLength(1);
+    expect(fullAggregates()).toHaveLength(1);
   } finally {
     releaseFirst();
     releaseSecond();
@@ -371,7 +372,9 @@ for (const [trigger, discoveryFails] of [["Refresh", false], ["Refresh", true], 
     let heldDiscovery;
     let discoveryStarted;
     const started = new Promise((resolve) => { discoveryStarted = resolve; });
-    page.on("request", (request) => { if (request.url().includes("/api/worktree-workspace")) aggregateLoads += 1; });
+    page.on("request", (request) => {
+      if (request.url().includes("/api/worktree-workspace") && new URL(request.url()).searchParams.get("openedOnly") !== "1") aggregateLoads += 1;
+    });
     await page.route("**/api/worktree-source-workspace", async (route) => {
       boundLoads += 1;
       if (boundLoads === 1) await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "temporary checkout failure" } }) });

@@ -37,6 +37,8 @@ The roadmap source menu uses `GET /api/worktree-sources` only for lightweight di
 
 ## Shared runtime replacement
 
+The shared roadmap UI progressively opens Across worktrees: `GET /api/worktree-workspace?openedOnly=1` returns a guarded opened-checkout-only snapshot while the full aggregate runs. Exactly one `openedOnly=1` is accepted; invalid or repeated values return 400. The provisional response sets `provisional: true`, `partial: true`, and `coverage.pending: true`. Its feature totals, In play, and participant coverage are explicitly incomplete. No participant lookup runs until full feature identity is resolved. Refresh retains the last board and editor during loading; failure retains usable provisional or last-known content with retry. This does not change spec-session APIs or authorize writes across checkouts.
+
 Health reports `runtime: { version, apiCompatibility, sourcePath }` and live `pid`. API compatibility is integer 1; it changes only for incompatible server API changes, independently of package release versions.
 
 Routine restart requires both the running version and canonical real server source path to match this launcher's bundled runtime, and the live PID/port to match this home's registry. An unregistered requested-port server requires explicit replacement even with matching runtime identity: the same copy can serve another home. Version alone cannot distinguish development checkouts or installed copies. Editing code in place at the same path/version remains routine; this is location identity, not content attestation. Separate copies require explicit replacement even when their bytes match.

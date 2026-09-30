@@ -7,7 +7,7 @@
 3. If it does not exist, use `roadmap/`.
 4. Do not guess alternate paths when the configured location is missing.
 
-An optional top-level `defaultLens` in `roadmap.config.json` selects the initial metadata grouping. A valid URL `lens` wins, including explicit `lens=board`; without one, a valid `defaultLens` wins, then Board. Unknown URL or configured values fall back safely with a warning.
+An optional top-level `defaultLens` in `roadmap.config.json` selects the initial metadata grouping. A valid URL `lens` wins, including explicit `lens=board`; without one, a valid `defaultLens` wins, then Board. Unknown URL or configured values fall back safely with a warning. Across validates an explicit URL grouping after the full snapshot, since it may be absent from the provisional opened checkout; a newer grouping choice wins.
 
 Filters use the common planning fields `status`, `priority`, `commitment`, `kind`, `milestone`, `lane`, and `labels` when each has two to eight distinct values. Add repo-specific frontmatter keys with `filters.fields`; fields configured under `lenses.fields` are also filterable. Explicitly configured fields may have more than eight values. `id` and `title` remain search-only.
 

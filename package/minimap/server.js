@@ -483,8 +483,15 @@ async function handleWorktreeSourceWorkspace(request, response) {
 
 async function handleWorktreeWorkspace(request, response) {
   const repoRoot = await resolveRoadmapRepo(request);
-  const aggregate = await loadWorktreeAggregate(repoRoot);
-  aggregate.participantCounts = await lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate);
+  const openedOnlyValues = new URL(request.url, "http://localhost").searchParams.getAll("openedOnly");
+  if (openedOnlyValues.length > 1 || (openedOnlyValues.length && openedOnlyValues[0] !== "1")) {
+    throw new AppError("Invalid openedOnly query parameter.", 400, "bad_request");
+  }
+  const openedOnly = openedOnlyValues.length === 1;
+  const aggregate = await loadWorktreeAggregate(repoRoot, { openedOnly });
+  aggregate.participantCounts = openedOnly
+    ? { status: "loading", counts: [], partial: true, includeCompleted: true }
+    : await lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate);
   if (!response.destroyed) sendJson(response, 200, aggregate);
 }
 

@@ -51,6 +51,37 @@ test("shared ancestor merges divergent revisions, retains exact source values, a
   assert.equal(result.groups[0].items[0].key, result.groups[1].items[0].key);
 });
 
+test("opened-only aggregate is provisional, preserves source keys, and reads no sibling workspace", async () => {
+  const { main, sibling } = await fixture();
+  const full = await loadWorktreeAggregate(main);
+  const originalReadFile = fs.readFile;
+  let siblingRead = false;
+  fs.readFile = async function (file, ...args) {
+    if (String(file).toLowerCase().startsWith(sibling.toLowerCase())) siblingRead = true;
+    return originalReadFile.call(this, file, ...args);
+  };
+  try {
+    const provisional = await loadWorktreeAggregate(main, { openedOnly: true });
+    assert.equal(provisional.provisional, true);
+    assert.equal(provisional.partial, true);
+    assert.equal(provisional.coverage.pending, true);
+    assert.equal(provisional.sources.length, 1);
+    assert.equal(siblingRead, false);
+    assert.deepEqual(provisional.features.map(({ key, id, filePath }) => ({ key, id, filePath })),
+      full.features.filter((feature) => feature.versions[0].sourceKey === full.sources[0].sourceKey)
+        .map(({ key, id, filePath }) => ({ key, id, filePath })));
+  } finally { fs.readFile = originalReadFile; }
+});
+
+test("opened-only aggregate fails safe when opened identity is unavailable", async () => {
+  const result = await loadWorktreeAggregate(path.join(os.tmpdir(), "not-a-git-checkout"), { openedOnly: true });
+  assert.equal(result.provisional, true);
+  assert.equal(result.partial, true);
+  assert.equal(result.coverage.pending, true);
+  assert.deepEqual(result.sources, []);
+  assert.equal(result.unavailable.reason, "not-git-or-unavailable");
+});
+
 test("same-group divergence exposes source-specific status conflict and missing refs", async () => {
   const { main, sibling } = await fixture();
   await write(sibling, "roadmap/features/shared.md", item("shared", "blocked"));
