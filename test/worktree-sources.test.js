@@ -58,4 +58,11 @@ test("source discovery is capped", async () => {
   assert.equal(result.sources.length, 16);
   assert.equal(result.partial, true);
   assert.ok(result.excluded.some((entry) => entry.reason === "source-limit"));
+  for (let i = 0; i < 17; i += 1) {
+    await fs.rm(path.join(path.dirname(root), `linked-${i}`), { recursive: true, force: true });
+  }
+  const stale = await discoverWorktreeSources(root);
+  assert.equal(stale.sources.length, 1);
+  assert.equal(stale.excluded.filter((entry) => ["missing-or-unavailable", "prunable"].includes(entry.reason)).length, 15);
+  assert.equal(stale.excluded.filter((entry) => entry.reason === "source-limit").length, 2);
 });

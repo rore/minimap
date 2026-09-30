@@ -68,10 +68,12 @@ export async function discoverWorktreeSources(openRepoRoot) {
   try { records = parsePorcelain(await git(opened.repoRoot, ["worktree", "list", "--porcelain", "-z"])); }
   catch (error) { result.partial = true; result.unavailable = { reason: "git-worktree-list-failed", message: error.message }; return result; }
   const candidates = records.filter((record) => canonical(record.worktree) !== opened.repoRoot);
+  let inspected = 0;
   for (const record of candidates) {
-    if (result.sources.length >= MAX_SOURCES) {
+    if (inspected >= MAX_SOURCES - 1) {
       result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "source-limit" }); continue;
     }
+    inspected += 1;
     if (record.prunable) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "prunable" }); continue; }
     const candidate = await readWorktreeIdentity(record.worktree);
     if (!candidate) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "missing-or-unavailable" }); continue; }
