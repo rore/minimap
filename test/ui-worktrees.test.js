@@ -71,6 +71,28 @@ test("derived lens merges same feature appearances across board groups", () => {
   assert.equal(groups[0].items[0].sourceVersion.sourceKey, "opened");
 });
 
+test("derived merge keeps conflicts and opened-first source when sibling group comes first", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "A", { id: "x", title: "x", searchText: "", status: "done", milestone: "S3", metadata: { status: "done" } }),
+    version("sibling", "B", { id: "x", title: "x", searchText: "", status: "in-progress", milestone: "S3", metadata: { status: "in-progress" } }),
+  ] }], { availableLenses: [{ key: "milestone", values: ["S3"] }] });
+  aggregate.groups.reverse();
+  const [group] = projectWorktreeGroups(aggregate, { lens: "milestone" });
+  assert.equal(group.items.length, 1);
+  assert.equal(group.items[0].sourceVersion.sourceKey, "opened");
+  assert.deepEqual(group.items[0].conflicts.filter((entry) => entry.field === "status").map((entry) => [entry.sourceKey, entry.value]), [["opened", "done"], ["sibling", "in-progress"]]);
+});
+
+test("unlisted versions stay in Not on a board disclosure under derived lenses", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "Not on a board", { id: "x", title: "x", searchText: "", metadata: { status: "done" } }, "unlisted"),
+  ] }], { availableLenses: [{ key: "status", values: ["done"] }] });
+  const groups = projectWorktreeGroups(aggregate, { lens: "status" });
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].name, "Not on a board");
+  assert.equal(groups[0].kind, "unlisted");
+});
+
 test("same-ID ambiguous feature does not qualify from participant association", () => {
   const aggregate = fixture([
     { key: "one", id: "x", entries: [version("opened", "A", { id: "x", title: "one", searchText: "", metadata: { status: "done" } })] },

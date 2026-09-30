@@ -2,6 +2,14 @@ import { getItemLensGroupValue, itemMatchesFilters } from "./filters.js";
 
 const UNASSIGNED_KEY = "__unassigned__";
 const UNASSIGNED_LABEL = "Unassigned";
+const CONFLICT_FIELDS = ["title", "status", "priority", "commitment", "milestone", "kind", "revision"];
+
+function conflictsForVersions(versions) {
+  return CONFLICT_FIELDS.flatMap((field) => {
+    const entries = versions.map((version) => ({ field, sourceKey: version.sourceKey, value: version.summary[field] ?? "" }));
+    return new Set(entries.map((entry) => JSON.stringify(entry.value))).size > 1 ? entries : [];
+  });
+}
 
 export function projectWorktreeGroups(aggregate, {
   lens = "board", searchQuery = "", activeFilters = {}, inPlay = false,
@@ -41,11 +49,11 @@ export function projectWorktreeGroups(aggregate, {
       if (!versions.length) continue;
       const byGroup = new Map();
       for (const version of versions) {
-        const name = derived
+        const name = derived && version.groupKind !== "unlisted"
           ? (getItemLensGroupValue(version.summary, lens, { defaultLensKey: "board", unassignedKey: UNASSIGNED_KEY }) || UNASSIGNED_KEY)
           : version.group;
-        const kind = derived ? "derived" : version.groupKind;
-        const key = derived ? name : `${kind}:${name}`;
+        const kind = derived && version.groupKind !== "unlisted" ? "derived" : version.groupKind;
+        const key = derived && kind === "derived" ? name : `${kind}:${name}`;
         if (!byGroup.has(key)) byGroup.set(key, { name: name === UNASSIGNED_KEY ? UNASSIGNED_LABEL : name, kind, versions: [] });
         byGroup.get(key).versions.push(version);
       }
@@ -55,15 +63,18 @@ export function projectWorktreeGroups(aggregate, {
         const appearanceId = JSON.stringify([feature.key, entry.kind, entry.name]);
         const existing = derived && projected.items.find((card) => card.featureKey === feature.key);
         if (existing) {
-          const sources = new Set(existing.matchingVersions.map((version) => version.sourceKey));
-          existing.matchingVersions.push(...entry.versions.filter((version) => !sources.has(version.sourceKey)));
+          const sources = new Set(existing.matchingVersions.map((version) => `${version.sourceKey}\0${version.groupKind}\0${version.group}`));
+          existing.matchingVersions.push(...entry.versions.filter((version) => !sources.has(`${version.sourceKey}\0${version.groupKind}\0${version.group}`)));
+          const sourceOrder = new Map(feature.versions.map((version, order) => [`${version.sourceKey}\0${version.groupKind}\0${version.group}`, order]));
+          existing.matchingVersions.sort((left, right) => sourceOrder.get(`${left.sourceKey}\0${left.groupKind}\0${left.group}`) - sourceOrder.get(`${right.sourceKey}\0${right.groupKind}\0${right.group}`));
           existing.versions = existing.matchingVersions;
           existing.sourceVersion = existing.matchingVersions[0];
+          existing.conflicts = conflictsForVersions(existing.matchingVersions);
           continue;
         }
         projected.items.push({ ...entry.versions[0].summary, id: appearanceId, featureKey: feature.key,
           title: entry.versions[0].summary.title || feature.id, versions: entry.versions, matchingVersions: entry.versions,
-          conflicts: item.conflicts || [], sourceVersion: entry.versions[0] });
+          conflicts: conflictsForVersions(entry.versions), sourceVersion: entry.versions[0] });
       }
     }
   }
