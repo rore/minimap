@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { AppError } from "./roadmap.js";
+import { assertSourceWriteGuard } from "./source-write-guard.js";
 
 const SESSION_INDEX_FILE = "session-index.json";
 const SESSION_INDEX_VERSION = 1;
@@ -619,7 +620,7 @@ async function readJson(filePath, fallback) {
 // any single-file write goes through it without callers having to think.
 async function renameWithRetry(from, to) {
   for (let attempt = 0; ; attempt += 1) {
-    try { return await fs.rename(from, to); }
+    try { await assertSourceWriteGuard(); return await fs.rename(from, to); }
     catch (error) {
       if (process.platform !== "win32" || !["EPERM", "EACCES"].includes(error?.code) || attempt === 4) throw error;
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -651,6 +652,7 @@ async function readJsonLines(filePath) {
 }
 
 async function appendJsonLine(filePath, value) {
+  await assertSourceWriteGuard();
   await fs.appendFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
 }
 
@@ -730,6 +732,7 @@ async function withSessionMutationLock(paths, work) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   try {
+    await assertSourceWriteGuard();
     return await work();
   } finally {
     try {
@@ -1054,6 +1057,7 @@ export async function loadSessionIndex(minimapHome = resolveMinimapHome()) {
 }
 
 async function saveSessionIndex(minimapHome, index) {
+  await assertSourceWriteGuard();
   await fs.mkdir(minimapHome, { recursive: true });
   await writeJson(path.join(minimapHome, SESSION_INDEX_FILE), {
     version: SESSION_INDEX_VERSION,
@@ -1062,9 +1066,11 @@ async function saveSessionIndex(minimapHome, index) {
 }
 
 async function ensureSessionFiles(paths) {
+  await assertSourceWriteGuard();
   await fs.mkdir(paths.sessionDir, { recursive: true });
   for (const filePath of [paths.commentsJsonl, paths.suggestionsJsonl, paths.eventsJsonl]) {
     if (!(await pathExists(filePath))) {
+      await assertSourceWriteGuard();
       await fs.writeFile(filePath, EMPTY_JSONL, "utf8");
     }
   }
@@ -1110,7 +1116,7 @@ async function withSessionLifecycle(filePath, options, create, work) {
   const sessionId = index.files[fileKey] || (create ? makeSessionId(fileKey, targetPath) : null);
   if (!sessionId) return work();
   const paths = makeSessionPaths(home, sessionId);
-  if (create) await fs.mkdir(paths.sessionDir, { recursive: true });
+  if (create) { await assertSourceWriteGuard(); await fs.mkdir(paths.sessionDir, { recursive: true }); }
   return withSessionMutationLock(paths, async () => {
     await recoverSuggestionTransactionUnlocked(paths);
     return work();
@@ -1235,6 +1241,7 @@ async function removeFileSessionUnlocked(filePath, options = {}) {
   const session = await readJson(paths.sessionJson, null);
   delete index.files[fileKey];
   await saveSessionIndex(minimapHome, index);
+  await assertSourceWriteGuard();
   await fs.rm(paths.sessionDir, { recursive: true, force: true });
 
   return {

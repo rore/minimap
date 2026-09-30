@@ -16,6 +16,7 @@ import {
 import { loadWorktreeAggregate } from "./src/worktree-aggregate.js";
 import { selectWorktreeParticipantCandidates } from "./src/worktree-presence.js";
 import { requirePathInSource, requireRoadmapInSource, verifySourceContext } from "./src/source-bound.js";
+import { withSourceWriteGuard } from "./src/source-write-guard.js";
 import {
   addFileSessionSuggestion,
   addFileSessionSuggestionReply,
@@ -698,7 +699,9 @@ async function handleApi(request, response, requestUrl) {
     request.boundUrl = routedUrl;
     await validateBoundRequest(request);
   }
-  await match.handler(request, response, { url: routedUrl, params: match.params });
+  if (bound) await withSourceWriteGuard(() => validateBoundRequest(request),
+    () => match.handler(request, response, { url: routedUrl, params: match.params }));
+  else await match.handler(request, response, { url: routedUrl, params: match.params });
   return true;
 }
 

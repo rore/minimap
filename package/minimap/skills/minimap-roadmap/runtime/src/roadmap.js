@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { assertSourceWriteGuard } from "./source-write-guard.js";
 
 export const REQUIRED_FRONTMATTER_KEYS = ["id", "title", "status", "priority", "commitment"];
 export const OPTIONAL_FRONTMATTER_KEYS = ["milestone"];
@@ -62,7 +63,7 @@ function withRepoWriteLock(repoRoot, operation) {
   const resolved = path.resolve(repoRoot);
   const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
   const previous = repoWriteQueues.get(key) || Promise.resolve();
-  const current = previous.catch(() => {}).then(operation);
+  const current = previous.catch(() => {}).then(async () => { await assertSourceWriteGuard(); return operation(); });
   repoWriteQueues.set(key, current);
   return current.finally(() => {
     if (repoWriteQueues.get(key) === current) repoWriteQueues.delete(key);
@@ -858,6 +859,7 @@ async function writeFileAtomic(filePath, content, expectedContent, conflictMessa
   try {
     await fs.writeFile(tmpPath, content, "utf8");
     await assertFileSnapshot(filePath, expectedContent, conflictMessage);
+    await assertSourceWriteGuard();
     await fs.rename(tmpPath, filePath);
   } finally {
     await fs.rm(tmpPath, { force: true }).catch(() => {});
@@ -881,7 +883,9 @@ async function writeFilesTransactionally(entries) {
     for (const entry of staged) {
       await assertFileSnapshot(entry.path, entry.expectedContent, entry.conflictMessage || "File changed on disk. Reload before saving.");
     }
+    await assertSourceWriteGuard();
     for (const entry of staged) {
+      await assertSourceWriteGuard();
       await fs.rename(entry.path, entry.backupPath);
       entry.backedUp = true;
       await fs.rename(entry.tmpPath, entry.path);
@@ -1388,6 +1392,7 @@ async function saveItemByIdUnlocked(repoRoot, id, payload) {
   await writeFileAtomic(item.filePath, serialized, item.parsed.rawText, `Roadmap item "${id}" changed on disk. Reload before saving.`);
 
   if (destinationPath !== item.filePath) {
+    await assertSourceWriteGuard();
     await fs.rename(item.filePath, destinationPath);
   }
 

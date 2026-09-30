@@ -3841,6 +3841,9 @@ textarea {
 .board-source-menu button:hover,
 .board-source-menu button:focus-visible { background: var(--subtle, #f1f3f8); }
 .board-source-menu button[aria-current="true"] { font-weight: 700; }
+.board-source-missing { padding: 8px 10px; color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
+.board-source-missing summary { cursor: pointer; }
+.board-source-missing ul { margin: 6px 0 0; padding-left: 18px; }
 .board-source-status { color: var(--muted); font-size: .76rem; }
 .board-source-badge { color: var(--muted); font-size: .72rem; }
 .board-source-conflict { color: #8b3c10; font-weight: 600; }

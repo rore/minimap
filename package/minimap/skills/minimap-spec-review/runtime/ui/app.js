@@ -686,7 +686,7 @@ function renderBoardSourceControl() {
   boardSourceStatusElement.textContent = message;
   boardSourceStatusElement.hidden = !message;
   boardSourceStatusElement.title = [...(aggregate?.excluded || []).map((entry) => `${entry.repoRoot}: ${sourceExclusionReason(entry)}`),
-    ...missing.slice(0, 20).map((entry) => `${entry.sourceKey}: ${entry.group} / ${entry.itemId} (missing file)`),
+    ...missing.slice(0, 20).map((entry) => `${sourceDisplayName(aggregate, entry.sourceKey)}: ${entry.group} / ${entry.itemId} (missing file)`),
     ...(missing.length > 20 ? [`+${missing.length - 20} more missing refs`] : [])].join("\n") || message;
 }
 
@@ -696,6 +696,13 @@ function sourceExclusionReason(entry) {
     "missing-or-unavailable": "Checkout path is missing or unreadable",
     prunable: "Git worktree is prunable", "source-limit": "Checkout limit reached",
     "different-common-git-dir": "Not part of this Git worktree family" })[entry.reason] || entry.reason;
+}
+
+function sourceDisplayName(aggregate, sourceKey) {
+  const source = aggregate?.sources?.find((candidate) => candidate.sourceKey === sourceKey);
+  if (!source) return "Unavailable checkout";
+  const branch = source.git.branchRef?.replace(/^refs\/heads\//, "") || source.git.headCommit?.slice(0, 8) || "unknown branch";
+  return `${source.label} · ${branch}`;
 }
 
 function closeBoardSourceMenu() {
@@ -716,7 +723,10 @@ function renderBoardSourceMenu(aggregate) {
   ];
   const excluded = (aggregate.excluded || []).map((entry) => `<div class="board-source-badge" title="${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}">Unavailable: ${escapeHtml(`${entry.repoRoot.split(/[\\/]/).filter(Boolean).at(-1) || entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
   const missing = aggregate.coverage?.missingBoardRefs || [];
-  const missingNotice = missing.length ? `<div class="board-source-badge" role="note" title="${escapeHtml(missing.slice(0, 20).map((entry) => `${entry.sourceKey}: ${entry.group} / ${entry.itemId}`).join("\n"))}">${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</div>` : "";
+  const missingRows = missing.slice(0, 20).map((entry) => {
+    return `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId}`)}</li>`;
+  }).join("");
+  const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
   boardSourceMenuElement.innerHTML = `${choices.join("")}${excluded}${missingNotice}`;
   boardSourceMenuElement.hidden = false;
   boardSourceToggleButton.setAttribute("aria-expanded", "true");
@@ -4569,13 +4579,13 @@ async function applyRouteStateFromLocation() {
     return;
   }
 
+  clearTransientBanner();
   await syncVisibleSelection({
     preferredItemId: route.itemId || state.selectedItemId,
     replaceRoute: true,
     forceReloadItem: Boolean(route.sourceKey && (route.sourceKey !== state.selectedSource?.sourceKey
       || (route.sourceRef && route.sourceRef !== sourceRef(state.selectedSource)))),
   });
-  clearTransientBanner();
 }
 function boardPresenceIsVisible() {
   return document.visibilityState === "visible"

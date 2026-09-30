@@ -45,7 +45,7 @@ const SAFE_NAMES = new Set([
   "beforeHtml", "afterHtml", "cls", "classes", "contentHtml",
   "metaHtml", "buttonsHtml", "dropZoneHtml", "scopeIconHtml",
   "filterChipsHtml", "filterFacetsHtml", "excluded", // Escaped source-menu reason markup.
-  "sourceBadge", "conflictBadge", "groupCue", "missingNotice", // Escaped source labels, conflicts, group, and missing-ref cues.
+  "sourceBadge", "conflictBadge", "groupCue", "missingNotice", "missingRows", // Escaped source labels, conflicts, group, and missing-ref cues.
   "signalBadges", // Concatenation of renderBadge outputs; values are escaped there.
   "participantBadge", // buildBoardParticipantBadge escapes its only dynamic label.
   "badges", "titleHtml", "statsHtml", "chips", "options", "optionMarkup",

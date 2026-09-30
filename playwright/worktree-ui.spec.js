@@ -224,6 +224,9 @@ test("cross-group versions and missing board references stay visible in derived 
     await expect(page.getByText("Also in Lane 02")).toBeVisible();
     await page.locator("#board-source-toggle").click();
     await expect(page.locator("#board-source-menu")).toContainText("1 missing board reference");
+    await page.locator("#board-source-menu .board-source-missing summary").click();
+    await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText("feature/blue · Lane 02");
+    await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText("vanished-feature");
     const url = new URL(page.url());
     const params = new URLSearchParams(url.hash.slice(1));
     params.set("lens", "milestone");
