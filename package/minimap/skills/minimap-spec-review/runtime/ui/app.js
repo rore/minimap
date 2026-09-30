@@ -65,6 +65,7 @@ import {
 import { initSpec } from "/spec/index.js";
 import { detectSpecFileChange } from "/spec/file-change.js";
 import { createState } from "/state.js";
+import { projectWorktreeGroups, countDistinctWorktreeFeatures } from "/worktrees.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -173,8 +174,20 @@ const stateContainer = createState({
   },
 });
 const state = stateContainer.get();
+state.worktreeMode = "this";
+state.worktreeData = null;
+state.sourceMenuData = null;
+state.selectedSource = null;
+state.pinnedSource = null;
+state.boundRequired = false;
+state.confirmedEditSource = null;
+state.preferredVersions = new Map();
 
-const api = createApi({ getRepo: () => state.repoPath });
+const api = createApi({
+  getRepo: () => state.repoPath,
+  getSource: () => state.worktreeMode === "across" || state.boundRequired
+    ? { mode: "across", identity: state.worktreeMode === "across" ? state.selectedSource : state.pinnedSource } : null,
+});
 let boardParticipantCounts = new Map();
 let boardParticipantStatus = "idle";
 let boardParticipantPartial = false;
@@ -232,6 +245,9 @@ const specSuggestionAnchorModeButtons = Array.from(document.querySelectorAll("[d
 const layoutElement = document.querySelector("#layout-shell");
 const boardPanelElement = document.querySelector("#board-panel");
 const boardControlsElement = document.querySelector("#board-controls");
+const boardSourceToggleButton = document.querySelector("#board-source-toggle");
+const boardSourceMenuElement = document.querySelector("#board-source-menu");
+const boardSourceStatusElement = document.querySelector("#board-source-status");
 const boardGroupsElement = document.querySelector("#board-groups");
 const boardEditButton = document.querySelector("#board-edit-button");
 const boardSaveButton = document.querySelector("#board-save-button");
@@ -268,6 +284,8 @@ const modeTitleElement = document.querySelector("#mode-title");
 const modeEyebrowElement = document.querySelector("#mode-eyebrow");
 const editorTitleElement = document.querySelector("#editor-title");
 const editorSubtitleElement = document.querySelector("#editor-subtitle");
+const editorSourceLabelElement = document.querySelector("#editor-source-label");
+const editorSourceSelectElement = document.querySelector("#editor-source-select");
 const editorPanelElement = document.querySelector("#editor-panel");
 const editorPanelAnchor = document.querySelector("#editor-panel-anchor");
 const editorOverlayElement = document.querySelector("#editor-overlay");
@@ -619,6 +637,91 @@ function getBoardItems() {
   return state.workspace?.boardGroups.flatMap((group) => group.items) ?? [];
 }
 
+function worktreePreferenceKey(repoPath = state.repoPath) {
+  return `roadmap-ui.worktree-mode:${String(repoPath || "").toLowerCase()}`;
+}
+
+function loadWorktreePreference(repoPath) {
+  try { return window.localStorage.getItem(worktreePreferenceKey(repoPath)) === "across" ? "across" : "this"; }
+  catch { return "this"; }
+}
+
+function saveWorktreePreference() {
+  try { window.localStorage.setItem(worktreePreferenceKey(), state.worktreeMode); } catch {}
+}
+
+function pinnedSourceKey(repoPath = state.repoPath) {
+  return `roadmap-ui.pinned-source:${String(repoPath || "").toLowerCase()}`;
+}
+
+function rememberPinnedSource(source) {
+  state.pinnedSource = source;
+  state.boundRequired = true;
+  try { window.sessionStorage.setItem(pinnedSourceKey(source.repoRoot), JSON.stringify(source)); } catch {}
+}
+
+function restorePinnedSource(repoPath) {
+  try { return JSON.parse(window.sessionStorage.getItem(pinnedSourceKey(repoPath)) || "null"); }
+  catch { return null; }
+}
+
+function buildCombinedWorkspace(aggregate) {
+  const base = aggregate.workspace;
+  const boardGroups = projectWorktreeGroups(aggregate, { lens: "board" });
+  const items = {};
+  for (const group of boardGroups) {
+    for (const item of group.items) if (!item.missing) items[item.id] = item;
+  }
+  return { ...base, boardGroups, items };
+}
+
+function renderBoardSourceControl() {
+  if (!boardSourceToggleButton) return;
+  boardSourceToggleButton.textContent = state.worktreeMode === "across" ? "Across worktrees ▾" : "This checkout ▾";
+  const aggregate = state.worktreeData;
+  const excluded = aggregate?.coverage?.excluded || 0;
+  const missing = aggregate?.coverage?.missingBoardRefs || [];
+  const message = state.worktreeMode !== "across" ? ""
+    : `${aggregate?.coverage?.loaded || 0} checkouts · ${workspaceSummaryElement.textContent}${aggregate?.partial ? ` · partial coverage${excluded ? ` (${excluded} excluded)` : ""}` : ""}${missing.length ? ` · ${missing.length} missing ${missing.length === 1 ? "ref" : "refs"}` : ""}`;
+  boardSourceStatusElement.textContent = message;
+  boardSourceStatusElement.hidden = !message;
+  boardSourceStatusElement.title = [...(aggregate?.excluded || []).map((entry) => `${entry.repoRoot}: ${sourceExclusionReason(entry)}`),
+    ...missing.slice(0, 20).map((entry) => `${entry.sourceKey}: ${entry.group} / ${entry.itemId} (missing file)`),
+    ...(missing.length > 20 ? [`+${missing.length - 20} more missing refs`] : [])].join("\n") || message;
+}
+
+function sourceExclusionReason(entry) {
+  if (entry.reason === "workspace-load-failed") return entry.message || "Roadmap workspace could not be loaded";
+  return ({ "incompatible-roadmap-config": "Roadmap location differs from the opened checkout",
+    "missing-or-unavailable": "Checkout path is missing or unreadable",
+    prunable: "Git worktree is prunable", "source-limit": "Checkout limit reached",
+    "different-common-git-dir": "Not part of this Git worktree family" })[entry.reason] || entry.reason;
+}
+
+function closeBoardSourceMenu() {
+  boardSourceMenuElement.hidden = true;
+  boardSourceToggleButton.setAttribute("aria-expanded", "false");
+}
+
+function renderBoardSourceMenu(aggregate) {
+  const current = state.worktreeMode;
+  const thisSelected = current === "this" ? "true" : "false";
+  const acrossSelected = current === "across" ? "true" : "false";
+  const acrossDisabled = (aggregate.coverage?.loaded || 0) < 2 ? "disabled" : "";
+  const choices = [
+    `<button type="button" data-source-choice="this" aria-current="${thisSelected}">This checkout · ${escapeHtml(state.repoPath || aggregate.sources?.[0]?.repoRoot || "current repo")}</button>`,
+    `<button type="button" data-source-choice="across" aria-current="${acrossSelected}" ${acrossDisabled}>Across worktrees · ${escapeHtml(String(aggregate.coverage?.loaded || 0))} available</button>`,
+    ...(aggregate.sources || []).filter((source) => source.repoRoot !== state.repoPath && source.roadmapBinding)
+      .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(`${source.label} · ${source.git.branchRef || source.git.headCommit.slice(0, 8)}`)}<br><small>${escapeHtml(source.repoRoot)}</small></button>`),
+  ];
+  const excluded = (aggregate.excluded || []).map((entry) => `<div class="board-source-badge" title="${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}">Unavailable: ${escapeHtml(`${entry.repoRoot.split(/[\\/]/).filter(Boolean).at(-1) || entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
+  const missing = aggregate.coverage?.missingBoardRefs || [];
+  const missingNotice = missing.length ? `<div class="board-source-badge" role="note" title="${escapeHtml(missing.slice(0, 20).map((entry) => `${entry.sourceKey}: ${entry.group} / ${entry.itemId}`).join("\n"))}">${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</div>` : "";
+  boardSourceMenuElement.innerHTML = `${choices.join("")}${excluded}${missingNotice}`;
+  boardSourceMenuElement.hidden = false;
+  boardSourceToggleButton.setAttribute("aria-expanded", "true");
+}
+
 function getBoardItemById(itemId, workspace = state.workspace) {
   return workspace?.items?.[itemId] ?? null;
 }
@@ -725,12 +828,27 @@ function itemMatchesCurrentFilters(itemId, workspace = state.workspace) {
 }
 
 function getFilteredBoardItemIds(workspace = state.workspace) {
+  if (state.worktreeMode === "across" && state.worktreeData) {
+    return getVisibleBoardGroups(workspace).flatMap((group) => group.items.filter((item) => !item.missing).map((item) => item.id));
+  }
   return filterBoardItemIds(workspace, { searchQuery: state.searchQuery, activeFilters: state.activeFilters, inPlay: state.inPlay, participantCounts: boardParticipantCounts });
 }
 
 function getVisibleBoardGroups(workspace = state.workspace) {
   if (!workspace) {
     return [];
+  }
+  if (state.worktreeMode === "across" && state.worktreeData) {
+    const groups = projectWorktreeGroups(state.worktreeData, {
+      lens: getActiveLensDefinition(workspace)?.key || DEFAULT_LENS_KEY,
+      searchQuery: state.searchQuery,
+      activeFilters: state.activeFilters,
+      inPlay: state.inPlay,
+      participantCounts: boardParticipantCounts,
+      showEmptyGroups: !isSearchActive(),
+    }).map((group, index) => ({ ...group, originalIndex: index, isDerived: group.kind === "derived", draggable: false }));
+    for (const group of groups) for (const item of group.items) if (!item.missing) workspace.items[item.id] = item;
+    return groups;
   }
 
   const activeLens = getActiveLensDefinition(workspace);
@@ -759,7 +877,7 @@ function getVisibleBoardGroups(workspace = state.workspace) {
 }
 
 function getVisibleBoardItemIds(workspace = state.workspace) {
-  return getVisibleBoardGroups(workspace).flatMap((group) => group.items.map((item) => item.id));
+  return getVisibleBoardGroups(workspace).flatMap((group) => group.items.filter((item) => !item.missing).map((item) => item.id));
 }
 
 function getFirstBoardItemId(workspace = state.workspace) {
@@ -775,11 +893,13 @@ function isMissingBoardItem(item) {
 }
 
 function canDragItemsInActiveLens(workspace = state.workspace) {
+  if (state.worktreeMode === "across") return false;
   const lens = getActiveLensDefinition(workspace);
   return Boolean(lens && lens.kind === "derived" && lens.draggable && !state.boardEditMode);
 }
 
 function canDragItemsInColumnLayout(workspace = state.workspace) {
+  if (state.worktreeMode === "across") return false;
   const lens = getActiveLensDefinition(workspace);
   if (!lens || state.boardEditMode || !isColumnsLayoutActive()) {
     return false;
@@ -793,6 +913,7 @@ function canDragItemsInColumnLayout(workspace = state.workspace) {
 }
 
 function canReorderColumnsInColumnLayout(workspace = state.workspace) {
+  if (state.worktreeMode === "across") return false;
   const lens = getActiveLensDefinition(workspace);
   return Boolean(
     lens
@@ -1121,6 +1242,14 @@ function updateDocumentTitle() {
 }
 
 function updateWorkspaceSummary() {
+  if (state.worktreeMode === "across" && state.worktreeData) {
+    const groups = getVisibleBoardGroups();
+    const shown = countDistinctWorktreeFeatures(groups);
+    const total = state.worktreeData.features.length;
+    const appearances = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
+    workspaceSummaryElement.textContent = `${shown}${isSearchActive() ? ` / ${total}` : ""} features · ${appearances} appearances · ${groups.length} groups`;
+    return;
+  }
   const groups = state.workspace?.boardGroups.length ?? 0;
   const items = getBoardItems().length;
   const activeLens = getActiveLensDefinition();
@@ -1153,6 +1282,14 @@ function normalizeEditorMode(mode) {
   return EDITOR_MODES.has(mode) ? mode : "preview";
 }
 
+function sourceRef(source) {
+  return source?.git?.branchRef || source?.git?.headCommit || "";
+}
+
+function rememberPreferredVersion(itemId, source) {
+  state.preferredVersions.set(itemId, { sourceKey: source.sourceKey, gitRef: sourceRef(source) });
+}
+
 function readRouteState() {
   const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
   const params = new URLSearchParams(rawHash);
@@ -1160,6 +1297,8 @@ function readRouteState() {
     view: params.get("view") || "roadmap",
     specFile: params.get("file") || "",
     itemId: params.get("item") || "",
+    sourceKey: params.get("source") || "",
+    sourceRef: params.get("sourceRef") || "",
     mode: normalizeEditorMode(params.get("mode") || "preview"),
     lens: params.get("lens") || "",
     lensSpecified: params.has("lens"),
@@ -1168,6 +1307,8 @@ function readRouteState() {
     inPlay: params.get("inPlay") === "1",
     filters: parseRouteFilters(params),
     repo: params.get("repo") || "",
+    sources: params.get("sources") || "",
+    bound: params.get("bound") === "1",
   };
 }
 
@@ -1177,6 +1318,10 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
   if (state.repoPath) {
     params.set("repo", state.repoPath);
   }
+  if (state.worktreeMode === "across" || state.worktreeModeExplicit) {
+    params.set("sources", state.worktreeMode);
+  }
+  if (state.worktreeMode === "this" && state.boundRequired) params.set("bound", "1");
 
   if (state.appMode === "spec") {
     params.set("view", "spec");
@@ -1190,6 +1335,10 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
 
   if (persistSelectedItem && itemId) {
     params.set("item", itemId);
+    if (state.worktreeMode === "across" && state.selectedSource) {
+      params.set("source", state.selectedSource.sourceKey);
+      params.set("sourceRef", sourceRef(state.selectedSource));
+    }
   }
 
   const normalizedMode = normalizeEditorMode(mode);
@@ -1411,6 +1560,11 @@ function renderLensControls() {
 const FINISHED_STATUSES = new Set(["done", "shipped", "superseded", "cancelled", "canceled"]);
 
 function getBoardFieldValues(field) {
+  if (state.worktreeMode === "across" && state.worktreeData) {
+    return Array.from(new Set(state.worktreeData.features.flatMap((feature) => feature.versions
+      .flatMap((version) => normalizeFilterValues(version.summary.metadata?.[field])))))
+      .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  }
   return Array.from(new Set(Object.values(state.workspace?.items || {})
     .flatMap((item) => normalizeFilterValues(item.metadata?.[field])))).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
 }
@@ -1431,6 +1585,7 @@ function boardPresenceIncludesCompleted() {
 }
 
 function boardInPlayResultsIncomplete() {
+  if (state.worktreeMode === "across") return state.inPlay && (boardParticipantStatus !== "ok" || boardParticipantPartial);
   return state.inPlay && (boardParticipantStatus !== "ok" || boardParticipantPartial
     || boardParticipantIncludeCompleted !== boardPresenceIncludesCompleted());
 }
@@ -1440,13 +1595,13 @@ function renderBoardParticipantStatus() {
   const status = boardParticipantStatus;
   const incomplete = boardInPlayResultsIncomplete();
   const message = incomplete ? `In play results incomplete: ${status === "loading" || status === "idle" ? "checking attached sessions…"
-    : status === "ok" && boardParticipantPartial ? "session counts limited to 200 items"
+    : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "some checkout associations are ambiguous or outside coverage" : "session counts limited to 200 items")
     : status === "disabled" ? "session lookup disabled"
     : status === "unsupported" ? "session lookup needs a newer Pallium"
     : status === "server-unsupported" ? "completed session lookup needs a newer Minimap"
     : "session lookup unavailable"}`
     : status === "loading" ? "Updating session badges…"
-    : status === "ok" && boardParticipantPartial ? "Session badges limited to 200 items"
+    : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "Session badges have partial checkout coverage" : "Session badges limited to 200 items")
     : status === "unsupported" ? "Participant recency needs a newer Pallium"
     : ["disabled", "idle", "ok"].includes(status) ? ""
     : "Session badges unavailable";
@@ -1539,11 +1694,12 @@ function renderBoardChrome() {
   const setupMode = isSetupMode();
   const boardLensActive = isBoardLensActive();
   const listLayoutActive = !isColumnsLayoutActive();
-  boardEditButton.hidden = setupMode || state.boardEditMode || !boardLensActive || !listLayoutActive;
+  boardEditButton.hidden = setupMode || state.worktreeMode === "across" || state.boardEditMode || !boardLensActive || !listLayoutActive;
   boardSaveButton.hidden = setupMode || !state.boardEditMode;
   boardCancelButton.hidden = setupMode || !state.boardEditMode;
   boardControlsElement.hidden = setupMode;
   boardSaveButton.disabled = !state.boardDirty;
+  renderBoardSourceControl();
   renderLayoutControls();
   renderSearchControls();
   renderBoardParticipantStatus();
@@ -1563,9 +1719,10 @@ function renderScopeChrome() {
   boardEditorResizerElement.setAttribute("aria-valuenow", String(state.boardWidth));
   scopePanelElement.classList.toggle("scope-collapsed", state.scopeCollapsed);
   scopePanelElement.classList.toggle("scope-editing", state.scopeEditMode);
-  scopeSubtitleElement.textContent = "";
-  scopeSubtitleElement.hidden = true;
-  scopeEditButton.hidden = setupMode || state.scopeEditMode || state.scopeCollapsed;
+  const opened = state.worktreeMode === "across" ? state.worktreeData?.sources?.[0] : null;
+  scopeSubtitleElement.textContent = opened ? `From ${opened.label} · ${opened.git.branchRef?.replace(/^refs\/heads\//, "") || opened.git.headCommit.slice(0, 8)}` : "";
+  scopeSubtitleElement.hidden = !opened;
+  scopeEditButton.hidden = setupMode || state.worktreeMode === "across" || state.scopeEditMode || state.scopeCollapsed;
   scopeEditButton.disabled = !state.workspace;
   scopeSaveButton.hidden = setupMode || !state.scopeEditMode;
   scopeCancelButton.hidden = setupMode || !state.scopeEditMode;
@@ -1780,7 +1937,8 @@ function collapsedGroupKey(name) {
 }
 
 function isGroupCollapsed(name) {
-  return state.collapsedGroups.has(collapsedGroupKey(name));
+  const toggled = state.collapsedGroups.has(collapsedGroupKey(name));
+  return state.worktreeMode === "across" && name.startsWith("unlisted:") ? !toggled : toggled;
 }
 
 function toggleGroup(name) {
@@ -2022,6 +2180,11 @@ function renderBoardGroupField(itemId = state.selectedItemId) {
   if (!fields.boardGroup) {
     return;
   }
+  if (state.worktreeMode === "across") {
+    fields.boardGroup.innerHTML = '<option value="">Choose one checkout to change board placement</option>';
+    fields.boardGroup.disabled = true;
+    return;
+  }
 
   const groups = state.workspace?.boardGroups ?? [];
   const selectedIndex = getBoardGroupIndexForItem(itemId);
@@ -2187,7 +2350,7 @@ function clearBoardDragState() {
 
 function buildBoardParticipantBadge(item) {
   if (!state.inPlay && FINISHED_STATUSES.has(String(getBadgeMetadata(item).status || "").trim().toLowerCase())) return "";
-  const counts = boardParticipantCounts.get(item.id);
+  const counts = boardParticipantCounts.get(item.featureKey || item.id);
   if (!counts) return "";
   return buildParticipantRecencyBadges(counts.recentParticipantCount, counts.dormantParticipantCount);
 }
@@ -2245,6 +2408,22 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
     : specLink
       ? `<span class="board-item-spec-badge" title="${escapeHtml(buildSpecBadgeTitle(specLink))}" aria-label="${escapeHtml(buildSpecBadgeTitle(specLink))}">💬 ${specLink.openComments}${specLink.pendingSuggestions > 0 ? ` · ✎ ${specLink.pendingSuggestions}` : ""}</span>`
       : "";
+  const sourceLabels = item.matchingVersions?.map((version) => `${version.sourceContext.label}: ${version.repoRoot}`) || [];
+  const sourceName = item.sourceVersion?.sourceContext;
+  const sourceLabel = sourceName ? `${sourceName.label} · ${sourceName.git.branchRef?.replace(/^refs\/heads\//, "") || sourceName.git.headCommit.slice(0, 8)}` : "";
+  const differingFields = [...new Set((item.conflicts || []).map((entry) => entry.field))];
+  const sourceBadgeLabel = item.matchingVersions?.length > 1 ? `${item.matchingVersions.length} checkouts` : sourceLabel;
+  const sourceBadge = item.sourceVersion && (item.matchingVersions?.length === 1 || differingFields.length)
+    ? `<span class="board-source-badge" title="${escapeHtml(sourceLabels.join("\n"))}">${escapeHtml(sourceBadgeLabel)}</span>` : "";
+  const conflictDetail = (item.conflicts || []).map((entry) => {
+    const source = item.versions?.find((version) => version.sourceKey === entry.sourceKey)?.sourceContext;
+    return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
+  }).join("\n");
+  const conflictBadge = differingFields.length ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(conflictDetail)}" aria-label="${escapeHtml(conflictDetail)}">${escapeHtml(differingFields.filter((field) => field !== "revision").map((field) => `${humanizeFilterKey(field)} differs`).join(" · ") || "Versions differ")}</span>` : "";
+  const feature = activeLensKey === "board" && item.featureKey
+    ? state.worktreeData?.features.find((entry) => entry.key === item.featureKey) : null;
+  const otherGroups = [...new Set((feature?.groups || []).filter((group) => group.kind === "board" && group.name !== item.sourceVersion?.group).map((group) => group.name))];
+  const groupCue = otherGroups.length ? `<span class="board-source-badge" role="note" title="${escapeHtml(otherGroups.join("\n"))}">${escapeHtml(`Also in ${otherGroups[0]}${otherGroups.length > 1 ? ` +${otherGroups.length - 1}` : ""}`)}</span>` : "";
 
   return `
     <span class="board-item-top">
@@ -2252,9 +2431,9 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
       ${metaHtml}
     </span>
     ${statusSignal}
-    <span class="board-item-id">${escapeHtml(item.id)}</span>
+    <span class="board-item-id">${escapeHtml(item.sourceVersion?.itemId || item.id)}</span>
     ${overview}
-    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}${participantBadge}${specBadge}</span>
+    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}${groupCue}</span>
   `;
 }
 
@@ -2560,7 +2739,7 @@ function renderBoardColumnsMode() {
   const allowColumnDrag = canDragItemsInColumnLayout();
   const allowColumnReorder = canReorderColumnsInColumnLayout();
   const boardGrouping = activeLens?.key === DEFAULT_LENS_KEY;
-  const allowItemReorder = activeLens?.kind === "derived";
+  const allowItemReorder = state.worktreeMode !== "across" && activeLens?.kind === "derived";
   const metadataGroups = allowItemReorder && !isSearchActive()
     ? visibleGroups.filter((group) => activeLens.values.includes(group.groupKey))
     : [];
@@ -2577,7 +2756,8 @@ function renderBoardColumnsMode() {
   }
 
   const columnsHtml = visibleGroups.map((group) => {
-    const collapsed = isGroupCollapsed(group.name);
+    const collapseKey = state.worktreeMode === "across" ? group.groupKey : group.name;
+    const collapsed = isGroupCollapsed(collapseKey);
     const dropAttributes = allowColumnDrag
       ? (boardGrouping
         ? `data-board-drop-group-index="${group.originalIndex}"`
@@ -2624,7 +2804,7 @@ function renderBoardColumnsMode() {
       <section class="board-column${collapsed ? " board-column-collapsed" : ""}${group.items.length >= 10 ? " board-column-dense" : ""}${allowColumnReorder ? " board-column-reorderable" : ""}${reorderAttributes ? " board-column-reorder-dropzone" : ""}" ${reorderAttributes}>
         <div class="board-column-header">
           <div class="board-column-heading">
-            <button class="order-button board-column-collapse-toggle" data-group-toggle="${escapeHtml(group.name)}" type="button" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(group.name)} column" title="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(group.name)} column"><span aria-hidden="true">${collapsed ? "+" : "−"}</span></button>
+            <button class="order-button board-column-collapse-toggle" data-group-toggle="${escapeHtml(collapseKey)}" type="button" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(group.name)} column" title="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(group.name)} column"><span aria-hidden="true">${collapsed ? "+" : "−"}</span></button>
             <span class="board-column-name" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
             <span class="group-count">${group.items.length}</span>
           </div>
@@ -2858,7 +3038,7 @@ function renderBoardReadMode() {
   const activeLens = getActiveLensDefinition();
   const visibleGroups = getVisibleBoardGroups();
   const filtered = isSearchActive();
-  const allowGroupReorder = activeLens?.key === DEFAULT_LENS_KEY && !filtered;
+  const allowGroupReorder = state.worktreeMode !== "across" && activeLens?.key === DEFAULT_LENS_KEY && !filtered;
   const allowDerivedDrag = canDragItemsInActiveLens();
 
   if (visibleGroups.length === 0) {
@@ -2872,7 +3052,7 @@ function renderBoardReadMode() {
     return;
   }
 
-  const allowItemReorder = activeLens?.kind === "derived";
+  const allowItemReorder = state.worktreeMode !== "across" && activeLens?.kind === "derived";
   const metadataGroups = allowItemReorder && !filtered
     ? visibleGroups.filter((group) => activeLens.values.includes(group.groupKey))
     : [];
@@ -2881,7 +3061,8 @@ function renderBoardReadMode() {
     : "";
 
   const html = visibleGroups.map((group) => {
-    const collapsed = isGroupCollapsed(group.name);
+    const collapseKey = state.worktreeMode === "across" ? group.groupKey : group.name;
+    const collapsed = isGroupCollapsed(collapseKey);
     const items = group.items.map((item, itemIndex) => {
       if (isMissingBoardItem(item)) {
         return renderMissingBoardCardRead(item);
@@ -2929,7 +3110,7 @@ function renderBoardReadMode() {
     return `
       <section class="board-group${collapsed ? " board-group-collapsed" : ""}${allowDerivedDrag && group.dropValue ? " board-group-droppable" : ""}" data-group-index="${group.originalIndex}">
         <div class="board-group-header">
-          <button class="collapse-toggle${allowDerivedDrag && group.dropValue ? " board-group-dropzone" : ""}" data-group-toggle="${escapeHtml(group.name)}" type="button" aria-expanded="${collapsed ? "false" : "true"}" ${allowDerivedDrag && group.dropValue ? `data-lens-drop-value="${escapeHtml(group.dropValue)}"` : ""}>
+          <button class="collapse-toggle${allowDerivedDrag && group.dropValue ? " board-group-dropzone" : ""}" data-group-toggle="${escapeHtml(collapseKey)}" type="button" aria-expanded="${collapsed ? "false" : "true"}" ${allowDerivedDrag && group.dropValue ? `data-lens-drop-value="${escapeHtml(group.dropValue)}"` : ""}>
             <span class="collapse-icon">${collapsed ? "+" : "-"}</span>
             <span class="group-name">${escapeHtml(group.name)}</span>
             <span class="group-count">${group.items.length}</span>
@@ -3265,6 +3446,7 @@ function beginItemLoad(itemId) {
     generation: state.itemLoadGeneration,
     itemId,
     repoPath: state.repoPath,
+    sourceKey: state.selectedSource?.sourceKey || null,
     controller,
   };
 }
@@ -3274,6 +3456,7 @@ function itemIntentIsCurrent(intent, { requireSelected = false } = {}) {
     intent
     && intent.generation === state.itemLoadGeneration
     && intent.repoPath === state.repoPath
+    && intent.sourceKey === (state.selectedSource?.sourceKey || null)
     && (!requireSelected || intent.itemId === state.selectedItemId)
   );
 }
@@ -3286,6 +3469,7 @@ function participantStatusText(result) {
     return result.partial ? `${count}+` : (count === 1 ? "1 participant" : `${count} participants`);
   }
   return {
+    "ambiguous-feature": "Association ambiguous",
     "identity-unavailable": "Reference unavailable",
     unsupported: "Pallium unsupported",
     unreachable: "Pallium unavailable",
@@ -3341,6 +3525,7 @@ function renderItemParticipants() {
 
   if (result.status !== "ok") {
     const messages = {
+      "ambiguous-feature": "More than one distinct feature uses this ID across checkouts. Participant associations cannot be assigned safely to either feature.",
       "identity-unavailable": "This repository has no safe canonical Git origin, so Minimap cannot create an exact participant reference.",
       unsupported: "The configured local Pallium service does not support participant lookup.",
       unreachable: "The configured local Pallium service could not be reached.",
@@ -3387,14 +3572,25 @@ function renderItemParticipants() {
   }).join("");
 
   const guidance = '<p class="muted">Last seen measures session activity, not work on this feature or staffing. Dormant does not mean completed.</p>'
+    + (state.worktreeMode === "across" ? '<p class="muted">Associations belong to the logical feature, not a specific checkout version.</p>' : '')
     + (participants.some((participant) => participant.session_url)
       ? '<p class="muted">Use a linked Pallium session to remove explicit associations; structural links update through their producer. Captured History is unchanged, but is not a complete participation record.</p>' : "");
   itemParticipantsListElement.innerHTML = (result.partial ? '<p class="muted">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "") + guidance + rows;
 }
 
 async function loadItemParticipants(itemId, generation = state.itemLoadGeneration) {
-  const intent = { generation, itemId, repoPath: state.repoPath };
+  const intent = { generation, itemId, repoPath: state.repoPath, sourceKey: state.selectedSource?.sourceKey || null };
   if (!itemIntentIsCurrent(intent, { requireSelected: true })) return;
+
+  if (state.worktreeMode === "across") {
+    const featureKey = state.workspace?.items?.[itemId]?.featureKey;
+    const feature = state.worktreeData?.features?.find((entry) => entry.key === featureKey);
+    if (feature && state.worktreeData.features.filter((entry) => entry.id.normalize("NFC") === feature.id.normalize("NFC")).length > 1) {
+      state.itemParticipants = { status: "ambiguous-feature", participants: [], itemId };
+      renderItemParticipants();
+      return;
+    }
+  }
 
   state.itemParticipantsController?.abort();
   const controller = new AbortController();
@@ -3411,7 +3607,8 @@ async function loadItemParticipants(itemId, generation = state.itemLoadGeneratio
   renderItemParticipants();
 
   try {
-    const result = await api.readItemParticipants(itemId, { signal: controller.signal });
+    const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : itemId;
+    const result = await api.readItemParticipants(actualItemId, { signal: controller.signal });
     if (!itemIntentIsCurrent(intent, { requireSelected: true }) || controller.signal.aborted) return;
     state.itemParticipants = { ...result, itemId };
     renderItemParticipants();
@@ -3434,6 +3631,8 @@ async function loadItemParticipants(itemId, generation = state.itemLoadGeneratio
 function resetEditor() {
   invalidateItemRequests();
   state.currentItem = null;
+  state.confirmedEditSource = null;
+  editorSourceLabelElement.hidden = true;
   state.dirtyStructured = false;
   state.dirtyRaw = false;
   state.editorOverlayOpen = false;
@@ -3584,12 +3783,29 @@ function renderPreview() {
   `;
 }
 
+function renderEditorSourceSelect() {
+  const card = state.worktreeMode === "across"
+    ? getVisibleBoardGroups().flatMap((group) => group.items).find((item) => item.id === state.selectedItemId)
+      || state.workspace?.items?.[state.selectedItemId] : null;
+  const feature = card ? state.worktreeData?.features?.find((entry) => entry.key === card.featureKey) : null;
+  const versions = feature ? [...new Map(feature.versions.map((version) => [version.sourceKey, version])).values()] : [];
+  editorSourceLabelElement.hidden = state.worktreeMode !== "across" || versions.length === 0;
+  const matchingSources = new Set(card?.matchingVersions?.map((version) => version.sourceKey) || []);
+  editorSourceSelectElement.innerHTML = versions.map((version) => {
+    const branch = version.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version.sourceContext.git.headCommit.slice(0, 8);
+    const label = `${branch} · ${version.summary.status || "unknown"} · ${version.sourceContext.label}${matchingSources.has(version.sourceKey) ? "" : " · filtered out"}`;
+    return `<option value="${escapeHtml(version.sourceKey)}" title="${escapeHtml(version.repoRoot)}">${escapeHtml(label)}</option>`;
+  }).join("");
+  if (versions.length > 1) editorSourceSelectElement.value = state.selectedSource?.sourceKey || "";
+}
+
 function renderItem(item) {
   state.currentItem = item;
   state.dirtyStructured = false;
   state.dirtyRaw = false;
   editorTitleElement.textContent = item.metadata.title;
   editorSubtitleElement.textContent = item.filePath;
+  renderEditorSourceSelect();
   fields.id.value = item.metadata.id || "";
   fields.title.value = item.metadata.title || "";
   ensureSelectValue(fields.status, item.metadata.status || "queued");
@@ -4229,6 +4445,7 @@ async function syncVisibleSelection(options = {}) {
 
   syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
   renderBoard();
+  if (state.currentItem && state.worktreeMode === "across") renderEditorSourceSelect();
 
   if (options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges()) {
     if (options.syncRoute !== false) syncRouteState({ replace: options.replaceRoute !== false });
@@ -4287,12 +4504,28 @@ async function syncVisibleSelection(options = {}) {
 }
 
 async function applyRouteStateFromLocation() {
+  if ((hasUnsavedCurrentItemChanges() || state.boardDirty || state.scopeDirty)
+    && window.location.hash !== buildRouteHash()
+    && !window.confirm("Discard unsaved item, board, or scope changes before navigating?")) {
+    syncRouteState({ replace: true });
+    return;
+  }
   const route = readRouteState();
+  if (route.itemId && route.sourceKey && route.sources === "across") {
+    state.preferredVersions.set(route.itemId, { sourceKey: route.sourceKey, gitRef: route.sourceRef });
+  }
   const repoChanged = route.repo && route.repo !== state.repoPath;
+  const requestedWorktreeMode = route.sources === "across" ? "across" : route.sources === "this" ? "this" : loadWorktreePreference(route.repo || state.repoPath);
+  const worktreeModeChanged = requestedWorktreeMode !== state.worktreeMode;
+  const boundChanged = (requestedWorktreeMode === "this" && route.bound) !== state.boundRequired;
   const exitedSpecMode = state.appMode === "spec" && route.view !== "spec";
   if (route.repo) {
     state.repoPath = route.repo;
   }
+  state.worktreeMode = requestedWorktreeMode;
+  state.worktreeModeExplicit = Boolean(route.sources);
+  state.boundRequired = requestedWorktreeMode === "this" && route.bound;
+  state.pinnedSource = state.boundRequired ? restorePinnedSource(state.repoPath) : null;
   if (route.view === "spec") {
     invalidateBoardPresence();
     state.appMode = "spec";
@@ -4314,7 +4547,7 @@ async function applyRouteStateFromLocation() {
   state.activeFilters = route.filters;
   state.filtersExpanded = Object.keys(route.filters).length > 0;
 
-  const nextMode = normalizeEditorMode(route.mode);
+  const nextMode = state.worktreeMode === "across" ? "preview" : normalizeEditorMode(route.mode);
   if (nextMode !== state.editorMode) {
     state.editorMode = nextMode;
     applyEditorMode();
@@ -4326,7 +4559,7 @@ async function applyRouteStateFromLocation() {
   // Same applies when leaving spec mode: spec sessions may have changed while
   // the user was in spec mode, so the badge counts in workspace.specSessionsByItemId
   // need a refresh.
-  if (repoChanged || exitedSpecMode) {
+  if (repoChanged || exitedSpecMode || worktreeModeChanged || boundChanged) {
     await loadWorkspace(route.itemId || "", {
       syncRoute: false,
       preferredLens: route.lens,
@@ -4339,12 +4572,15 @@ async function applyRouteStateFromLocation() {
   await syncVisibleSelection({
     preferredItemId: route.itemId || state.selectedItemId,
     replaceRoute: true,
+    forceReloadItem: Boolean(route.sourceKey && (route.sourceKey !== state.selectedSource?.sourceKey
+      || (route.sourceRef && route.sourceRef !== sourceRef(state.selectedSource)))),
   });
   clearTransientBanner();
 }
 function boardPresenceIsVisible() {
   return document.visibilityState === "visible"
     && state.appMode === "roadmap"
+    && state.worktreeMode !== "across"
     && Boolean(state.workspace)
     && !state.boardEditMode
     && !state.dragItemId
@@ -4376,6 +4612,7 @@ async function refreshBoardPresence() {
   const controller = new AbortController();
   const generation = boardParticipantGeneration;
   const repoPath = state.repoPath;
+  const worktreeMode = state.worktreeMode;
   boardParticipantController = controller;
   if (boardParticipantStatus === "idle") {
     boardParticipantStatus = "loading";
@@ -4387,20 +4624,24 @@ async function refreshBoardPresence() {
     if (includeCompleted && result.status === "ok" && result.includeCompleted !== true) {
       result = { status: "server-unsupported", counts: [] };
     }
-    if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || !boardPresenceIsVisible()) return;
+    if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode || !boardPresenceIsVisible()) return;
     if (result.status === "ok") {
+      const keyName = worktreeMode === "across" ? "featureKey" : "itemId";
+      const knownKeys = worktreeMode === "across"
+        ? new Set(state.worktreeData?.features?.map((feature) => feature.key) || [])
+        : new Set(Object.keys(state.workspace.items || {}));
       if (!Array.isArray(result.counts) || result.counts.length > 200
         || (result.counts.length > 0 && (result.recentSeconds !== 86400 || typeof result.asOf !== "string"
         || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(result.asOf)
         || !Number.isFinite(Date.parse(result.asOf))))
         || result.counts.some((row) =>
-        !row || typeof row.itemId !== "string" || !Object.hasOwn(state.workspace.items || {}, row.itemId)
+        !row || typeof row[keyName] !== "string" || !knownKeys.has(row[keyName])
         || [row.participantCount, row.recentParticipantCount, row.dormantParticipantCount].some((count) => !Number.isSafeInteger(count) || count < 0)
         || row.recentParticipantCount + row.dormantParticipantCount !== row.participantCount
-      ) || new Set(result.counts.map((row) => row.itemId)).size !== result.counts.length) {
+      ) || new Set(result.counts.map((row) => row[keyName])).size !== result.counts.length) {
         throw new Error("Invalid board participant counts.");
       }
-      boardParticipantCounts = new Map(result.counts.map((row) => [row.itemId, row]));
+      boardParticipantCounts = new Map(result.counts.map((row) => [row[keyName], row]));
     } else {
       boardParticipantCounts = new Map();
     }
@@ -4409,7 +4650,7 @@ async function refreshBoardPresence() {
     await syncBoardPresenceView();
     renderBoardParticipantStatus();
   } catch (error) {
-    if (controller.signal.aborted || generation !== boardParticipantGeneration || repoPath !== state.repoPath) return;
+    if (controller.signal.aborted || generation !== boardParticipantGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
     boardParticipantCounts = new Map();
     boardParticipantStatus = "unavailable";
     boardParticipantPartial = false;
@@ -4446,14 +4687,33 @@ async function syncBoardPresenceView() {
 async function loadWorkspace(preferredItemId = state.selectedItemId, options = {}) {
   const generation = ++workspaceLoadGeneration;
   const repoPath = state.repoPath;
+  const worktreeMode = state.worktreeMode;
+  const preserveDirtyItem = Boolean(options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges());
+  const draftSource = preserveDirtyItem ? state.selectedSource : null;
   invalidateItemRequests();
   invalidateBoardPresence();
   try {
-    const workspace = await api.loadWorkspace();
-    if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath) return;
+    const aggregate = worktreeMode === "across" ? (options.aggregate || await api.loadWorktreeWorkspace()) : null;
+    if (aggregate && !aggregate.workspace) throw new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace.");
+    const workspace = aggregate ? buildCombinedWorkspace(aggregate) : await api.loadWorkspace();
+    if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
     resetAncillaryEditModes();
     state.setupState = null;
+    state.worktreeData = aggregate;
+    state.selectedSource = draftSource || aggregate?.sources?.[0] || state.pinnedSource || null;
     state.workspace = workspace;
+    if (aggregate) {
+      const presence = aggregate.participantCounts;
+      const known = new Set(aggregate.features.map((feature) => feature.key));
+      const counts = presence?.status === "ok" && Array.isArray(presence.counts)
+        && presence.counts.every((row) => known.has(row.featureKey)
+          && [row.participantCount, row.recentParticipantCount, row.dormantParticipantCount].every((value) => Number.isSafeInteger(value) && value >= 0))
+        ? presence.counts : [];
+      boardParticipantCounts = new Map(counts.map((row) => [row.featureKey, row]));
+      boardParticipantStatus = presence?.status || "unavailable";
+      boardParticipantPartial = Boolean(presence?.partial || (presence?.status === "ok" && counts.length !== (presence.counts?.length || 0)));
+      boardParticipantIncludeCompleted = true;
+    }
     if (Object.hasOwn(options, "routeLensSpecified")) {
       applyLensRouteChoice(workspace, {
         lens: options.preferredLens,
@@ -4463,7 +4723,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       state.activeLens = normalizeLensKey(options.preferredLens ?? state.activeLens, workspace);
     }
     state.boardLayout = normalizeBoardLayout(options.preferredLayout ?? state.boardLayout);
-    state.editorMode = normalizeEditorMode(options.preferredMode ?? state.editorMode);
+    if (!preserveDirtyItem) state.editorMode = worktreeMode === "across" ? "preview" : normalizeEditorMode(options.preferredMode ?? state.editorMode);
     roadmapPathElement.textContent = workspace.roadmapPath;
     renderScope();
     clearTransientBanner();
@@ -4474,12 +4734,15 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       syncRoute: options.syncRoute,
       replaceRoute: options.replaceRoute,
       forceReloadItem: options.forceReloadItem === true || Boolean(preferredItemId),
+      preserveDirtyItem,
       refreshPresence: false,
     });
-    if (generation === workspaceLoadGeneration && repoPath === state.repoPath) void refreshBoardPresence();
+    if (generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode) void refreshBoardPresence();
   } catch (error) {
-    if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath) return;
+    if (generation !== workspaceLoadGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
+    if (preserveDirtyItem) { setBanner(error.message, "error"); return; }
     state.workspace = null;
+    state.worktreeData = null;
     state.setupState = buildSetupState(error);
     roadmapPathElement.textContent = state.setupState?.roadmapPath || "Unavailable";
     resetAncillaryEditModes();
@@ -4509,12 +4772,32 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   if (typeof options.openOverlay === "boolean") {
     state.editorOverlayOpen = options.openOverlay;
   }
+  const card = state.worktreeMode === "across"
+    ? getVisibleBoardGroups().flatMap((group) => group.items).find((item) => item.id === itemId) || state.workspace?.items?.[itemId]
+    : null;
+  const feature = card ? state.worktreeData?.features?.find((entry) => entry.key === card.featureKey) : null;
+  const preferredSource = state.preferredVersions.get(itemId);
+  let version = feature?.versions.find((entry) => entry.sourceKey === preferredSource?.sourceKey);
+  if (state.worktreeMode === "across" && preferredSource
+    && (!version || (preferredSource.gitRef && sourceRef(version.sourceContext) !== preferredSource.gitRef))) {
+    setBanner("The selected checkout version changed or is unavailable.", "error");
+    if (!window.confirm("The selected checkout version changed or is unavailable. Open the board's current version instead?")) return;
+    state.preferredVersions.delete(itemId);
+    version = null;
+  }
+  version ||= card?.sourceVersion;
+  if (state.worktreeMode === "across" && !version) {
+    setBanner("This item source is no longer available. Refresh the combined board.", "error");
+    return;
+  }
+  if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
 
   try {
-    const item = await api.readItem(itemId, { signal: intent.controller.signal });
+    const item = await api.readItem(version?.itemId || itemId, { signal: intent.controller.signal });
     if (!itemIntentIsCurrent(intent) || intent.controller.signal.aborted) return;
     if (options.preserveDirtyItem && (state.currentItem !== previousItem || state.selectedItemId !== previousItemId || hasUnsavedCurrentItemChanges())) return;
+    state.confirmedEditSource = null;
     state.selectedItemId = itemId;
     renderItem(item);
     applyEditorMode();
@@ -4666,6 +4949,12 @@ function switchEditorMode(nextMode, options = {}) {
   if (!canSwitchEditorMode(nextMode)) {
     return;
   }
+  if (state.worktreeMode === "across" && nextMode !== "preview" && state.currentItem
+    && (state.confirmedEditSource?.itemId !== state.selectedItemId
+      || state.confirmedEditSource?.sourceKey !== state.selectedSource?.sourceKey)) {
+    if (!state.selectedSource || !window.confirm(`Edit only ${state.selectedSource.repoRoot}? Other checkout versions will not change.`)) return;
+    state.confirmedEditSource = { itemId: state.selectedItemId, sourceKey: state.selectedSource.sourceKey };
+  }
 
   if (currentModeFamily(state.editorMode) === "structured" && currentModeFamily(nextMode) === "raw") {
     setDirtyState("structured", false);
@@ -4693,6 +4982,11 @@ async function saveCurrentItem() {
   if (!state.selectedItemId) {
     return;
   }
+  if (state.worktreeMode === "across" && (state.confirmedEditSource?.itemId !== state.selectedItemId
+    || state.confirmedEditSource?.sourceKey !== state.selectedSource?.sourceKey)) {
+    setBanner("Choose and confirm one checkout before editing this feature.", "error");
+    return;
+  }
 
   saveButton.disabled = true;
   setBanner(state.editorMode === "raw" ? "Saving raw item..." : "Saving item...");
@@ -4703,10 +4997,14 @@ async function saveCurrentItem() {
       ? Number(fields.boardGroup.value)
       : -1;
     const currentBoardGroupIndex = getBoardGroupIndexForItem(state.selectedItemId);
+    const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : state.selectedItemId;
 
-    await api.saveItem(state.selectedItemId, { ...payload, expectedRevision: state.currentItem?.revision });
+    await api.saveItem(actualItemId, { ...payload, expectedRevision: state.currentItem?.revision });
+    if (state.worktreeMode === "across" && state.selectedSource) {
+      rememberPreferredVersion(state.selectedItemId, state.selectedSource);
+    }
 
-    if (state.editorMode === "structured" && Number.isInteger(nextBoardGroupIndex) && nextBoardGroupIndex >= 0 && nextBoardGroupIndex !== currentBoardGroupIndex) {
+    if (state.worktreeMode !== "across" && state.editorMode === "structured" && Number.isInteger(nextBoardGroupIndex) && nextBoardGroupIndex >= 0 && nextBoardGroupIndex !== currentBoardGroupIndex) {
       const groups = buildBoardGroupsWithMovedItem(state.selectedItemId, nextBoardGroupIndex);
       if (groups) {
         await api.saveBoard(groups, state.workspace?.boardRevision);
@@ -4757,7 +5055,7 @@ async function saveScopeDraft() {
   setBanner("Saving scope...");
 
   try {
-    const workspace = await api.saveScope(state.scopeDraft);
+    const workspace = await api.saveScope(state.scopeDraft, state.workspace?.scopeRevision);
 
     state.workspace = workspace;
     state.scopeEditMode = false;
@@ -4789,10 +5087,15 @@ refreshButton.addEventListener("click", () => {
     void loadSpecSessions();
     return;
   }
+  if (state.boardDirty || state.scopeDirty) {
+    setBanner("Save or discard the board or scope draft before refreshing.", "error");
+    return;
+  }
 
   void loadWorkspace(state.selectedItemId, {
     forceReloadItem: Boolean(state.selectedItemId),
     replaceRoute: true,
+    preserveDirtyItem: true,
   });
 });
 
@@ -5579,6 +5882,61 @@ boardFilterToggleButton.addEventListener("click", () => {
   renderBoardChrome();
 });
 
+boardSourceToggleButton.addEventListener("click", async () => {
+  if (!boardSourceMenuElement.hidden) { closeBoardSourceMenu(); return; }
+  boardSourceToggleButton.disabled = true;
+  boardSourceStatusElement.hidden = false;
+  boardSourceStatusElement.textContent = "Checking worktrees…";
+  try {
+    const aggregate = state.worktreeData || await api.loadWorktreeWorkspace();
+    state.sourceMenuData = aggregate;
+    renderBoardSourceMenu(aggregate);
+  } catch (error) {
+    setBanner(error.message, "error");
+  } finally {
+    boardSourceToggleButton.disabled = false;
+    renderBoardSourceControl();
+  }
+});
+
+boardSourceMenuElement.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-source-choice]");
+  if (!button) return;
+  const choice = button.dataset.sourceChoice;
+  const aggregate = state.sourceMenuData;
+  if (!aggregate) return;
+  if ((hasUnsavedCurrentItemChanges() || state.boardDirty || state.scopeDirty)
+    && !window.confirm("Discard unsaved item, board, or scope changes before switching checkouts?")) return;
+  closeBoardSourceMenu();
+  if (choice === "across") {
+    state.worktreeMode = "across";
+    state.pinnedSource = null;
+    state.boundRequired = false;
+    state.worktreeModeExplicit = true;
+    saveWorktreePreference();
+    await loadWorkspace("", { aggregate, replaceRoute: true });
+  } else {
+    const selected = choice === "this"
+      ? aggregate.sources.find((source) => source.repoRoot === state.repoPath) || aggregate.sources[0]
+      : aggregate.sources.find((source) => source.sourceKey === choice);
+    if (selected) state.repoPath = selected.repoRoot;
+    state.worktreeMode = "this";
+    state.worktreeModeExplicit = true;
+    if (selected) rememberPinnedSource(selected);
+    state.selectedSource = selected || null;
+    saveWorktreePreference();
+    await loadWorkspace("", { replaceRoute: true });
+  }
+  renderBoardSourceControl();
+});
+
+document.addEventListener("click", (event) => {
+  if (!boardSourceMenuElement.hidden && !event.target.closest(".board-source-control")) closeBoardSourceMenu();
+});
+boardSourceMenuElement.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { closeBoardSourceMenu(); boardSourceToggleButton.focus(); }
+});
+
 boardClearFiltersButton.addEventListener("click", () => {
   state.searchQuery = "";
   state.inPlay = false;
@@ -5652,6 +6010,19 @@ for (const button of modeButtons) {
   });
 }
 
+editorSourceSelectElement.addEventListener("change", () => {
+  const itemId = state.selectedItemId;
+  if (!itemId) return;
+  if (hasUnsavedCurrentItemChanges() && !window.confirm("Discard unsaved changes before opening another checkout version?")) {
+    editorSourceSelectElement.value = state.selectedSource?.sourceKey || "";
+    return;
+  }
+  const selected = state.worktreeData?.sources.find((source) => source.sourceKey === editorSourceSelectElement.value);
+  if (selected) rememberPreferredVersion(itemId, selected);
+  state.confirmedEditSource = null;
+  void loadItem(itemId, true, { mode: "preview", openOverlay: state.editorOverlayOpen });
+});
+
 window.addEventListener("hashchange", () => {
   void applyRouteStateFromLocation();
 });
@@ -5692,6 +6063,13 @@ window.setInterval(() => {
 resetEditor();
 const initialRoute = readRouteState();
 state.repoPath = initialRoute.repo || "";
+state.worktreeMode = initialRoute.sources === "across" ? "across" : initialRoute.sources === "this" ? "this" : loadWorktreePreference(state.repoPath);
+state.worktreeModeExplicit = Boolean(initialRoute.sources);
+if (initialRoute.sources === "across" && initialRoute.itemId && initialRoute.sourceKey) {
+  state.preferredVersions.set(initialRoute.itemId, { sourceKey: initialRoute.sourceKey, gitRef: initialRoute.sourceRef });
+}
+state.boundRequired = state.worktreeMode === "this" && initialRoute.bound;
+state.pinnedSource = state.boundRequired ? restorePinnedSource(state.repoPath) : null;
 if (state.repoPath && repoNameElement) {
   // Best-effort: extract the trailing path segment as a placeholder.
   // /api/workspace will overwrite with the canonical name when it loads.
@@ -5709,7 +6087,7 @@ renderSpecCommentAnchorMode();
 state.activeLens = initialRoute.lens || DEFAULT_LENS_KEY;
 state.lensExplicit = initialRoute.lensSpecified;
 state.boardLayout = initialRoute.layout;
-state.editorMode = initialRoute.mode;
+state.editorMode = state.worktreeMode === "across" ? "preview" : initialRoute.mode;
 state.searchQuery = initialRoute.query;
 state.inPlay = initialRoute.inPlay;
 state.activeFilters = initialRoute.filters;

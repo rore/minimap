@@ -173,3 +173,27 @@ test("84 items keep source contexts small instead of repeating workspace per ver
   assert.deepEqual(Object.keys(context), ["sourceKey", "repoRoot", "label", "git", "roadmapBinding"]);
   assert.ok(JSON.stringify(result).length < 1_000_000);
 });
+
+test("a checkout moving during the scan cannot publish mixed branch and file evidence", async () => {
+  const { main, sibling } = await fixture();
+  const originalReadFile = fs.readFile;
+  let moved = false;
+  fs.readFile = async function (file, ...args) {
+    if (!moved && String(file).toLowerCase() === path.join(sibling, "roadmap", "board.md").toLowerCase()) {
+      moved = true;
+      git(sibling, "switch", "-c", "moved-during-scan");
+    }
+    return originalReadFile.call(this, file, ...args);
+  };
+  try {
+    const result = await loadWorktreeAggregate(main);
+    assert.equal(moved, true);
+    assert.equal(result.partial, true);
+    assert.equal(result.unavailable.reason, "source-changed-during-read");
+    assert.equal(result.workspace, null);
+    assert.deepEqual(result.features, []);
+    assert.deepEqual(result.groups, []);
+  } finally {
+    fs.readFile = originalReadFile;
+  }
+});

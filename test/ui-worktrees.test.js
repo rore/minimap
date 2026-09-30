@@ -115,3 +115,11 @@ test("canonically equivalent IDs cannot qualify from participant association", (
   ]);
   assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, participantCounts }), []);
 });
+
+test("projection does not invent a revision conflict for display-equivalent copies", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    { ...version("opened", "A", { id: "x", title: "same", revision: "raw-lf", metadata: {} }), displayRevision: "normalized" },
+    { ...version("sibling", "A", { id: "x", title: "same", revision: "raw-crlf", metadata: {} }), displayRevision: "normalized" },
+  ] }]);
+  assert.deepEqual(projectWorktreeGroups(aggregate)[0].items[0].conflicts, []);
+});

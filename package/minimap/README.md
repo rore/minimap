@@ -57,6 +57,8 @@ http://localhost:4312/#repo=/abs/path/to/repo&view=board
 
 Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
 
+For linked Git worktrees, the board picker offers **Across worktrees**. It combines compatible checkouts without copying or changing their roadmap files, displays checkout-specific conflicts and incomplete coverage, and keeps one selected checkout version in the item URL. Edit/Raw and Save target that version only; the server rechecks the checkout identity and file revision before writing. Board ordering remains disabled in the combined view.
+
 ### Optional Pallium participants
 
 Set `MINIMAP_PALLIUM_ENDPOINT` to an explicit loopback HTTP origin to show board-wide counts from one bounded, read-only request per visible refresh for up to 200 noncompleted board items. Badges count attached, nonclosed sessions only—not execution, ownership, or item status. Completed items remain available through the existing on-demand item panel. Disabled lookup makes no Pallium HTTP requests; overflow, error, and unknown results are never presented as zero. Exact-session links remain independently opt-in through a reviewed compatible `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`.

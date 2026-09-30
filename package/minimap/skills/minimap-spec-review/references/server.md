@@ -31,6 +31,8 @@ Historical events are not proof of the current failure's cause. A verified live 
 
 The running server transparently serves spec sessions and any roadmap that requests it (see the `#repo=` URL convention used by the roadmap skill).
 
+When the roadmap browser opens a spec from a selected Git checkout, it may use the source-bound `/api/source/spec-sessions/...` route family. Those requests require a live `X-Minimap-Source-Context`, and every target file path must resolve inside that checkout. This does not replace the ordinary unbound spec-review CLI or the routes documented in [http.md](http.md) for reviews of arbitrary files.
+
 ## Shared runtime replacement
 
 Health reports `runtime: { version, apiCompatibility, sourcePath }` and live `pid`. API compatibility is integer 1; it changes only for incompatible server API changes, independently of package release versions.

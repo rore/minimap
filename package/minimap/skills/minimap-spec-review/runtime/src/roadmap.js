@@ -1246,6 +1246,7 @@ export async function loadWorkspace(repoRoot) {
     configRevision: workspace.configRevision,
     defaultLens,
     scopeText,
+    scopeRevision: contentRevision(scopeText),
     items: itemSummaries,
     availableFilters: buildAvailableFilters(itemSummaries, workspace),
     availableLenses,
@@ -1576,16 +1577,23 @@ export function reorderLensField(repoRoot, field, payload) {
   return withRepoWriteLock(repoRoot, () => reorderLensFieldUnlocked(repoRoot, field, payload));
 }
 
-export async function saveScopeText(repoRoot, scopeText) {
+async function saveScopeTextUnlocked(repoRoot, scopeText, expectedRevision = null) {
   const workspace = await resolveRoadmapRoot(repoRoot);
   const scopePath = path.join(workspace.resolvedPath, "scope.md");
   const existingScopeText = await readUtf8(scopePath, "Missing roadmap scope.md file.");
+  if (expectedRevision !== null && expectedRevision !== contentRevision(existingScopeText)) {
+    throw new AppError("Roadmap scope changed on disk. Reload before saving.", 409, "conflict");
+  }
   const eol = detectEol(existingScopeText);
   const normalized = String(scopeText ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
   const nextText = normalized.length === 0 ? "" : `${normalized}${eol}`;
 
-  await fs.writeFile(scopePath, nextText.replace(/\n/g, eol), "utf8");
+  await writeFileAtomic(scopePath, nextText.replace(/\n/g, eol), existingScopeText, "Roadmap scope changed on disk. Reload before saving.");
   return loadWorkspace(repoRoot);
+}
+
+export function saveScopeText(repoRoot, scopeText, expectedRevision = null) {
+  return withRepoWriteLock(repoRoot, () => saveScopeTextUnlocked(repoRoot, scopeText, expectedRevision));
 }
 
 async function saveBoardByGroupsUnlocked(repoRoot, groupsPayload, expectedRevision = null) {

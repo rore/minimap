@@ -47,6 +47,14 @@ Example config:
 }
 ```
 
+## Linked worktree view
+
+The board can show **This checkout** or a read-only **Across worktrees** projection. Discovery considers at most 16 registered linked Git worktrees in the opened repository's common Git directory. A separate clone is not a sibling. A source with an incompatible roadmap location, unreadable workspace, or uncertain identity is excluded or marked as partial coverage; it is never silently represented as empty. A checkout whose branch or HEAD changes during the read invalidates the combined snapshot and requires Refresh. Same item ID and path alone do not prove one logical feature: the shared ancestor must contain that identity, and a delete/re-add breaks it. Conflicting values stay source-specific. Different board-group memberships are disclosed on the cards; missing-file board references remain visible in coverage details even under metadata lenses. Line-ending-only differences do not produce a visual conflict, although raw file revisions remain exact for stale-write checks. Search, filters, In play, and metadata grouping evaluate each checkout version, not a fabricated merged item.
+
+Across does not edit board order or synchronize files. Opening an item exposes its checkout versions; switching version changes only the selected document. Edit/Raw requires explicit one-checkout confirmation. The selected version is pinned in the URL, and a missing or changed source must not silently fall back to another. Unsaved drafts cannot be silently discarded by Refresh or checkout navigation. Source-bound UI requests carry a source context checked against the live Git worktree and roadmap location; item, board, and scope writes additionally require an exact expected revision. Spec file paths in a source-bound request must stay inside that checkout. The ordinary agent CLI and unbound routes remain unchanged.
+
+Across participant counts use one bounded feature-wide read for at most 200 unambiguous logical features. An association is not checkout-specific; ambiguous same-ID features cannot inherit one another's count or detail. Errors and overflow remain visibly incomplete, not zero.
+
 ## Canonical File Ownership
 
 Within the resolved roadmap root:
