@@ -226,6 +226,11 @@
           <div class="panel-header">
             <div class="panel-header-main">
               <h2>Board</h2>
+              <div class="board-source-control">
+                <button id="board-source-toggle" class="ghost-button" type="button" aria-expanded="false" aria-controls="board-source-menu">This checkout ▾</button>
+                <div id="board-source-menu" class="board-source-menu" hidden></div>
+              </div>
+              <span id="board-source-status" class="board-source-status" role="status" hidden></span>
             </div>
             <div class="panel-actions">
               <button id="board-edit-button" class="ghost-button" type="button">Edit</button>
@@ -273,6 +278,7 @@
                 <h2 id="editor-title">Item</h2>
               </div>
               <p id="editor-subtitle" class="muted">Choose an item from the board.</p>
+              <label id="editor-source-label" class="editor-source-label" for="editor-source-select" hidden>Checkout <select id="editor-source-select"></select></label>
             </div>
             <div class="editor-tabs" id="editor-tabs" role="tablist" aria-label="Item editor modes">
               <button class="editor-tab is-active" id="tab-preview" data-editor-mode="preview" type="button" role="tab" aria-selected="true">Read</button>

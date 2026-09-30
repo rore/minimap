@@ -44,7 +44,8 @@ const SAFE_NAMES = new Set([
   "participantsHtml", "facepileHtml", "popoverHtml", "iconHtml",
   "beforeHtml", "afterHtml", "cls", "classes", "contentHtml",
   "metaHtml", "buttonsHtml", "dropZoneHtml", "scopeIconHtml",
-  "filterChipsHtml", "filterFacetsHtml",
+  "filterChipsHtml", "filterFacetsHtml", "excluded", // Escaped source-menu reason markup.
+  "sourceBadge", "conflictBadge", "groupCue", "missingNotice", "missingRows", // Escaped source labels, conflicts, group, and missing-ref cues.
   "signalBadges", // Concatenation of renderBadge outputs; values are escaped there.
   "participantBadge", // buildBoardParticipantBadge escapes its only dynamic label.
   "badges", "titleHtml", "statsHtml", "chips", "options", "optionMarkup",
@@ -53,6 +54,7 @@ const SAFE_NAMES = new Set([
   // Conditional / string-fragment locals constructed inline as ternaries
   "active", "isActive", "isFile", "isResolved", "isReplying", "isReviewing",
   "isCollapsed", "collapsedResolved", "isViewer", "isExpanded", "isOpen",
+  "thisSelected", "acrossSelected", "acrossDisabled", // Literal source-menu attributes.
   "isClosed", "isMissing", "selected", "disabled",
   "pulseAttr", "activeClass", "placementAttributes", "reorderAttributes", "orderAttributes", "itemOrderDropAttributes",
   "dropAttributes", "actionsAttr",

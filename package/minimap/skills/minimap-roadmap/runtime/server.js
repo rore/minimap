@@ -13,6 +13,10 @@ import {
   saveItemById,
   saveScopeText,
 } from "./src/roadmap.js";
+import { loadWorktreeAggregate } from "./src/worktree-aggregate.js";
+import { selectWorktreeParticipantCandidates } from "./src/worktree-presence.js";
+import { requirePathInSource, requireRoadmapInSource, verifySourceContext } from "./src/source-bound.js";
+import { withSourceWriteGuard } from "./src/source-write-guard.js";
 import {
   addFileSessionSuggestion,
   addFileSessionSuggestionReply,
@@ -158,7 +162,35 @@ function requireQueryParam(requestUrl, name) {
 
 async function withJsonBody(request) {
   const raw = await readRequestBody(request);
-  return parseJsonBody(raw);
+  if (request.boundRepoRoot) await validateBoundRequest(request);
+  const body = parseJsonBody(raw);
+  if (request.boundSpecRepo) {
+    request.boundBodyPaths = ["file", "from", "to"].filter((key) => Object.hasOwn(body, key)).map((key) => body[key]);
+    for (const candidate of request.boundBodyPaths) await requirePathInSource(request.boundSpecRepo, candidate);
+  }
+  return body;
+}
+
+async function validateBoundRequest(request) {
+  await verifySourceContext(request.boundRepoRoot, request.boundExpected);
+  if (request.boundSpecRepo) {
+    if (request.boundUrl.searchParams.has("path")) {
+      await requirePathInSource(request.boundRepoRoot, request.boundUrl.searchParams.get("path"));
+    }
+    for (const candidate of request.boundBodyPaths || []) await requirePathInSource(request.boundRepoRoot, candidate);
+    return;
+  }
+  const roadmap = await requireRoadmapInSource(request.boundRepoRoot);
+  const expectedPath = request.boundExpected.roadmapBinding?.resolvedPath;
+  const actualPath = roadmap.resolvedPath;
+  const samePath = typeof expectedPath === "string" && path.isAbsolute(expectedPath)
+    && (process.platform === "win32"
+      ? path.normalize(expectedPath).toLowerCase() === path.normalize(actualPath).toLowerCase()
+      : path.normalize(expectedPath) === path.normalize(actualPath));
+  if (request.boundExpected.roadmapBinding?.roadmapPath !== roadmap.roadmapPath
+    || !samePath) {
+    throw new AppError("Roadmap location changed. Reload this source before continuing.", 409, "source_changed");
+  }
 }
 
 function requireFileFromBody(body, message) {
@@ -169,7 +201,16 @@ function requireFileFromBody(body, message) {
 }
 
 async function resolveRoadmapRepo(request) {
-  const headerRepo = request.headers["x-minimap-repo"];
+  if (request.boundRepoRoot) return request.boundRepoRoot;
+  const encodedRepo = request.headers["x-minimap-repo-encoded"];
+  let headerRepo = request.headers["x-minimap-repo"];
+  if (encodedRepo !== undefined) {
+    if (typeof encodedRepo !== "string" || headerRepo !== undefined) {
+      throw new AppError("Invalid repo path headers.", 400, "bad_request");
+    }
+    try { headerRepo = decodeURIComponent(encodedRepo); }
+    catch { throw new AppError("Invalid encoded repo path.", 400, "bad_request"); }
+  }
   const candidate = (typeof headerRepo === "string" && headerRepo.trim()) || cwdFallback;
   const resolved = path.resolve(candidate);
   try {
@@ -273,7 +314,14 @@ async function handleSpecAttach(request, response) {
 }
 
 async function handleListSpecSessions(request, response) {
-  const sessions = await listFileSessions();
+  let sessions = await listFileSessions();
+  if (request.boundSpecRepo) {
+    const scoped = await Promise.all(sessions.map(async (session) => {
+      try { await requirePathInSource(request.boundSpecRepo, session.targetFile); return session; }
+      catch { return null; }
+    }));
+    sessions = scoped.filter(Boolean);
+  }
   sendJson(response, 200, { sessions });
 }
 
@@ -384,6 +432,54 @@ async function handleWorkspace(request, response) {
   sendJson(response, 200, workspace);
 }
 
+async function handleWorktreeWorkspace(request, response) {
+  const repoRoot = await resolveRoadmapRepo(request);
+  const aggregate = await loadWorktreeAggregate(repoRoot);
+  aggregate.participantCounts = await lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate);
+  if (!response.destroyed) sendJson(response, 200, aggregate);
+}
+
+async function lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate) {
+  if (!palliumConfig.configured) {
+    return { status: "disabled", counts: [], partial: Boolean(aggregate.partial), includeCompleted: true };
+  }
+  if (!aggregate.workspace) {
+    return { status: "identity-unavailable", counts: [], partial: true, includeCompleted: true };
+  }
+  const candidates = selectWorktreeParticipantCandidates(aggregate, { includeCompleted: true });
+  const partial = candidates.partial || candidates.ambiguous.length > 0;
+  if (!candidates.features.length) {
+    return { status: "ok", counts: [], partial, includeCompleted: true };
+  }
+  const references = await resolveRoadmapItemReferences(repoRoot, aggregate.workspace.roadmapPath, candidates.features.map((feature) => feature.id));
+  if (!references) {
+    return { status: "identity-unavailable", counts: [], partial: true, includeCompleted: true };
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  request.once("aborted", abort);
+  response.once("close", abort);
+  try {
+    const result = await lookupPalliumParticipantCounts(palliumConfig, references, { signal: controller.signal });
+    return {
+      status: result.status,
+      counts: result.status === "ok" ? result.counts.map((row, index) => ({
+        featureKey: candidates.features[index].key, participantCount: row.participant_count,
+        recentParticipantCount: row.recent_participant_count, dormantParticipantCount: row.dormant_participant_count,
+      })) : [],
+      partial,
+      ...(result.status === "ok" ? { asOf: result.asOf, recentSeconds: result.recentSeconds } : {}),
+      includeCompleted: true,
+    };
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+    return { status: "unavailable", counts: [], partial: true, includeCompleted: true };
+  } finally {
+    request.off("aborted", abort);
+    response.off("close", abort);
+  }
+}
+
 async function handleInitialize(request, response) {
   const repoRoot = await resolveRoadmapRepo(request);
   const workspace = await initializeWorkspace(repoRoot);
@@ -393,6 +489,9 @@ async function handleInitialize(request, response) {
 async function handleBoard(request, response) {
   const repoRoot = await resolveRoadmapRepo(request);
   const body = await withJsonBody(request);
+  if (request.boundRepoRoot && typeof body.expectedRevision !== "string") {
+    throw new AppError("Bound board update requires expectedRevision.", 400, "revision_required");
+  }
   const workspace = await saveBoardByGroups(repoRoot, body.groups, body.expectedRevision);
   sendJson(response, 200, workspace);
 }
@@ -417,8 +516,11 @@ async function handleScope(request, response) {
   if (typeof body.scopeText !== "string") {
     throw new AppError("Scope update must provide scopeText.", 400, "bad_request");
   }
+  if (request.boundRepoRoot && typeof body.expectedRevision !== "string") {
+    throw new AppError("Bound scope update requires expectedRevision.", 400, "revision_required");
+  }
 
-  const workspace = await saveScopeText(repoRoot, body.scopeText);
+  const workspace = await saveScopeText(repoRoot, body.scopeText, body.expectedRevision ?? null);
   sendJson(response, 200, workspace);
 }
 
@@ -524,6 +626,9 @@ async function handleSaveItem(request, response, ctx) {
   const repoRoot = await resolveRoadmapRepo(request);
   const id = decodeURIComponent(ctx.params[0]);
   const body = await withJsonBody(request);
+  if (request.boundRepoRoot && typeof body.expectedRevision !== "string") {
+    throw new AppError("Bound item update requires expectedRevision.", 400, "revision_required");
+  }
 
   if (body.id && body.id !== id) {
     throw new AppError("Item id in request body must match the URL.", 400, "bad_request");
@@ -539,6 +644,7 @@ async function handleSaveItem(request, response, ctx) {
 const routes = [
   { method: "GET",    pattern: /^\/health$/, handler: handleHealth },
   { method: "POST",   pattern: /^\/api\/shutdown$/, handler: handleShutdown },
+  { method: "GET",    pattern: /^\/api\/worktree-workspace$/, handler: handleWorktreeWorkspace },
   { method: "POST",   pattern: /^\/api\/spec-sessions\/attach$/, handler: handleSpecAttach },
   { method: "GET",    pattern: /^\/api\/spec-sessions$/, handler: handleListSpecSessions },
   { method: "GET",    pattern: /^\/api\/spec-sessions\/by-file$/, handler: handleGetSpecSession },
@@ -567,12 +673,36 @@ const routes = [
 ];
 
 async function handleApi(request, response, requestUrl) {
-  const match = matchRoute(routes, request.method, requestUrl.pathname);
+  const bound = requestUrl.pathname.startsWith("/api/source/");
+  const routedUrl = bound ? new URL(requestUrl) : requestUrl;
+  if (bound) routedUrl.pathname = requestUrl.pathname.replace(/^\/api\/source\//, "/api/");
+  const match = matchRoute(routes, request.method, routedUrl.pathname);
   if (!match) return false;
   if (!isTrustedLocalRequest(request)) {
     throw new AppError("Minimap API is available only from this local origin.", 403, "forbidden");
   }
-  await match.handler(request, response, { url: requestUrl, params: match.params });
+  if (bound) {
+    if (["/api/shutdown", "/api/worktree-workspace", "/api/setup/initialize"].includes(routedUrl.pathname)) {
+      throw new AppError("Route cannot be source-bound.", 400, "bad_request");
+    }
+    const rawContext = request.headers["x-minimap-source-context"];
+    if (typeof rawContext !== "string" || !rawContext) {
+      throw new AppError("Source context is required.", 400, "source_context_required");
+    }
+    let expected;
+    try { expected = JSON.parse(rawContext); }
+    catch { throw new AppError("Invalid source context.", 400, "bad_request"); }
+    const repoRoot = await resolveRoadmapRepo(request);
+    request.boundRepoRoot = repoRoot;
+    request.boundExpected = expected;
+    request.boundSpecRepo = routedUrl.pathname.startsWith("/api/spec-sessions") ? repoRoot : null;
+    request.boundUrl = routedUrl;
+    await validateBoundRequest(request);
+  }
+  if (bound) await withSourceWriteGuard(() => validateBoundRequest(request),
+    () => match.handler(request, response, { url: routedUrl, params: match.params }),
+    (candidate) => requirePathInSource(request.boundRepoRoot, candidate));
+  else await match.handler(request, response, { url: routedUrl, params: match.params });
   return true;
 }
 

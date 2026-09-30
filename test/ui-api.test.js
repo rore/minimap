@@ -108,6 +108,40 @@ test("X-Minimap-Repo header is omitted when getRepo() returns empty", async () =
   assert.equal(headers.get("X-Minimap-Repo"), null);
 });
 
+test("aggregate read keeps the selected repo even without a bound item source", async () => {
+  const f = fakeFetch([{}]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/different/project" });
+  await api.loadWorktreeWorkspace();
+  assert.deepEqual(f.calls.map((call) => call.url), ["/api/worktree-workspace"]);
+  assert.ok(f.calls.every((call) => new Headers(call.opts.headers).get("X-Minimap-Repo") === "C:/different/project"));
+});
+
+test("bound roadmap and spec requests carry an ASCII-safe Unicode source context", async () => {
+  const f = fakeFetch([{}, {}, {}]);
+  const identity = { repoRoot: "C:/projects/β", sourceKey: "abc", label: "β branch", git: { branchRef: "refs/heads/β" } };
+  const api = createApi({ fetch: f, getRepo: () => "C:/other", getSource: () => ({ mode: "across", identity }) });
+  await api.readItem("feature-a");
+  await api.saveItem("feature-a", { expectedRevision: "1" });
+  await api.applySuggestion("C:/projects/β/roadmap/features/feature-a.md", "suggestion-1");
+  assert.deepEqual(f.calls.map((call) => call.url), [
+    "/api/source/items/feature-a", "/api/source/items/feature-a", "/api/source/spec-sessions/by-file/suggestions/suggestion-1/apply",
+  ]);
+  for (const call of f.calls) {
+    const headers = new Headers(call.opts.headers);
+    assert.equal(headers.get("X-Minimap-Repo-Encoded"), encodeURIComponent(identity.repoRoot));
+    assert.deepEqual(JSON.parse(headers.get("X-Minimap-Source-Context")), {
+      repoRoot: identity.repoRoot, sourceKey: identity.sourceKey, git: identity.git,
+    });
+  }
+});
+
+test("bound mode never falls back to legacy routes without a chosen source", async () => {
+  const f = fakeFetch([{}]);
+  const api = createApi({ fetch: f, getRepo: () => "C:/repo", getSource: () => ({ mode: "across", identity: null }) });
+  await assert.rejects(api.saveItem("feature-a", {}), /Select one checkout/);
+  assert.equal(f.calls.length, 0);
+});
+
 test("saveItem POSTs JSON with Content-Type", async () => {
   const f = fakeFetch([{ body: { id: "abc" } }]);
   const api = createApi({ fetch: f });

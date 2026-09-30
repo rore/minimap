@@ -175,6 +175,8 @@ The roadmap mode is a repo-local view over a small file convention:
 
 The UI never holds a second copy. Editing through the UI writes the markdown back; agents update the same files directly through the [`minimap-roadmap`](package/minimap/skills/minimap-roadmap/SKILL.md) skill.
 
+When the repository has linked Git worktrees, the board's checkout picker can show **This checkout** or **Across worktrees**. Across is a read-only combined view: it identifies shared features from Git ancestry, keeps divergent checkout versions and their exact values visible, and marks unavailable sources as partial coverage. Choose a version in the item panel before editing; Save changes only that selected checkout and refuses a changed checkout or stale file. Across never synchronizes roadmap files or reorders multiple worktrees. The selected checkout version is retained in the URL on reload.
+
 Default layout:
 
 ```text

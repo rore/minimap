@@ -3800,6 +3800,57 @@ textarea {
   font-size: 1rem;
 }
 
+.board-panel .panel-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.board-source-control { position: relative; }
+.board-source-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: min(320px, calc(100vw - 36px));
+  max-height: min(420px, 60vh);
+  overflow: auto;
+  padding: 5px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px #1b24401f;
+}
+.board-source-menu[hidden] { display: none; }
+@media (max-width: 600px) {
+  .board-source-menu { min-width: 0; width: min(320px, calc(100vw - 120px)); }
+}
+.board-source-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.board-source-menu button:hover,
+.board-source-menu button:focus-visible { background: var(--subtle, #f1f3f8); }
+.board-source-menu button[aria-current="true"] { font-weight: 700; }
+.board-source-missing { padding: 8px 10px; color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
+.board-source-missing summary { cursor: pointer; }
+.board-source-missing ul { margin: 6px 0 0; padding-left: 18px; }
+.board-source-status { color: var(--muted); font-size: .76rem; }
+.board-source-badge { color: var(--muted); font-size: .72rem; }
+.board-source-conflict { color: #8b3c10; font-weight: 600; }
+.editor-source-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .76rem; }
+.editor-source-label[hidden] { display: none; }
+.editor-source-label select { min-width: 0; max-width: min(300px, 60vw); }
+
 .board-panel .muted,
 .scope-panel .muted {
   font-size: 0.8rem;

@@ -55,7 +55,9 @@ A single running minimap server can serve roadmap for any number of repos. The a
 http://localhost:4312/#repo=/abs/path/to/repo&view=board
 ```
 
-Each request carries its own repo identity via the `X-Minimap-Repo` header — the server itself is repo-agnostic.
+Each roadmap request carries its own repo identity via `X-Minimap-Repo` (or `X-Minimap-Repo-Encoded` for non-ASCII paths) — the server itself is repo-agnostic.
+
+For linked Git worktrees, the board picker offers **Across worktrees**. It combines compatible checkouts without copying or changing their roadmap files, displays checkout-specific conflicts and incomplete coverage, and keeps one selected checkout version in the item URL. Edit/Raw and Save target that version only; the server rechecks the checkout identity and file revision before writing. Board ordering remains disabled in the combined view.
 
 ### Optional Pallium participants
 

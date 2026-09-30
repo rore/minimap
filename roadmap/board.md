@@ -1,7 +1,6 @@
 # Now
 
 # Next
-- add-worktree-aware-roadmap-view
 - fix-shared-server-registry-test-isolation
 - add-work-item-dependencies
 
@@ -13,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- add-worktree-aware-roadmap-view
 - add-server-lifecycle-logging
 - add-in-play-quick-filter
 - protect-shared-server-runtime
