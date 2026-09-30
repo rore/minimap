@@ -11,6 +11,10 @@ function conflictsForVersions(versions) {
   });
 }
 
+function canonicalId(id) {
+  return encodeURIComponent(String(id).normalize("NFC")).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 export function projectWorktreeGroups(aggregate, {
   lens = "board", searchQuery = "", activeFilters = {}, inPlay = false,
   participantCounts = new Map(), showEmptyGroups = false,
@@ -30,7 +34,11 @@ export function projectWorktreeGroups(aggregate, {
   if (derived) preferred.forEach((name, index) => addGroup(name, name, "derived", index));
   else aggregate.groups.forEach((group, index) => addGroup(`${group.kind}:${group.name}`, group.name, group.kind, index));
 
-  const duplicateIds = new Set(aggregate.features.filter((feature) => aggregate.features.some((other) => other !== feature && other.id === feature.id)).map((feature) => feature.id));
+  const idCounts = new Map();
+  for (const feature of aggregate.features) {
+    const id = canonicalId(feature.id);
+    idCounts.set(id, (idCounts.get(id) || 0) + 1);
+  }
   for (const group of aggregate.groups || []) {
     for (const item of group.items || []) {
       const feature = aggregate.features.find((entry) => entry.key === item.key);
@@ -44,7 +52,7 @@ export function projectWorktreeGroups(aggregate, {
       }, {
         searchQuery, activeFilters,
         inPlay,
-        participantCounts: new Map([[version.itemId, { participantCount: duplicateIds.has(feature.id) ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]),
+        participantCounts: new Map([[version.itemId, { participantCount: idCounts.get(canonicalId(feature.id)) > 1 ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]),
       }));
       if (!versions.length) continue;
       const byGroup = new Map();

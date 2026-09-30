@@ -103,3 +103,15 @@ test("same-ID ambiguous feature does not qualify from participant association", 
   ]);
   assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, participantCounts: new Map([["one", { participantCount: 3 }], ["two", { participantCount: 2 }]]) }), []);
 });
+
+test("canonically equivalent IDs cannot qualify from participant association", () => {
+  const aggregate = fixture([
+    { key: "composed", id: "caf\u00e9", entries: [version("opened", "A", { id: "caf\u00e9", title: "one", searchText: "", metadata: { status: "queued" } })] },
+    { key: "decomposed", id: "cafe\u0301", entries: [version("sibling", "A", { id: "cafe\u0301", title: "two", searchText: "", metadata: { status: "queued" } })] },
+  ]);
+  const participantCounts = new Map([
+    ["composed", { participantCount: 1 }],
+    ["decomposed", { participantCount: 1 }],
+  ]);
+  assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, participantCounts }), []);
+});
