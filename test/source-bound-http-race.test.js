@@ -55,7 +55,7 @@ test("bound HTTP apply rejects a spec path redirected outside after validation",
     MINIMAP_TEST_ARM: arm,
     MINIMAP_TEST_REACHED: reached,
     MINIMAP_TEST_RELEASE: release,
-    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import=${pathToFileURL(path.join(projectRoot, "test", "fixtures", "pause-source-read.mjs")).href}`.trim(),
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import=${pathToFileURL(path.join(projectRoot, "fixtures", "pause-source-read.mjs")).href}`.trim(),
   };
   let child;
   t.after(async () => {
