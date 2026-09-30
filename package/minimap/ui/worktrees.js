@@ -70,6 +70,11 @@ export function projectWorktreeGroups(aggregate, {
           existing.versions = existing.matchingVersions;
           existing.sourceVersion = existing.matchingVersions[0];
           existing.conflicts = conflictsForVersions(existing.matchingVersions);
+          Object.assign(existing, existing.sourceVersion.summary, {
+            id: appearanceId, featureKey: feature.key, versions: existing.matchingVersions,
+            matchingVersions: existing.matchingVersions, conflicts: existing.conflicts,
+            sourceVersion: existing.sourceVersion,
+          });
           continue;
         }
         projected.items.push({ ...entry.versions[0].summary, id: appearanceId, featureKey: feature.key,

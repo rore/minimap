@@ -73,13 +73,16 @@ test("derived lens merges same feature appearances across board groups", () => {
 
 test("derived merge keeps conflicts and opened-first source when sibling group comes first", () => {
   const aggregate = fixture([{ key: "f", id: "x", entries: [
-    version("opened", "A", { id: "x", title: "x", searchText: "", status: "done", milestone: "S3", metadata: { status: "done" } }),
-    version("sibling", "B", { id: "x", title: "x", searchText: "", status: "in-progress", milestone: "S3", metadata: { status: "in-progress" } }),
+    version("opened", "A", { id: "x", title: "opened title", searchText: "", status: "done", priority: "high", milestone: "S3", metadata: { status: "done" } }),
+    version("sibling", "B", { id: "x", title: "sibling title", searchText: "", status: "in-progress", priority: "low", milestone: "S3", metadata: { status: "in-progress" } }),
   ] }], { availableLenses: [{ key: "milestone", values: ["S3"] }] });
   aggregate.groups.reverse();
   const [group] = projectWorktreeGroups(aggregate, { lens: "milestone" });
   assert.equal(group.items.length, 1);
   assert.equal(group.items[0].sourceVersion.sourceKey, "opened");
+  assert.equal(group.items[0].title, "opened title");
+  assert.equal(group.items[0].status, "done");
+  assert.equal(group.items[0].priority, "high");
   assert.deepEqual(group.items[0].conflicts.filter((entry) => entry.field === "status").map((entry) => [entry.sourceKey, entry.value]), [["opened", "done"], ["sibling", "in-progress"]]);
 });
 
