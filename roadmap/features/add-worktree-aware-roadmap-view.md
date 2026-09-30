@@ -1,7 +1,7 @@
 ---
 id: add-worktree-aware-roadmap-view
 title: See roadmap work across local worktrees
-status: queued
+status: done
 priority: high
 commitment: committed
 labels:
@@ -14,7 +14,7 @@ labels:
 
 Make Minimap's existing roadmap view aware of local Git worktrees. Show features created or changed in sibling worktrees, including uncommitted files, without moving roadmap state into a shared management system. Keep the board familiar; reveal source differences only where needed and let the user inspect exact versions in the existing detail pane.
 
-This is the first item in Next. Capture and review the design now; implementation has not started.
+Implemented on 2026-09-30 by minimap-dev, with Minimap-manager owning design, integration, canonical roadmap updates, and visual acceptance. Astra reviewed the design and source-bound operation safety. This checkout remains the default; Across worktrees is an explicit browsing choice. Delivery remains subject to the implementation PR's required CI checks.
 
 ## Why
 
@@ -46,7 +46,7 @@ This checkout keeps today's behavior. Across worktrees discovers new eligible wo
 - Selecting the indicator opens the existing detail pane with a source selector. Show the selected source's actual metadata and document together; do not construct a synthetic document from several files.
 - Keep full paths and secondary provenance in details or the source menu, rather than filling every card with labels.
 
-The default target is one card per logical feature. An unresolved status or grouping difference must not be hidden behind an arbitrary representative. Before implementation, demonstrate the compact treatment of a feature whose versions occupy different groups and decide whether a clearly labeled repeated appearance is necessary. If it is, retain distinct-feature totals and explain overlapping group counts. This bounded design decision is part of the feature, not permission to build a general comparison interface.
+The default target is one card per logical feature. An unresolved status or grouping difference must not be hidden behind an arbitrary representative. The implementation sketch below defines limited repeated appearances for divergent groups, distinct-feature totals, and disclosure for differences within one group.
 
 ### Filtering must explain the result
 
@@ -110,15 +110,53 @@ A filesystem path alone is not sufficient source identity. Before mutation, reva
 
 Reuse the current parser, API, board derivation, and detail pane. Start with the existing refresh mechanism and bounded per-source reads; avoid per-feature Git processes, a new watcher service, or a presence scheduler. Make any scan limits and inconsistent refresh snapshot visible rather than silently dropping sources.
 
-Before coding, inspect current work-reference normalization with Pallium's owner if the contract is unclear. Request a Pallium change only for a demonstrated shared-contract gap; Minimap owns presentation and source discovery.
+The implementation reuses Pallium's existing canonical work-reference normalization and participant API. No new Pallium lifecycle, ownership, or assignment contract was required; Minimap owns presentation and source discovery.
 
-Resolve these concrete choices in a small implementation sketch using two ordinary features and one divergent feature:
+The implementation sketch below resolves these concrete choices using two ordinary features and one divergent feature:
 
 1. Compact card placement and matching-source selection across conflicting statuses/groups, with honest counts.
 2. Conservative logical-identity and equivalence rules, including ID collisions and unchanged inherited copies.
 3. Mixed board ordering, unlisted-file disclosure, and incompatible configuration fallback.
 
 Use the sketch to keep the first implementation bounded. Do not turn these questions into a new assignment or synchronization system.
+
+## Implementation Sketch — 2026-09-30
+
+The following owner decisions replace the three open questions above. Astra reviewed the sketch; the same-group metadata and mandatory source-context clarifications below incorporate that feedback. Keep the implementation on one feature branch; no parallel product redesign.
+
+### Cards, groups, and selection
+
+Filter source versions first, with the complete query. Within each displayed group, coalesce matching versions of a proven logical feature into one appearance. If matching versions belong to different groups, show one appearance per applicable group with a concise versions/different-groups disclosure. The overall result count is distinct logical features; group counts are explicitly overlapping when this occurs. The card uses one actual matching version, selected deterministically: the opened checkout when it matches that group/query, otherwise the first matching source in stable discovery order. This is a display selection, never a truth or write preference; label its source whenever alternatives differ. Details list all versions and indicate which match the current query.
+
+Example: Shared feature A is identical in all checkouts and remains one quiet card. New feature B exists only in worktree blue and has a blue source label. Feature C is queued/low in the opened checkout and in-progress/high in blue. Without filters it appears in both applicable status groups with a versions indicator and matching source labels; In play shows blue's in-progress appearance. Queued AND high matches neither C version. If only C's document differs while group and metadata agree, one card with `2 versions` is enough.
+
+When C's versions are both in milestone S3, one coalesced card must still signal incompatible status/priority values, for example `Status differs`, with keyboard-accessible disclosure of the actual values and sources. A selected Done badge plus `2 versions` alone is insufficient. The indicator should remain concise; source/value detail belongs in the existing detail pane. Include this same-group case in fixture and screenshot acceptance.
+
+### Identity and bounded evidence
+
+The same ID alone is not proof of shared feature identity. For distinct checkouts, require compatible roadmap namespace and evidence that the item descends from a common ancestral item with the same ID/path. Batch ancestor-file inspection per source comparison, not a Git subprocess per feature. Use existing Git metadata; do not add a persistent identity registry. Exact algorithm and conservative scan limits belong in tests and the API contract. Missing evidence, shallow history, renamed paths without proven continuity, or independently added same-ID items stay separate and explicitly ambiguous. Content equality can coalesce proven versions, but cannot prove identity of newly colliding items. Ambiguous items share no claimed participant attribution. A single-source feature needs no ancestry proof to be visible.
+
+Compare actual parsed metadata and complete document content conservatively; retaining an extra version is safer than concealing a meaningful difference. Membership is separate from document equivalence. Source ordering and branch age do not decide which content is correct. Do not hide an older source merely because its HEAD is an ancestor.
+
+### Layout and unlisted items
+
+The opened checkout supplies preferred lens/group ordering. Add sibling-only group values in stable source order; deduplicate names for display without rewriting any source board. Within a combined group, traverse opened-checkout order followed by unseen sibling features in their own source order. This display traversal does not claim to preserve contradictory source orderings globally; full source order remains available through single-checkout view. Reorder and drag are disabled in Across worktrees.
+
+Use a compact `Not on a board` disclosure for valid unlisted versions, outside regular board membership, under the same query. An item listed in one source but unlisted in another remains distinguishable in detail. Preserve and disclose missing-file board references too. Union supported lens/filter values; a source with incompatible roadmap namespace or unsupported layout configuration is explicitly excluded with a source-level reason and a direct single-checkout route, rather than silently coerced.
+
+### Source-bound operations and coverage
+
+The aggregate response retains complete source/version provenance and an explicit coverage result. Keep source keys separate from logical feature keys, transport IDs, and Pallium refs. Detail reads and links carry the exact source. Across worktrees has no mutation target: Edit, create, scope edit, and reorder first enter a selected single-checkout view. Validate a source-context token on subsequent mutations, alongside existing file/board/config revisions. The token uses repository and Git administrative identity plus branch context; unrelated new commits should not unnecessarily invalidate a draft. Replaced checkouts and switched branches must fail safely even at the same path. Verify every affected mutation route, including spec suggestion apply/rollback, rather than guarding only item Save. Old single-checkout clients remain compatible unless an explicit source-bound context was supplied; never let aggregate clients omit required context silently.
+
+The new source-bound operation uses a mandatory `/api/source/...` route namespace wrapping existing handlers, so a missing token is rejected rather than treated as a legacy request. A token is a continuity check, not an authentication credential. The route inventory covers setup, item save, board, metadata order, lens order/config, scope, and source-bound spec attach/move/remove/comment/suggestion operations, including preview/apply/rollback and their reads. Verify file containment on every path accepted by those routes. Do not create a parallel ownership or authorization system. Detached HEAD sources include their observed commit context, so switching detached commits is not mistaken for an unchanged null branch. Guard observable context; do not claim detection of an identical delete/recreate event when no observable evidence differs.
+
+Developer feasibility confirmed these seams in the existing app. Reuse item-load abort/generation handling with source-aware selection. Add a revision and atomic-write check for source-bound scope edits because the current scope save lacks one. Validate real paths for configured roadmap directories and config/board/scope files before automatic reads, including junction escape cases. Source labels must distinguish equal folder names and remain compact for long branch names.
+
+One refresh uses a bounded source snapshot and deduplicated participant batch. If discovery, file reads, or participant data disagree or fail, show partial/changed coverage and offer refresh. Scope text is always labeled with its one source. Initial view remains This checkout; Across worktrees is an explicit remembered choice. No Git or one source preserves ordinary operation. No new background service is introduced.
+
+### Delivery evidence
+
+The acceptance evidence below maps the scenarios to runnable tests and actual rendered observations. Lifecycle validation uses isolated MINIMAP_HOME values. These checks establish bounded behavior; they do not claim exhaustive proof of every external filesystem or Git race.
 
 ## Out of Scope
 
@@ -156,6 +194,25 @@ Inspect actual rendered screenshots of both board layouts and narrow widths. Ver
 
 ## Notes
 
-Direction agreed with the user after conceptual review and external research: retain files as canonical and make the view worktree-aware. Astra is a reviewer and sounding board; Minimap's owner drives the design. This feature records intended behavior and bounded decisions still needed before implementation, not a claim that source reconciliation is already solved.
+Direction agreed with the user after conceptual review and external research: retain files as canonical and make the view worktree-aware. Astra served as reviewer and sounding board; Minimap's owner drove the design. The implementation exposes source differences without selecting a winner or synchronizing files.
 
-Astra reviewed this draft on 2026-09-29. Both anchored findings were incorporated: ambiguous participant attribution for colliding item IDs, and checkout-context validation when a worktree path is reused. The three implementation-sketch decisions above remain intentionally open.
+Astra reviewed the draft on 2026-09-29 and the implementation on 2026-09-30. Review added ambiguous participant attribution, same-group metadata disclosure, mandatory source context, and checks inside shared write boundaries. Two real HTTP reproductions found and then verified fixes for a branch switch during a delayed scope save and a junction redirect during spec suggestion apply. Final bounded safety approval covers commit `6a4b33fbfffdfb46d3329c87b15a10321ee62bac`. The required CI run on the final PR head is the delivery gate.
+
+## Acceptance Evidence — 2026-09-30
+
+| Scenario family | Evidence |
+| --- | --- |
+| Separate new features, dirty and untracked copies, inherited identity, delete/re-add and colliding IDs | `test/worktree-aggregate.test.js`; generic three-checkout visual fixture. |
+| Whole-version filters, In play, source-specific groups, distinct counts, unknown or differing metadata | `test/ui-worktrees.test.js`, `test/worktree-presence.test.js`, and `playwright/worktree-ui.spec.js`; filtered divergent version inspected in the browser. |
+| Identical copies and line endings, text/status/priority differences | Aggregate and UI projection tests; quiet identical card and same-milestone conflict screenshots inspected. |
+| New groups, different membership/order, unlisted files, missing references | Aggregate/projection tests and browser disclosure tests; visible distinct/appearance totals, Also in group cues, and expanded missing-reference details inspected. |
+| Detached HEAD, branch rename, replacement at the same path, stale or missing source links | `test/source-bound-context.test.js`, `test/source-bound.test.js`, and unavailable-version browser regression. |
+| Draft refresh, source choice, stale revisions, branch/config changes during requests | Source-bound HTTP browser matrix, raw/scope draft and selected-version reload tests; manual branch-switch save returned 409 and preserved the file. |
+| Post-validation write races and path containment | Source-bound controlled-wait tests plus Astra's independent HTTP reproductions: delayed scope save returned 409 without a write; redirected spec apply returned 403 without modifying the outside fixture. |
+| Absent, unavailable, partial or ambiguous participant evidence; lifecycle semantics | Existing Pallium adapter/count tests, worktree participant selection tests, same-ID browser regression, and disabled-provider visual observation. No new presence classification is introduced. |
+| Missing, incompatible, malformed, capped or moving sources; no Git and single-checkout fallback | `test/worktree-sources.test.js`, `test/worktree-aggregate.test.js`; malformed sibling visibly excluded while other sources remained usable. |
+| Desktop/narrow List and Columns, long names, many ordinary features | Browser fixture with 84 features, 10 lanes and 12 milestones; manager inspected actual 1440px and 390px screenshots, source menus, conflicting versions and partial coverage. |
+
+Local visual evidence is retained under `artifacts/worktree-view-acceptance/`: `final-board-*`, `v3-filtered-desktop.png`, `v3-draft-refresh.png`, `final-partial-narrow.png`, and `final-missing-reference-expanded-1440.png` / `final-missing-reference-expanded-390.png`. These are acceptance artifacts, not runtime dependencies.
+
+Discovery considers at most 16 registered sources; ancestry inspection is bounded at 500 items, with uncertainty disclosed. A generic 16-source/20-feature measurement took about 8.46 seconds and returned about 1.35 MiB before the final snapshot guard was added; this is a scale observation, not a latency guarantee. Source checks run after locks and before write promotion, but cannot atomically exclude arbitrary external Git/filesystem activity or make concurrent dirty-file reads an atomic snapshot. No scheduler, cache service, shared management database, ownership transfer, or automatic merge was added.
