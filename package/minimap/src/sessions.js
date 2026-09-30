@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { AppError } from "./roadmap.js";
-import { assertSourceWriteGuard } from "./source-write-guard.js";
+import { assertSourceWriteGuard, assertSourceWritePath } from "./source-write-guard.js";
 
 const SESSION_INDEX_FILE = "session-index.json";
 const SESSION_INDEX_VERSION = 1;
@@ -803,7 +803,9 @@ async function withSessionMutation(filePath, options, work) {
 
 async function commitSuggestionTransaction(paths, targetPath, beforeText, afterText, writes, event) {
   const journalPath = path.join(paths.sessionDir, SUGGESTION_JOURNAL);
+  await assertSourceWritePath(targetPath);
   const writePath = await fs.realpath(targetPath);
+  await assertSourceWritePath(writePath);
   const targetStat = await fs.stat(writePath);
   if (targetStat.nlink > 1) throw new AppError("Cannot atomically replace a multiply linked target.", 409, "conflict");
   const targetTmp = `${writePath}.tmp-${process.pid}-${crypto.randomUUID()}`;

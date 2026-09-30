@@ -41,7 +41,7 @@ Restart checks every registered/requested target before any shutdown, does not s
 
 ## Multi-repo
 
-The server is repo-agnostic. Every roadmap request carries its own repo identity via the `X-Minimap-Repo` header (set by the UI from the `#repo=...` URL hash). One server can serve any number of repos at once.
+The server is repo-agnostic. Roadmap requests carry the repo chosen by the UI's `#repo=...` URL hash in `X-Minimap-Repo`, or in `X-Minimap-Repo-Encoded` for paths that cannot be sent as an ASCII HTTP header. One server can serve any number of repos at once.
 
 The browser's **Across worktrees** board reads `GET /api/worktree-workspace` for the opened repo. Its source-specific requests use `/api/source/...` plus the returned `X-Minimap-Source-Context`; the server rechecks the live Git checkout and roadmap location, and source-bound item/board/scope writes require `expectedRevision`. Source-bound spec paths cannot escape the checkout. The UI uses `X-Minimap-Repo-Encoded` for non-ASCII paths when needed. Do not construct or reuse a source context from a guessed path, stale response, or another repo. This is a UI safety boundary, not a new agent roadmap-editing workflow: agents continue to edit only their assigned checkout's canonical files and do not automatically copy changes across worktrees.
 

@@ -165,9 +165,8 @@ async function withJsonBody(request) {
   if (request.boundRepoRoot) await validateBoundRequest(request);
   const body = parseJsonBody(raw);
   if (request.boundSpecRepo) {
-    for (const key of ["file", "from", "to"]) {
-      if (Object.hasOwn(body, key)) await requirePathInSource(request.boundSpecRepo, body[key]);
-    }
+    request.boundBodyPaths = ["file", "from", "to"].filter((key) => Object.hasOwn(body, key)).map((key) => body[key]);
+    for (const candidate of request.boundBodyPaths) await requirePathInSource(request.boundSpecRepo, candidate);
   }
   return body;
 }
@@ -178,6 +177,7 @@ async function validateBoundRequest(request) {
     if (request.boundUrl.searchParams.has("path")) {
       await requirePathInSource(request.boundRepoRoot, request.boundUrl.searchParams.get("path"));
     }
+    for (const candidate of request.boundBodyPaths || []) await requirePathInSource(request.boundRepoRoot, candidate);
     return;
   }
   const roadmap = await requireRoadmapInSource(request.boundRepoRoot);
@@ -700,7 +700,8 @@ async function handleApi(request, response, requestUrl) {
     await validateBoundRequest(request);
   }
   if (bound) await withSourceWriteGuard(() => validateBoundRequest(request),
-    () => match.handler(request, response, { url: routedUrl, params: match.params }));
+    () => match.handler(request, response, { url: routedUrl, params: match.params }),
+    (candidate) => requirePathInSource(request.boundRepoRoot, candidate));
   else await match.handler(request, response, { url: routedUrl, params: match.params });
   return true;
 }
