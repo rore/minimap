@@ -44,6 +44,9 @@ test("the same feature in separate groups counts once", () => {
   ] }]);
   const groups = projectWorktreeGroups(aggregate);
   assert.equal(groups.length, 2);
+  assert.notEqual(groups[0].items[0].id, groups[1].items[0].id);
+  assert.equal(groups[0].items[0].featureKey, "f");
+  assert.equal(groups[0].items[0].matchingVersions.length, 1);
   assert.equal(countDistinctWorktreeFeatures(groups), 1);
 });
 

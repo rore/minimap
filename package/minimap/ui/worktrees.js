@@ -52,8 +52,9 @@ export function projectWorktreeGroups(aggregate, {
       for (const [key, entry] of byGroup) {
         const index = derived ? preferred.indexOf(entry.name) : aggregate.groups.findIndex((value) => value.kind === entry.kind && value.name === entry.name);
         const projected = addGroup(key, entry.name, entry.kind, index < 0 ? preferred.length + groups.size : index);
-        projected.items.push({ ...entry.versions[0].summary, id: feature.key, title: entry.versions[0].summary.title || feature.id,
-          versions: entry.versions, conflicts: item.conflicts || [], sourceVersion: entry.versions[0] });
+        projected.items.push({ ...entry.versions[0].summary, id: JSON.stringify([feature.key, entry.kind, entry.name]), featureKey: feature.key,
+          title: entry.versions[0].summary.title || feature.id, versions: entry.versions, matchingVersions: entry.versions,
+          conflicts: item.conflicts || [], sourceVersion: entry.versions[0] });
       }
     }
   }
@@ -62,5 +63,5 @@ export function projectWorktreeGroups(aggregate, {
 }
 
 export function countDistinctWorktreeFeatures(groups) {
-  return new Set(groups.flatMap((group) => group.items.filter((item) => !item.missing).map((item) => item.id))).size;
+  return new Set(groups.flatMap((group) => group.items.filter((item) => !item.missing).map((item) => item.featureKey || item.id))).size;
 }
