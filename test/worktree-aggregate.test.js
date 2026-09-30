@@ -14,14 +14,14 @@ async function write(root, file, text) {
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, text);
 }
-async function fixture() {
+async function fixture(ancestorText = item("shared")) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-aggregate-")); dirs.push(dir);
   const main = path.join(dir, "main"), sibling = path.join(dir, "sibling");
   await fs.mkdir(main);
   git(main, "init", "-b", "main"); git(main, "config", "user.name", "Test"); git(main, "config", "user.email", "test@example.invalid");
   await write(main, "roadmap/board.md", "# Now\n- shared\n");
   await write(main, "roadmap/scope.md", "scope\n");
-  await write(main, "roadmap/features/shared.md", item("shared"));
+  await write(main, "roadmap/features/shared.md", ancestorText);
   await write(main, "roadmap/ideas/.keep", "");
   git(main, "add", "."); git(main, "commit", "-m", "base");
   git(main, "worktree", "add", "-b", "feature/sibling", sibling);
@@ -73,14 +73,23 @@ test("independent same-id creation and delete/readd stay distinct", async () => 
   assert.equal(result.groups.find((group) => group.name === "Now").items.length, 2);
 });
 
-test("incompatible roadmap config is excluded, never conflated", async () => {
+test("source-specific display config stays compatible and its supported lens values are unioned", async () => {
   const { main, sibling } = await fixture();
-  await write(sibling, "roadmap.config.json", JSON.stringify({ roadmapPath: "roadmap", filters: { fields: ["team"] } }));
+  await write(main, "roadmap.config.json", JSON.stringify({ roadmapPath: "roadmap", defaultLens: "board",
+    lenses: { fields: { status: { order: ["queued", "in-progress"] } } } }));
+  await write(sibling, "roadmap.config.json", JSON.stringify({ roadmapPath: "./roadmap", defaultLens: "status",
+    lenses: { fields: { status: { order: ["blocked", "done"] } } } }));
+  await write(main, "roadmap/features/main-only.md", item("main-only", "in-progress"));
+  await write(sibling, "roadmap/features/sibling-only.md", item("sibling-only", "blocked"));
   const result = await loadWorktreeAggregate(main);
-  assert.equal(result.partial, true);
-  assert.equal(result.coverage.loaded, 1);
-  assert.equal(result.excluded.at(-1).reason, "incompatible-roadmap-config");
-  assert.equal(result.features[0].versions.length, 1);
+  assert.equal(result.partial, false);
+  assert.equal(result.coverage.loaded, 2);
+  assert.deepEqual(result.workspace.availableLenses.find((entry) => entry.key === "status").values,
+    ["queued", "in-progress", "blocked", "done"]);
+  assert.equal(result.sources[1].availableLenses.find((entry) => entry.key === "status").values[0], "blocked");
+  assert.deepEqual(new Set(result.workspace.availableFilters.find((entry) => entry.key === "status").values),
+    new Set(["queued", "in-progress", "blocked"]));
+  assert.equal(result.features[0].versions.length, 2);
 });
 
 test("sibling setup failure is partial and leaves opened roadmap usable", async () => {
@@ -113,4 +122,20 @@ test("same path with changed ancestor id cannot merge", async () => {
   await write(sibling, "roadmap/board.md", "# Now\n- renamed\n");
   const result = await loadWorktreeAggregate(main);
   assert.equal(result.features.filter((feature) => feature.id === "renamed").length, 2);
+});
+
+test("quoted ancestor frontmatter id is parsed by the roadmap parser", async () => {
+  const { main } = await fixture(item("shared").replace("id: shared", "id: 'shared'"));
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.features.filter((feature) => feature.id === "shared").length, 1);
+  assert.equal(result.features[0].versions.length, 2);
+});
+
+test("different roadmap roots remain separate namespaces", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap.config.json", JSON.stringify({ roadmapPath: "planning" }));
+  await fs.rename(path.join(sibling, "roadmap"), path.join(sibling, "planning"));
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.coverage.loaded, 1);
+  assert.equal(result.excluded.at(-1).reason, "incompatible-roadmap-config");
 });

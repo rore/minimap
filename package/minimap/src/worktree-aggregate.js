@@ -1,30 +1,58 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { loadWorkspace } from "./roadmap.js";
+import { loadWorkspace, parseItemText } from "./roadmap.js";
 import { discoverWorktreeSources } from "./worktree-sources.js";
 import { requireRoadmapInSource } from "./source-bound.js";
 
 const execFileAsync = promisify(execFile);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const relative = (root, file) => path.relative(root, path.isAbsolute(file) ? file : path.resolve(root, file)).replaceAll("\\", "/");
-const configValue = async (root) => {
-  let config;
-  try { config = JSON.parse((await fs.readFile(path.join(root, "roadmap.config.json"), "utf8")).replace(/^\uFEFF/, "")); }
-  catch (error) { if (error.code === "ENOENT") return "{}"; throw error; }
-  delete config.roadmapPath; // normalized path is compared separately
-  const sorted = (value) => Array.isArray(value) ? value.map(sorted)
-    : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
-  return JSON.stringify(sorted(config));
-};
 
 async function git(root, ...args) {
   return (await execFileAsync("git", args, {
     cwd: root, windowsHide: true, shell: false, timeout: 5000,
     maxBuffer: 4 * 1024 * 1024, encoding: "utf8",
   })).stdout.trim();
+}
+
+async function ancestorBlobs(root, objects) {
+  if (objects.length > 500) throw new Error("ancestor item limit");
+  const output = await new Promise((resolve, reject) => {
+    const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false });
+    const chunks = [];
+    let size = 0;
+    const timer = setTimeout(() => child.kill(), 5000);
+    child.on("error", reject);
+    child.stdout.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 8 * 1024 * 1024) { child.kill(); return; }
+      chunks.push(chunk);
+    });
+    child.stderr.resume();
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0 || size > 8 * 1024 * 1024) reject(new Error("ancestor batch unavailable"));
+      else resolve(Buffer.concat(chunks));
+    });
+    child.stdin.end(objects.map((entry) => entry.oid).join("\n") + "\n");
+  });
+  const ids = new Map();
+  let offset = 0;
+  for (const entry of objects) {
+    const end = output.indexOf(10, offset);
+    if (end < 0) throw new Error("invalid ancestor batch");
+    const header = output.subarray(offset, end).toString("utf8").match(/^([0-9a-f]{40,64}) blob (\d+)$/i);
+    if (!header || header[1] !== entry.oid) throw new Error("invalid ancestor blob");
+    const length = Number(header[2]);
+    if (!Number.isSafeInteger(length) || end + 1 + length >= output.length) throw new Error("invalid ancestor size");
+    try { ids.set(entry.file, String(parseItemText(output.subarray(end + 1, end + 1 + length).toString("utf8"), entry.file).frontmatter.id)); }
+    catch { /* Invalid ancestor item cannot establish identity. */ }
+    offset = end + 2 + length;
+  }
+  if (offset !== output.length) throw new Error("invalid ancestor tail");
+  return ids;
 }
 
 // A matching id/path is only one feature when the file survived from common history.
@@ -34,20 +62,20 @@ async function sharedPaths(left, right, roadmapPath) {
     const base = await git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit);
     if (!/^[0-9a-f]{40,64}$/i.test(base)) return new Map();
     const dirs = [path.posix.join(roadmapPath, "features"), path.posix.join(roadmapPath, "ideas")];
-    const paths = (await git(left.repoRoot, "ls-tree", "-r", "--name-only", base, "--", ...dirs)).split("\n").filter(Boolean);
-    if (!paths.length) return new Map();
-    const ids = new Map();
-    const matches = await git(left.repoRoot, "grep", "-I", "-n", "-e", "^id:", base, "--", ...dirs);
-    for (const line of matches.split("\n")) {
-      const match = line.match(/^[0-9a-f]+:(.*?):\d+:id:\s*(.*)$/i);
-      if (match && !ids.has(match[1])) ids.set(match[1], match[2].trim().replace(/^(?:"(.*)"|'(.*)')$/, "$1$2"));
-    }
+    const objects = (await git(left.repoRoot, "ls-tree", "-r", "-z", "--long", base, "--", ...dirs))
+      .split("\0").filter(Boolean).map((record) => {
+        const match = record.match(/^[0-7]{6} blob ([0-9a-f]{40,64}) +\d+\t([\s\S]*)$/i);
+        if (!match) throw new Error("ambiguous ancestor tree");
+        return { oid: match[1], file: match[2] };
+      }).filter((entry) => !/[\r\n]/.test(entry.file) && entry.file.endsWith(".md"));
+    if (!objects.length) return new Map();
+    const ids = await ancestorBlobs(left.repoRoot, objects);
     const deleted = new Set();
     for (const source of [left, right]) {
-      const output = await git(source.repoRoot, "log", "--format=", "--name-only", "--diff-filter=D", "--no-renames", `${base}..${source.git.headCommit}`, "--", ...dirs);
-      for (const file of output.split("\n")) if (file) deleted.add(file);
+      const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames", `${base}..${source.git.headCommit}`, "--", ...dirs);
+      for (const file of output.split("\0")) if (file) deleted.add(file);
     }
-    return new Map(paths.filter((file) => !deleted.has(file) && ids.has(file)).map((file) => [file, ids.get(file)]));
+    return new Map(objects.filter((entry) => !deleted.has(entry.file) && ids.has(entry.file)).map((entry) => [entry.file, ids.get(entry.file)]));
   } catch { return new Map(); }
 }
 
@@ -73,10 +101,10 @@ export async function loadWorktreeAggregate(openRepoRoot) {
       await requireRoadmapInSource(source.repoRoot);
       const workspace = await loadWorkspace(source.repoRoot);
       source.roadmapBinding = { roadmapPath: workspace.roadmapPath, resolvedPath: workspace.resolvedPath };
-      const config = await configValue(source.repoRoot);
-      if (source === discovery.sources[0]) { result.workspace = workspace; result.config = config; }
-      else if (path.normalize(workspace.roadmapPath) !== path.normalize(result.workspace.roadmapPath)
-        || config !== result.config) {
+      source.availableLenses = workspace.availableLenses;
+      source.availableFilters = workspace.availableFilters;
+      if (source === discovery.sources[0]) result.workspace = workspace;
+      else if (path.normalize(workspace.roadmapPath) !== path.normalize(result.workspace.roadmapPath)) {
         result.excluded.push({ repoRoot: source.repoRoot, sourceKey: source.sourceKey, reason: "incompatible-roadmap-config" });
         continue;
       }
@@ -95,8 +123,19 @@ export async function loadWorktreeAggregate(openRepoRoot) {
   result.coverage.loaded = loaded.length;
   result.coverage.excluded = result.excluded.length;
   if (!loaded.length) { result.unavailable = { reason: "no-loadable-workspace" }; return result; }
-  delete result.config;
   if (result.excluded.length) result.partial = true;
+
+  for (const source of loaded.slice(1)) {
+    for (const field of ["availableLenses", "availableFilters"]) {
+      for (const entry of source.workspace[field]) {
+        const existing = result.workspace[field].find((candidate) => candidate.key === entry.key);
+        if (!existing) result.workspace[field].push({ ...entry });
+        else for (const value of entry.values || []) {
+          if (!existing.values.includes(value)) existing.values.push(value);
+        }
+      }
+    }
+  }
 
   const lineage = new Map();
   for (let i = 0; i < loaded.length; i += 1) {
