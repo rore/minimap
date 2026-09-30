@@ -12,6 +12,10 @@ test("deduplicates board appearances and includes mixed done/unfinished versions
   assert.deepEqual(select({ features: [feature("done", "done", "done")] }).features, []);
   assert.deepEqual(select({ features: [feature("done", "done", "done")] }, { includeCompleted: true }).features,
     [{ key: "done", id: "done" }]);
+  const completed = { features: [feature("completed", "completed", "Shipped", " done ")] };
+  assert.deepEqual(select(completed).features, []);
+  assert.deepEqual(select(completed, { includeCompleted: true }).features,
+    [{ key: "completed", id: "completed" }]);
 });
 
 test("excludes independent same-ID features, including NFC-equivalent IDs", () => {
@@ -20,6 +24,7 @@ test("excludes independent same-ID features, including NFC-equivalent IDs", () =
     feature("third", "é", "queued"), feature("fourth", "e\u0301", "queued"),
   ] });
   assert.deepEqual(result.features, []);
+  assert.equal(result.partial, false);
   assert.deepEqual(result.ambiguous, [
     { reference: "same", keys: ["first", "second"] },
     { reference: "%C3%A9", keys: ["third", "fourth"] },

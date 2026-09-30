@@ -1,5 +1,7 @@
 import { encodeReferencePart } from "./pallium.js";
 
+const FINISHED_STATUSES = new Set(["done", "shipped", "superseded", "cancelled", "canceled"]);
+
 /** Select only aggregate-proven, unambiguous logical features for Pallium lookup. */
 export function selectWorktreeParticipantCandidates(aggregate, { includeCompleted = false, limit = 200 } = {}) {
   const byKey = new Map();
@@ -35,7 +37,8 @@ export function selectWorktreeParticipantCandidates(aggregate, { includeComplete
       continue;
     }
     const feature = matches[0];
-    if (includeCompleted || feature.versions.some((version) => version?.summary?.status !== "done")) {
+    if (includeCompleted || feature.versions.some((version) =>
+      !FINISHED_STATUSES.has(String(version?.summary?.status || "").trim().toLowerCase()))) {
       if (features.length < Math.min(200, Math.max(0, limit))) features.push({ key: feature.key, id: feature.id });
       else partial = true;
     }
