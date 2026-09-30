@@ -3873,8 +3873,9 @@ textarea {
 .editor-source-choice > button:hover, .editor-source-choice > button:focus-visible { background: var(--subtle, #f1f3f8); }
 .editor-source-choice > button[aria-pressed="true"] { background: var(--subtle, #f1f3f8); }
 .editor-source-choice strong, .editor-source-meta, .editor-source-difference { display: block; }
-.editor-source-meta { color: var(--muted); font-size: .72rem; }
+.editor-source-meta { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: .72rem; }
 .editor-source-difference { margin-top: 3px; font-size: .72rem; color: var(--text); }
+.editor-source-difference.board-source-conflict { color: #8b3c10; }
 .editor-source-path { margin: 0 9px 7px; font-size: .68rem; overflow-wrap: anywhere; }
 .editor-source-path summary { cursor: pointer; }
 @media (max-width: 760px) {

@@ -57,10 +57,13 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeEnabled();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
     await expect(page.locator("#workspace-summary")).toContainText("85 features");
+    await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded; 0 excluded");
     await expect(page.locator("#editor-title")).toContainText("large-01");
     await expect(page.locator("#editor-source-label")).toBeVisible();
     await page.locator("#editor-source-summary").click();
     await expect(page.locator("#editor-source-label [data-editor-source]")).toHaveCount(2);
+    await expect(page.locator("#editor-source-label [data-editor-source]").first().locator(".editor-source-meta .badge-field-status")).toBeVisible();
+    await expect(page.locator("#editor-source-label [data-editor-source]").first().locator(".editor-source-meta")).not.toContainText("main");
     expect(apiFailures).toEqual([]);
     await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "feature/blue" }).click();
     await expect(page.locator("#field-status")).toHaveValue("in-progress");
@@ -282,6 +285,7 @@ test("partial worktree discovery is explicit and does not imply complete coverag
     await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeEnabled();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
     await expect(page.locator("#board-source-status")).toContainText(/partial/i);
+    await expect(page.locator("#board-source-status-details")).toContainText("1 excluded");
     await page.locator("#board-source-toggle").click();
     await expect(page.locator("#board-source-menu")).toContainText(/unavailable|excluded/i);
   } finally {
@@ -358,6 +362,55 @@ test("a failed checkout load can retry through Refresh and the current-source ch
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+for (const [trigger, discoveryFails] of [["Refresh", false], ["Refresh", true], ["current source", false]]) {
+  test(`a delayed ${trigger} discovery${discoveryFails ? " error" : ""} cannot replace a newer Across view`, async ({ page }) => {
+    const { owned, root } = await fixture(2);
+    let boundLoads = 0;
+    let aggregateLoads = 0;
+    let heldDiscovery;
+    let discoveryStarted;
+    const started = new Promise((resolve) => { discoveryStarted = resolve; });
+    page.on("request", (request) => { if (request.url().includes("/api/worktree-workspace")) aggregateLoads += 1; });
+    await page.route("**/api/worktree-source-workspace", async (route) => {
+      boundLoads += 1;
+      if (boundLoads === 1) await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "temporary checkout failure" } }) });
+      else await route.continue();
+    });
+    try {
+      await page.goto(`/#repo=${encodeURIComponent(root)}`);
+      await page.locator("#board-source-toggle").click();
+      await page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" }).click();
+      await expect(page.locator("#status-banner")).toContainText("temporary checkout failure");
+      await page.route("**/api/worktree-sources", async (route) => {
+        if (!heldDiscovery) { heldDiscovery = route; discoveryStarted(); }
+        else await route.continue();
+      });
+      if (trigger === "Refresh") await page.locator("#refresh-button").click();
+      else {
+        await page.locator("#board-source-toggle").click();
+        await page.locator('#board-source-menu [data-source-choice="this"]').click();
+      }
+      await started;
+      await page.locator("#board-source-toggle").click();
+      await page.locator('#board-source-menu [data-source-choice="across"]').click();
+      await expect(page.locator("#workspace-summary")).toContainText("3 features");
+      expect(aggregateLoads).toBe(1);
+      const settled = page.waitForResponse((response) => response.request() === heldDiscovery.request());
+      if (discoveryFails) await heldDiscovery.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "stale discovery failure" } }) });
+      else await heldDiscovery.continue();
+      await (await settled).finished();
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      expect(boundLoads).toBe(1);
+      expect(aggregateLoads).toBe(1);
+      await expect(page.locator("#board-source-toggle")).toContainText("Across worktrees");
+      await expect(page.locator("#workspace-summary")).toContainText("3 features");
+      await expect(page.locator("#status-banner")).not.toContainText("stale discovery failure");
+    } finally {
+      await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  });
+}
 
 test("bound HTTP routes reject missing, stale, and escaping source context without modifying files", async ({ request }) => {
   const { owned, root } = await fixture(2);
