@@ -1409,7 +1409,7 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
     params.set("mode", normalizedMode);
   }
 
-  const lensKey = normalizeLensKey(state.activeLens);
+  const lensKey = state.worktreeData?.provisional && state.lensExplicit ? state.activeLens : normalizeLensKey(state.activeLens);
   if (state.lensExplicit) {
     params.set("lens", lensKey);
   }
@@ -4845,7 +4845,12 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       boardParticipantIncludeCompleted = true;
     }
     if (reconcile) {
-      state.activeLens = normalizeLensKey(state.activeLens, workspace);
+      if (state.lensExplicit) applyLensRouteChoice(workspace, { lens: state.activeLens, lensSpecified: true });
+      else state.activeLens = normalizeLensKey(state.activeLens, workspace);
+    } else if (aggregate?.provisional && options.routeLensSpecified) {
+      // A requested grouping may exist only in worktrees that have not loaded yet.
+      state.activeLens = options.preferredLens || DEFAULT_LENS_KEY;
+      state.lensExplicit = true;
     } else if (Object.hasOwn(options, "routeLensSpecified")) {
       applyLensRouteChoice(workspace, {
         lens: options.preferredLens,
@@ -4885,7 +4890,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     }
     const fallbackItemId = shouldUseEditorOverlay() ? "" : (getFirstVisibleBoardItemId(workspace) || getFirstBoardItemId(workspace));
     await syncVisibleSelection({
-      preferredItemId: reconcile ? desiredItemId : desiredItemId && workspace.items?.[desiredItemId] ? desiredItemId : fallbackItemId,
+      preferredItemId: reconcile || worktreeMode === "across" ? desiredItemId : desiredItemId && workspace.items?.[desiredItemId] ? desiredItemId : fallbackItemId,
       syncRoute: aggregate?.provisional ? false : options.syncRoute,
       replaceRoute: options.replaceRoute,
       forceReloadItem: reconcile ? options.forceReloadItem === true && state.selectedItemId === originalSelection : options.forceReloadItem === true || Boolean(preferredItemId),
@@ -6323,14 +6328,23 @@ state.activeFilters = initialRoute.filters;
 state.filtersExpanded = Object.keys(initialRoute.filters).length > 0;
 renderScopeChrome();
 applyEditorMode();
-void loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state.selectedItemId), {
+const initialWorkspaceLoad = loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state.selectedItemId), {
   preferredLens: initialRoute.lens,
   routeLensSpecified: initialRoute.lensSpecified,
   preferredLayout: initialRoute.layout,
   syncRoute: false,
-}).then(() => {
+});
+const initialWorkspaceGeneration = workspaceLoadGeneration;
+void initialWorkspaceLoad.then(() => {
+  if (workspaceLoadGeneration !== initialWorkspaceGeneration) return;
   if (initialRoute.view === "spec") {
     void loadSpecSessions({ loadSelected: Boolean(initialRoute.specFile) });
+    return;
+  }
+
+  if (state.worktreeMode === "across") {
+    // The progressive load already applied the route and retained newer view intent.
+    syncRouteState({ replace: true });
     return;
   }
 

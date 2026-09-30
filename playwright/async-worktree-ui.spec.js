@@ -34,6 +34,17 @@ async function fixture(count = 32) {
   return { owned, root };
 }
 
+async function fixtureSiblingOnlyMilestone(count = 8) {
+  const created = await fixture(count);
+  const sibling = path.join(created.owned, "blue");
+  for (let i = 1; i <= count; i += 1) {
+    const file = path.join(created.root, "roadmap", "features", `async-${String(i).padStart(2, "0")}.md`);
+    const raw = await fs.readFile(file, "utf8");
+    await fs.writeFile(file, raw.replace(/^milestone:[^\r\n]*\r?\n/gm, ""));
+  }
+  return { ...created, sibling };
+}
+
 function gate() {
   let release;
   let started;
@@ -56,6 +67,11 @@ async function holdFullRoute(page, behavior = "continue") {
     return route.continue();
   });
   return { ...held, get fullRequests() { return fullRequests; } };
+}
+
+async function statusFiltersInHash(page) {
+  return page.evaluate(() => new URLSearchParams(location.hash.slice(1)).getAll("f")
+    .filter((token) => token.startsWith("status:")).map((token) => token.slice("status:".length)));
 }
 
 test("opened-only board is interactive while the full worktree request is pending", async ({ page }, testInfo) => {
@@ -182,6 +198,181 @@ test("In play keeps its intent while a provisional board has no matching source 
   } finally {
     full.release();
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+for (const [bootCase, hash, layout] of [
+  ["Columns at 1024x850", "layout=columns", "columns"],
+  ["List from an explicit milestone-lens deep-link", "lens=milestone", "list"],
+]) test(`Unfinished intent survives across startup reconciliation in ${bootCase}`, async ({ page }) => {
+  const { owned, root } = await fixture(8);
+  const full = await holdFullRoute(page);
+  try {
+    await page.setViewportSize({ width: 1024, height: 850 });
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&${hash}`);
+    await full.started;
+    await expect(page.locator(`#board-layout-${layout}`)).toHaveAttribute("aria-selected", "true");
+    if (hash.includes("lens=")) {
+      await expect(page).toHaveURL(/lens=milestone/);
+      await expect(page.locator("#board-view-toggle")).toContainText("By milestone");
+    }
+    const unfinished = page.getByRole("button", { name: "Unfinished" });
+    await unfinished.click();
+    await expect(unfinished).toHaveAttribute("aria-pressed", "true");
+    full.release();
+    await expect(unfinished).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
+    expect(await statusFiltersInHash(page)).toContain("in-progress");
+
+    await page.reload();
+    await expect(unfinished).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
+    expect(await statusFiltersInHash(page)).toContain("in-progress");
+  } finally {
+    full.release();
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("turning Unfinished off before the full response leaves no status filter", async ({ page }) => {
+  const { owned, root } = await fixture(8);
+  const full = await holdFullRoute(page);
+  try {
+    await page.setViewportSize({ width: 1024, height: 850 });
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&layout=columns`);
+    await full.started;
+    const unfinished = page.getByRole("button", { name: "Unfinished" });
+    await unfinished.click();
+    await expect(unfinished).toHaveAttribute("aria-pressed", "true");
+    await unfinished.click();
+    await expect(unfinished).toHaveAttribute("aria-pressed", "false");
+    expect(await statusFiltersInHash(page)).toEqual([]);
+    full.release();
+    await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+    await expect(unfinished).toHaveAttribute("aria-pressed", "false");
+    expect(await statusFiltersInHash(page)).toEqual([]);
+  } finally {
+    full.release();
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("a full-first load opens a deep-linked non-first derived feature in its requested checkout", async ({ page }) => {
+  const { owned, root } = await fixture(8);
+  await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
+  await expect(page.locator("#workspace-summary")).toContainText("9 features");
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="milestone"]').click();
+  await page.getByRole("button", { name: /Open async-02/i }).click();
+  await expect(page.locator("#editor-title")).toContainText("async-02");
+  await page.locator("#editor-source-label").evaluate((details) => { details.open = true; });
+  const selectedVersion = page.locator('#editor-source-select [data-editor-source]').filter({ hasText: "feature/blue" });
+  await selectedVersion.click();
+  await expect(selectedVersion).toHaveAttribute("aria-pressed", "true");
+  const selectedSource = await selectedVersion.getAttribute("data-editor-source");
+  const deepLink = page.url();
+  const selectedRoute = await page.evaluate(() => Object.fromEntries(new URLSearchParams(location.hash.slice(1))));
+  expect(selectedRoute.source).toBe(selectedSource);
+
+  let resolveOpenedFailure;
+  let openedStartedResolve;
+  const openedFailureGate = new Promise((resolve) => { resolveOpenedFailure = resolve; });
+  const openedStarted = new Promise((resolve) => { openedStartedResolve = resolve; });
+  await page.route("**/api/worktree-workspace**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("openedOnly") === "1") {
+      openedStartedResolve();
+      await openedFailureGate;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "late opened-only failure" } }) });
+    }
+    return route.continue();
+  });
+  try {
+    await page.reload();
+    expect(page.url()).toBe(deepLink);
+    await openedStarted;
+    await expect(page.locator("#workspace-summary")).toContainText("9 features");
+    await expect(page.locator("#editor-title")).toContainText("async-02");
+    await page.locator("#editor-source-label").evaluate((details) => { details.open = true; });
+    await expect(page.locator(`#editor-source-select [data-editor-source="${selectedSource}"]`)).toHaveAttribute("aria-pressed", "true");
+    expect(await page.evaluate(() => new URLSearchParams(location.hash.slice(1)).get("source"))).toBe(selectedSource);
+
+    const failedOpenedResponse = page.waitForResponse((response) => new URL(response.url()).searchParams.get("openedOnly") === "1");
+    resolveOpenedFailure();
+    expect((await failedOpenedResponse).status()).toBe(503);
+    await expect(page.locator("#editor-title")).toContainText("async-02");
+    await expect(page.locator(`#editor-source-select [data-editor-source="${selectedSource}"]`)).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    resolveOpenedFailure();
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+for (const [scenario, userLens] of [["preserves the sibling-only milestone deep-link", "milestone"], ["keeps the user's newer status grouping", "status"]]) {
+  test(scenario, async ({ page }) => {
+    const { owned, root } = await fixtureSiblingOnlyMilestone();
+    const full = await holdFullRoute(page);
+    try {
+      await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&lens=milestone`);
+      await full.started;
+      await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
+      if (userLens === "status") {
+        await page.locator("#board-view-toggle").click();
+        await page.locator('[data-lens-key="status"]').click();
+        await expect(page.locator("#board-view-toggle")).toContainText("By status");
+      }
+      full.release();
+      await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+      await expect(page.locator("#board-view-toggle")).toContainText(`By ${userLens}`);
+      await expect(page).toHaveURL(new RegExp(`lens=${userLens}`));
+      if (userLens === "milestone") await expect(page.locator(".board-group .group-name").first()).toContainText("Async milestone");
+    } finally {
+      full.release();
+      await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  });
+}
+
+test("an older initial load cannot rewrite a newer pending repository deep-link", async ({ page }) => {
+  const older = await fixture(4);
+  const newer = await fixture(5);
+  const gates = new Map([older, newer].map(({ root }) => [root, { opened: gate(), full: gate() }]));
+  await page.route("**/api/worktree-workspace**", async (route) => {
+    const repo = route.request().headers()["x-minimap-repo"];
+    const pair = gates.get(repo);
+    if (!pair) return route.continue();
+    const kind = new URL(route.request().url()).searchParams.get("openedOnly") === "1" ? "opened" : "full";
+    return pair[kind].hold(route);
+  });
+  const responseFor = (repo, openedOnly) => page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/worktree-workspace"
+      && (url.searchParams.get("openedOnly") === "1") === openedOnly
+      && response.request().headers()["x-minimap-repo"] === repo;
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(older.root)}&sources=across`);
+    await Promise.all([gates.get(older.root).opened.started, gates.get(older.root).full.started]);
+    const target = new URLSearchParams({ repo: newer.root, sources: "across", lens: "status", layout: "columns" }).toString();
+    await page.evaluate((hash) => { window.location.hash = hash; }, target);
+    await Promise.all([gates.get(newer.root).opened.started, gates.get(newer.root).full.started]);
+
+    const oldOpenedResponse = responseFor(older.root, true);
+    const oldFullResponse = responseFor(older.root, false);
+    gates.get(older.root).opened.release();
+    gates.get(older.root).full.release();
+    await Promise.all([oldOpenedResponse, oldFullResponse]);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const current = await page.evaluate(() => Object.fromEntries(new URLSearchParams(location.hash.slice(1))));
+    expect(current).toMatchObject({ repo: newer.root, sources: "across", lens: "status", layout: "columns" });
+
+    gates.get(newer.root).opened.release();
+    gates.get(newer.root).full.release();
+    await expect(page.locator("#workspace-summary")).toContainText("6 features");
+    await expect(page.locator("#board-view-toggle")).toContainText("By status");
+  } finally {
+    for (const pair of gates.values()) { pair.opened.release(); pair.full.release(); }
+    await fs.rm(older.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    await fs.rm(newer.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
