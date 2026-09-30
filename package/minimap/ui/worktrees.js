@@ -52,7 +52,16 @@ export function projectWorktreeGroups(aggregate, {
       for (const [key, entry] of byGroup) {
         const index = derived ? preferred.indexOf(entry.name) : aggregate.groups.findIndex((value) => value.kind === entry.kind && value.name === entry.name);
         const projected = addGroup(key, entry.name, entry.kind, index < 0 ? preferred.length + groups.size : index);
-        projected.items.push({ ...entry.versions[0].summary, id: JSON.stringify([feature.key, entry.kind, entry.name]), featureKey: feature.key,
+        const appearanceId = JSON.stringify([feature.key, entry.kind, entry.name]);
+        const existing = derived && projected.items.find((card) => card.featureKey === feature.key);
+        if (existing) {
+          const sources = new Set(existing.matchingVersions.map((version) => version.sourceKey));
+          existing.matchingVersions.push(...entry.versions.filter((version) => !sources.has(version.sourceKey)));
+          existing.versions = existing.matchingVersions;
+          existing.sourceVersion = existing.matchingVersions[0];
+          continue;
+        }
+        projected.items.push({ ...entry.versions[0].summary, id: appearanceId, featureKey: feature.key,
           title: entry.versions[0].summary.title || feature.id, versions: entry.versions, matchingVersions: entry.versions,
           conflicts: item.conflicts || [], sourceVersion: entry.versions[0] });
       }

@@ -60,6 +60,17 @@ test("derived lens groups each version by its own value", () => {
   assert.deepEqual(groups.map((group) => group.items[0].sourceVersion.sourceKey), ["opened", "sibling"]);
 });
 
+test("derived lens merges same feature appearances across board groups", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "A", { id: "x", title: "x", searchText: "", metadata: { status: "queued" } }),
+    version("sibling", "B", { id: "x", title: "x", searchText: "", metadata: { status: "queued" } }),
+  ] }], { availableLenses: [{ key: "status", values: ["queued"] }] });
+  const groups = projectWorktreeGroups(aggregate, { lens: "status" });
+  assert.equal(groups[0].items.length, 1);
+  assert.deepEqual(groups[0].items[0].matchingVersions.map((entry) => entry.sourceKey), ["opened", "sibling"]);
+  assert.equal(groups[0].items[0].sourceVersion.sourceKey, "opened");
+});
+
 test("same-ID ambiguous feature does not qualify from participant association", () => {
   const aggregate = fixture([
     { key: "one", id: "x", entries: [version("opened", "A", { id: "x", title: "one", searchText: "", metadata: { status: "done" } })] },
