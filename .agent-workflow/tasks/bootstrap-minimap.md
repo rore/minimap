@@ -75,4 +75,16 @@ Local checker against the complete staged diff: advisory (exit 1), with no block
 
 **Suggested owner:** bootstrap-mode.md probe instructions. Include reporter preparation and pass its output to the adapter. Related documentation ambiguity: combined bootstrap names docs/agent-redline/skills while nested Redline guidance names docs/agent; this install follows the combined bootstrap.
 
+Additional repeatable upstream defect: the combined CI template passes only changed filenames, not unified diff or per-file line counts. Thus suppression detection silently returns no findings and changed-line thresholds lack data. PR 38's first Redline run passed while the local full-diff reporter correctly surfaced literal marker definitions. Minimal repair: generate both inputs from the existing merge base and pass --diff-unified and --lines-per-file; retain all gates.
+
+## Result review
+
+Agent technical review: /root/bootstrap_review.
+
+Reviewed revision: staged tree 0b30612e8b49e6d7550ee7c207725241c1ac2fa7 (adoption code in 73db5ed; subsequent prose-only evidence additions).
+
+Verification adequacy: reviewer confirmed focused schema, byte-identity, applicability and adapter checks are adequate for harness-only adoption. Scoped LF attributes and shell executable modes closed the one integration finding. Native coverage remains degraded. Subsequent CI input-wiring fix requires follow-up review; human result review remains pending.
+
+PR evidence: https://github.com/rore/minimap/pull/38. First Redline job passed but lacked diff inputs; not accepted as suppression-check evidence. Existing application test and workflow jobs were still running at inspection.
+
 No public report submitted; public submission approval is absent.

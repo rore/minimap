@@ -19,7 +19,7 @@ Generated 2026-10-01. Installed locally; no files staged, committed, or pushed b
 | Per-checkpoint docs (redline) | `docs/agent-redline/skills/` | blue-zone, red-zone, gray-zone, boundary-violation, pr-discipline |
 | Work Record skeleton | `.agent-workflow/tasks/README.md` | Explains the `{slug}.md` convention |
 | OpenCode plugin | `.opencode/plugins/agent-workflow.mjs` | Stable OpenCode 1.x seed + structured-mutation guard; OpenCode 2 beta excluded |
-| CI workflow | `.github/workflows/agent-workflow.yml` | Installed in Phase 5 after explicit user confirmation on 2026-10-01; exact released template |
+| CI workflow | `.github/workflows/agent-workflow.yml` | Installed in Phase 5 after explicit user confirmation on 2026-10-01; released template plus merge-base numstat and zero-context diff reporter inputs |
 
 ## Runtime coverage
 
@@ -44,7 +44,7 @@ Installation, trust, and direct checks do not verify coverage.
 | Branch protection rules | Required checks `agent-workflow` and `redline` (bare job names, NOT `workflow / job` — that's display-only) are not in branch protection | Apply via repo settings → Branches → Add rule. The proposal doc names the exact check names. |
 | CODEOWNERS additions | `agent-redline/` and `agent-workflow.yaml` not owned in CODEOWNERS | Edit `.github/CODEOWNERS`. The proposal doc names suggested owners. |
 | Redline mode flip | Currently `shadow` | After 4 weeks / 30 PRs, flip to `binding` per redline's Phase 5 recommendation. |
-| Combined PR execution | Installed workflow has not run on the resulting PR | Verify `redline`, `agent-workflow`, and existing `test` checks on the PR. |
+| Combined PR execution | PR 38 ran the template, but its reporter lacked suppression and line-count inputs; corrected wiring has not run | Verify `redline`, `agent-workflow`, and existing `test` checks on the PR. |
 | Behavior contracts | Selected workflow protection remains pending; no combined PR evidence yet | Enable the approved block only after named verification and combined harness PR execution evidence are complete. |
 
 ## Backend reachability probe
@@ -71,4 +71,6 @@ Bootstrap probed the Work Record backend:
 - Both configuration schemas pass; hook installers are idempotent; AGENTS marker reconciliation is idempotent.
 - Genuine reporter-backed applicability checks: approved ordinary-doc-only paths return exit 0 without a Work Record. README mixed with a roadmap feature, CONTRACT, or generated runtime returns exit 2 and requires a Work Record. Missing risk evidence also blocks.
 - Probe and temporary risk-evidence files were removed after the successful retry.
-- Workflow YAML parses, has exactly `redline` and `agent-workflow` jobs, retains `needs: [redline]`, and is byte-identical to the release template.
+- Workflow YAML parses, has exactly `redline` and `agent-workflow` jobs, retains `needs: [redline]`, and is derived from the release template with four added lines generating and passing `--lines-per-file` and `--diff-unified`; all existing gates and captured exit codes remain.
+
+- Additional unsent upstream feedback: the combined CI template omits `--diff-unified` and `--lines-per-file`, so suppression detection silently does nothing and per-file line counts are absent. Minimap wires merge-base-to-head numstat and `-U0` diff to the reporter; the earlier PR 38 redline pass is not equivalent evidence for corrected CI.

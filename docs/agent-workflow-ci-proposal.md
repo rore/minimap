@@ -4,7 +4,7 @@ Status: workflow file installed on 2026-10-01 with user confirmation. Branch pro
 
 ## Installed workflow
 
-Installed `.github/workflows/agent-workflow.yml` from the released template below. It runs two jobs, `redline` and `agent-workflow`, on PRs to main and review events. Permissions are contents: read and pull-requests: write for the two review comments. It uses Python with PyYAML and jsonschema; existing Node tests remain in the separate required `test` job. No Node dependency-boundary job is added.
+Installed `.github/workflows/agent-workflow.yml` from the released template below, with merge-base numstat and zero-context diff inputs wired to the reporter. It runs two jobs, `redline` and `agent-workflow`, on PRs to main and review events. Permissions are contents: read and pull-requests: write for the two review comments. It uses Python with PyYAML and jsonschema; existing Node tests remain in the separate required `test` job. No Node dependency-boundary job is added.
 
 ```yaml
 # agent-workflow CI — combined redline + workflow-compliance check.
@@ -71,6 +71,8 @@ jobs:
             exit 1
           }
           git diff --name-only -z --no-renames "${MERGE_BASE}" "${HEAD_SHA}" > changed-files.z
+          git diff --numstat --no-renames "${MERGE_BASE}" "${HEAD_SHA}" > lines-per-file.tsv
+          git diff -U0 --no-renames "${MERGE_BASE}" "${HEAD_SHA}" > diff-unified.patch
           echo "merge_base=${MERGE_BASE}" >> "$GITHUB_OUTPUT"
           echo "--- changed-files.z ---"
           python -c 'import sys; print(open(sys.argv[1], "rb").read().split(b"\0"))' changed-files.z
@@ -161,6 +163,8 @@ jobs:
           python scripts/agent-redline-report.py \
             --policy agent-redline-policy.yaml \
             --changed-files-z changed-files.z \
+            --lines-per-file lines-per-file.tsv \
+            --diff-unified diff-unified.patch \
             --codeowners-file base-CODEOWNERS \
             --pr-labels "${{ steps.review_inputs.outputs.labels }}" \
             --codeowner-approvals "${{ steps.review_inputs.outputs.codeowner_approvals }}" \
