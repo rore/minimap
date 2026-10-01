@@ -1,7 +1,7 @@
 ---
 id: load-worktree-board-progressively
 title: Keep the board usable while worktrees load
-status: in-progress
+status: done
 priority: high
 commitment: committed
 ---
@@ -36,4 +36,6 @@ Minimap-manager owns canonical roadmap and acceptance; Minimap-dev implements on
 
 Developer measured first cards around 2.2 seconds versus full aggregation around 11 seconds for dictation_app and 58 seconds for Pallium. These are observations, not guarantees. Full scan cost and the separate coverage cap remain visible limitations.
 
-At head 4a6824c, the startup route replay regression is fixed. Manager independently verified initial Columns mode retains Unfinished through full settlement and URL update, and inspected the rendered screenshot. Developer reports 21 async browser passes, 15 existing worktree UI passes, and 25 focused Node passes; the earlier full Node run passed 358 with 2 expected Windows skips. CI passed on this implementation head. Merge and shared-runtime deployment remain the final delivery gate.
+At head 4a6824c, the startup route replay regression is fixed. Manager independently verified initial Columns mode retains Unfinished through full settlement and URL update, and inspected the rendered screenshot. Developer reports 21 async browser passes, 15 existing worktree UI passes, and 25 focused Node passes; the earlier full Node run passed 358 with 2 expected Windows skips.
+
+Final CI passed on d22020d. PR #34 merged as 146c3fd and was deployed through the packaged restart to port 4312 on 2026-09-30, retaining participant lookup and links. Manager's live held-response checks showed first cards in 1.912 seconds for dictation_app and 1.755 seconds for Pallium, with explicit provisional coverage and Unfinished retained after settlement. Both pending screenshots were inspected; no browser errors were observed. Full scan duration remains variable, and the 16-checkout cap and narrow empty-detail-pane issue remain separate follow-ups.

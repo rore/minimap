@@ -1,5 +1,4 @@
 # Now
-- load-worktree-board-progressively
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -14,6 +13,7 @@
 
 # Done
 - restore-worktree-participant-badges
+- load-worktree-board-progressively
 - polish-worktree-view-usability
 - add-worktree-aware-roadmap-view
 - add-server-lifecycle-logging
