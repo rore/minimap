@@ -4701,6 +4701,10 @@ function invalidateBoardPresence({ keepCounts = false } = {}) {
   boardParticipantController?.abort();
   boardParticipantController = null;
   boardParticipantGeneration += 1;
+  // Across counts belong to the workspace snapshot, not the visibility poller.
+  // Preserve them while paused; a repo/source change still discards them.
+  if (state.worktreeMode === "across" && state.workspaceScope?.mode === "across"
+    && state.workspaceScope.repoPath === state.repoPath) return;
   if (!keepCounts) boardParticipantCounts = new Map();
   boardParticipantIncludeCompleted = null;
   boardParticipantStatus = "idle";
