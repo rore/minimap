@@ -81,3 +81,33 @@ DOM-touching modules are exercised end-to-end via Playwright (`playwright/roadma
 
 - **Every `void api.foo(...)` call MUST be followed by `.catch(...)`.** Wrappers like `persistGroupOrder` / `loadWorkspace` / `saveCurrentItem` already do `try { await api.foo() } catch (e) { setBanner(e.message, "error") }` internally, so `void persistGroupOrder()` is fine — the wrapper has the catch. The lint test `test/ui-lint-promises.test.js` enforces this for bare `api.*` call sites.
 - **Spec subsystem extension:** add new render functions to `ui/spec/render.js` and new composer/form functions to `ui/spec/composer.js`. Use the captured `DOM`, `STATE`, `API`, `HELPERS` bindings rather than re-querying. New DOM elements need an entry in the `dom: {...}` object passed to `initSpec` in `app.js`.
+
+
+<!-- agent-workflow:agents-section:start -->
+# agent-workflow
+
+This repository uses [agent-workflow](https://github.com/rore/agent-workflow) with agent-redline risk classification.
+
+| Path | What |
+|---|---|
+| `agent-workflow.yaml` | Per-repo config. Edit cautiously. |
+| `agent-redline-policy.yaml` | Per-repo redline policy (zones, boundaries, checkpoints). Architecture-review required. |
+| `.agent-redline/suppressions.yaml` | Suppression markers for redline. |
+| `.agent-workflow/tasks/<slug>.md` | One Work Record per non-exempt task. Slug derives from branch name. |
+| `scripts/agent-workflow-check.py` | CI checker; `scripts/agent-workflow-runtime.py/.sh/.ps1` are runtime adapters. |
+| `<skill>/templates/checkpoints/` | Per-checkpoint reference docs. |
+| `docs/agent-redline/skills/` | Redline's per-checkpoint reference docs. |
+| `.claude/hooks/` | Claude Code hooks that keep the workflow engaged in plan mode (see below). |
+| `.codex/hooks.json` | Codex hooks for the seed and structured-mutation guard; project trust is required. |
+| `.opencode/plugins/agent-workflow.mjs` | Stable OpenCode 1.x guard; OpenCode 2 beta unsupported. |
+
+**Start:** invoke `/agent-workflow` or the runtime's native command. If unavailable, read `.claude/skills/agent-workflow/SKILL.md` or `.agents/skills/agent-workflow/SKILL.md`.
+
+**Plan mode:** for every non-exempt task, the plan's **first implementation step must be** *"Invoke the `/agent-workflow` skill to create the Work Record and classify risk, before any code edit."* Do that first on approval. The hook checks plans that touch configured `hooks.guardedPaths` (default `src/`) as supplemental enforcement; it is a nudge, not the applicability decision or CI gate.
+
+**Local check before pushing:** POSIX: `bash scripts/agent-workflow-runtime.sh codex check --repo-root . --slug <slug>`. PowerShell: `& scripts/agent-workflow-runtime.ps1 codex check --repo-root . --slug <slug>`.
+
+The adapter tries `PYTHON`, `.venv`, then platform fallbacks. Missing prerequisites block with guidance. Exit codes: `0` clean, `1` advisory, `2` blocking. CI posts it.
+
+Native mutation coverage is version/surface/tool-specific: verified requires a denied operation with unchanged target; installation, trust, or a direct evaluator pass is insufficient. Record every other combination as degraded. Shell mutations bypass the guard; CI validates final artifacts/applicability, not pre-edit ordering or direct pushes. Evaluator failure returns deny; native prevention requires that evidence.
+<!-- agent-workflow:agents-section:end -->

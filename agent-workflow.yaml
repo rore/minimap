@@ -1,0 +1,24 @@
+version: 1
+project:
+  name: minimap
+workRecord:
+  backend: local
+  local:
+    taskPath: .agent-workflow/tasks/{slug}.md
+redline: required
+redlineVerdictPath: build/redline-verdict.json
+hooks:
+  guardedPaths:
+  - package/minimap/
+  - scripts/
+  - test/
+  - playwright/
+applicability:
+  documentationOnly:
+    paths:
+    - README.md
+    - roadmap/board.md
+    - docs/images/
+    - docs/demo-spec/
+    workflowRequired: false
+    directDefaultBranchAllowed: false
