@@ -81,9 +81,9 @@ Additional repeatable upstream defect: the combined CI template passes only chan
 
 Agent technical review: /root/bootstrap_review.
 
-Reviewed revision: staged tree 0b30612e8b49e6d7550ee7c207725241c1ac2fa7 (adoption code in 73db5ed; subsequent prose-only evidence additions).
+Reviewed revision: staged tree 0b30612e8b49e6d7550ee7c207725241c1ac2fa7 (adoption code in 73db5ed), followed by the four-line CI evidence correction in 2b17da3.
 
-Verification adequacy: reviewer confirmed focused schema, byte-identity, applicability and adapter checks are adequate for harness-only adoption. Scoped LF attributes and shell executable modes closed the one integration finding. Native coverage remains degraded. Subsequent CI input-wiring fix requires follow-up review; human result review remains pending.
+Verification adequacy: reviewer confirmed focused schema, byte-identity, applicability and adapter checks are adequate for harness-only adoption. Scoped LF attributes and shell executable modes closed the one integration finding. Follow-up review approved the four-line CI correction: same merge-base-to-head range, supported reporter flags, unchanged gates, no bypass. Native coverage remains degraded; corrected PR execution and human result review remain pending.
 
 PR evidence: https://github.com/rore/minimap/pull/38. First Redline job passed but lacked diff inputs; not accepted as suppression-check evidence. Existing application test and workflow jobs were still running at inspection.
 
