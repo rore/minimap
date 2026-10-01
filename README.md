@@ -1,195 +1,109 @@
 # Minimap
 
-Minimap is a single-developer workbench for working on repo content together with AI agents. It runs on your machine; there's no shared service, no team mode. It has two modes:
+Minimap is a local workbench for one developer working with AI agents on markdown files. It provides two views:
 
-- **[Spec sessions](#spec-sessions)** — comments and proposed edits on a single file, shared between you and your agents. You select text, you or an agent attaches a comment or a suggested edit, others reply. Threads are anchored to the text and stay attached across edits. Suggestions show as a diff; nothing touches the file until you apply.
-- **[Roadmap](#roadmap)** — a roadmap stored as markdown in your repo. `board.md` lists the items, `scope.md` describes current focus, each item is a file in `features/` or `ideas/`. The UI reads and edits those files directly — no separate database, no export step. Agents update the same files through a CLI.
+- **[Roadmap](#roadmap)** — browse and edit a file-based roadmap, including features being worked on in separate Git worktrees.
+- **[Spec sessions](#spec-sessions)** — review a markdown file with anchored comments, replies, and proposed edits that you preview before applying.
 
-Both modes run from the same local server. There is no hosted service, no database. Files stay canonical, the UI is a lens.
+Your files remain the source of truth. One local server serves both modes across repositories. There is no hosted service or shared team account; review discussions are stored locally outside the target repository.
 
-The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must come from a loopback peer and carry a loopback `Host`; when a browser supplies `Origin`, it must exactly match that request origin. Foreign origins are rejected before route work, while origin-less local CLI and lifecycle requests remain supported.
+> Part of the [Rore collection](https://github.com/rore/rore-collection): local tools for developers working with coding agents.
 
-> Part of the [Rore collection](https://github.com/rore/rore-collection): three local tools for developers working with coding agents.
+[Get started](#get-started) · [Roadmap](#roadmap) · [Spec sessions](#spec-sessions) · [Agent guide](#agent-guide) · [Development](#development)
 
-## Spec sessions
+## Get started
 
-![Spec sessions](docs/images/minimap-spec-session.png)
+### Install the skills
 
-A spec session attaches to one target file in any repo. From that point you and any agents you point at it can leave anchored comments, reply to each other, and propose edits as diffs. Each entry records who wrote it (`human`, `claude`, `codex`, …). Comments and replies live in a local store outside the target repo; the file itself isn't modified unless you apply a suggestion.
+You need Node.js available on your path; this repository's CI uses Node.js 22. Git is needed for worktree discovery. Each mode ships as a self-contained skill folder with instructions, runtime, and scripts. Using an installed skill requires no `npm install` or system service.
 
-Every roadmap item has a `Review` button that opens it as a spec session. Items with open comments show a 💬 badge with the count.
+Clone this repository and copy either or both folders into your agent client's skill directory. For example, for a personal Claude Code installation, run these commands from the cloned repository:
 
-[Read more →](#spec-sessions-details)
+```bash
+mkdir -p ~/.claude/skills
+cp -R package/minimap/skills/minimap-roadmap ~/.claude/skills/
+cp -R package/minimap/skills/minimap-spec-review ~/.claude/skills/
+```
+
+PowerShell equivalent:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME/.claude/skills" | Out-Null
+Copy-Item -Recurse package/minimap/skills/minimap-roadmap "$HOME/.claude/skills/"
+Copy-Item -Recurse package/minimap/skills/minimap-spec-review "$HOME/.claude/skills/"
+```
+
+For a project-scoped Claude Code installation, use `<your-repo>/.claude/skills/` instead. For another agent client, use its supported skill location or point its instructions at the relevant `SKILL.md`. Follow your client's procedure for discovering newly installed skills.
+
+**Spec sessions** works with any markdown file. **Roadmap** uses the [file convention below](#file-layout-and-configuration). Add a pointer to the installed skills in your repository's agent instructions; [AGENTS_SNIPPET.md](package/minimap/AGENTS_SNIPPET.md) provides an example whose paths you can adapt.
+
+### Open a view
+
+Ask your agent:
+
+> “Show me the roadmap for this repo.”
+>
+> “Open a spec session on `docs/architecture.md`.”
+>
+> “Show the roadmap across this repo's worktrees.”
+
+The agent starts or reuses the local server and gives you a browser URL. You can also start it yourself using either installed skill:
+
+```bash
+node <path-to-skill>/scripts/start-server.mjs
+```
+
+Use the port printed by the launcher; the default is 4312. Roadmap URLs identify the repository explicitly:
+
+```text
+http://localhost:4312/#repo=/absolute/path/to/repo&view=board
+```
+
+Use forward slashes for Windows paths and URL-encode the path when necessary. Spec sessions require an attach step; the [spec-review skill](package/minimap/skills/minimap-spec-review/SKILL.md) provides the command and URL format. Switching repositories does not require restarting the server.
+
+<a id="roadmap-details"></a>
 
 ## Roadmap
 
-![Roadmap](docs/images/minimap-board-list.png)
+![Roadmap list view](docs/images/minimap-board-list.png)
 
-The roadmap is a small set of files in your repo: `board.md` for groups and item order, `scope.md` for the current-focus narrative, one file per item in `features/` (committed work) and `ideas/` (parked work). The UI shows a board view and a columns view over those files. Editing through the UI — including drag-and-drop — writes the markdown back. Agents update the same files through the [`minimap-roadmap`](package/minimap/skills/minimap-roadmap/SKILL.md) skill.
+The board reads markdown files in your repository. **List** and **Columns** show the same items; grouping can follow the board or metadata such as milestone or lane. Editing an item or dragging it in an editable checkout writes back to those files. Agents edit the same files directly.
 
-[Read more →](#roadmap-details)
+**Unfinished** narrows the board to unfinished statuses. **In play** includes items with status `active` or `in-progress`, or confirmed attached, nonclosed agent sessions—including dormant sessions. It combines with the other filters, so those can still hide matching items. When participant information is unavailable, known active and in-progress items remain visible with an incomplete-results notice.
 
----
+Columns can be collapsed to give other groups more room:
 
-## Use it
+![Roadmap columns view](docs/images/minimap-board-columns.png)
 
-You don't run minimap yourself. You ask an agent for what you want to look at, and it handles the rest — start the server if it's not running, attach the right repo or file, give you a URL.
+Each item opens in **Read** mode. **Edit** provides a form; **Raw** edits the markdown. Unknown metadata and extra sections are preserved. **Review** opens the item as a spec session, and a comment badge indicates open discussion.
 
-Examples:
+![Roadmap item editor](docs/images/minimap-item-editor.png)
 
-> "Show me the roadmap for this repo."
->
-> "Open a spec session on `docs/architecture.md`."
->
-> "Open this roadmap item as a spec session — I want to leave comments."
+### Working across Git worktrees
 
-The agent uses the skills below to start the bundled server (or reuse a running one), resolve the right repo, and produce a URL like `http://localhost:4312/#repo=/abs/path/to/repo&view=board` or `http://localhost:4312/#view=spec&file=…`. You open the URL and read or edit; the UI writes back to the same files the agent operates on.
+Agents working in separate worktrees may update different copies of the roadmap. Use the picker beside the repository name to switch between **This checkout** and **Across worktrees**.
 
-A single running server is shared across both modes and across any number of repos. Switching repos is just a URL change — no restart.
+Across combines local checkout versions into one read-only board. It uses Git ancestry to identify shared features and flags differences between versions; these differences do not necessarily mean Git has a merge conflict. Open an item and choose a checkout version to inspect or edit it. Save changes only that checkout and rejects stale files or changed checkout identities. Minimap does not merge or synchronize roadmap files, and board reordering is disabled in the combined view.
 
-### Optional Pallium participants
+The opened checkout appears first while other worktrees load. Counts and **In play** results are provisional during that time; participant information waits for the full scan. Refresh keeps the existing board and editor usable. Failed reads retain the last usable view with an error and a Refresh retry.
 
-When `MINIMAP_PALLIUM_ENDPOINT` is set to an explicit loopback HTTP origin, such as `http://127.0.0.1:19836`, the visible roadmap board uses one bounded, read-only request per refresh for counts on up to 200 board items. By default, completed items are omitted; In play includes them only when the status filter permits them. Recent and quieter Dormant badges classify attached, nonclosed sessions under Pallium's inclusive 24-hour session last-seen window—not activity on this feature, staffing, ownership, or completion. Older Pallium without split counts leaves classification unavailable, never all-Recent. Completed items show board badges only in In play; their sessions remain available on demand in the item panel. If the setting is unset, Minimap makes no Pallium requests. Results beyond the 200-item bound and error or unknown states are shown as partial/unavailable, never as zero. Exact-session links remain a separate compatibility opt-in via `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`.
+Only local linked Git worktrees are included, not separate clones or remote branches. The combined view currently loads at most **16 checkouts**. **Partial coverage** means some sources were excluded—for example, because of that limit or an unreadable roadmap. Expand the board summary for the reasons. Counts describe loaded sources, and a feature can appear in multiple groups when its versions differ.
 
-The detail panel groups sessions by lifecycle and shows session last seen; its observation may differ from the board's earlier refresh. Supported links open existing Pallium association controls. Minimap never detaches associations. Detach does not relabel captured History, but associations do not guarantee a complete historical participation record, access, or coverage.
+### File layout and configuration
 
-Agents can obtain the same authoritative work selector without enabling the HTTP integration:
-
-```bash
-minimap roadmap item-ref <item-id> --repo /abs/path/to/repo --json
-```
-
-The command derives identity from the canonical Git origin, repository-relative roadmap root, and item ID. If that identity cannot be derived safely, it reports it as unavailable instead of substituting a machine-local path.
-## Install
-
-Each mode is a Claude Code skill — a folder containing a `SKILL.md` file plus its bundled runtime. Claude Code picks up skills from two places:
-
-- `~/.claude/skills/` — **personal**, available in every repo you open
-- `<repo>/.claude/skills/` — **project**, available only inside that repo (and committed with it, so anyone working in the repo gets it)
-
-The two skills fit different scopes:
-
-- **Spec sessions** works on any markdown file anywhere, so install it personally and you get spec review in every repo.
-- **Roadmap** only does something in repos that follow the minimap roadmap convention (the `board.md` / `scope.md` / `features/` / `ideas/` layout). Install it personally if you want it everywhere, or commit it under the repo's `.claude/skills/` so anyone cloning the repo (and any agent in that repo) gets it without an extra step.
-
-Either way, install is just copying the skill folder. Clone this repo somewhere, then:
-
-**Personal (both skills, available everywhere):**
-
-```bash
-cp -R minimap/package/minimap/skills/minimap-spec-review ~/.claude/skills/
-cp -R minimap/package/minimap/skills/minimap-roadmap     ~/.claude/skills/
-```
-
-**Project (roadmap committed alongside the repo it serves):**
-
-```bash
-mkdir -p <your-repo>/.claude/skills
-cp -R minimap/package/minimap/skills/minimap-roadmap <your-repo>/.claude/skills/
-```
-
-On Windows, replace `cp -R` with `xcopy /E /I` and `~/.claude/skills/` with `%USERPROFILE%\.claude\skills\`.
-
-The skills carry their own server runtime and lifecycle scripts, so there's nothing else to install — no `npm install`, no system service. Claude Code picks up newly-dropped skills automatically; no restart needed unless `~/.claude/skills/` itself didn't exist when the session started.
-
-> Contributor note: if you're working on minimap itself, link the skill folders to this checkout instead of copying so edits propagate — `ln -s` on macOS/Linux, `mklink /J` on Windows.
-
-See [`package/minimap/README.md`](package/minimap/README.md) for package internals and [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md) for the roadmap file contract.
-
-## Agent integration
-
-Both modes ship as named skills under `package/minimap/skills/`:
-
-| Mode | Skill | Use when |
-|---|---|---|
-| Spec sessions | [`minimap-spec-review/SKILL.md`](package/minimap/skills/minimap-spec-review/SKILL.md) | Reviewing one specific file across humans and agents. Works from any repo. |
-| Roadmap | [`minimap-roadmap/SKILL.md`](package/minimap/skills/minimap-roadmap/SKILL.md) | Reading or updating roadmap state in a repo that uses the minimap roadmap convention. |
-
-Each skill has a short trigger description and quick workflow at the top, with detailed contracts under its `references/`. The two skills layer cleanly: a roadmap item is just a markdown file, and you can attach it as a spec session for anchored review without leaving the planning workflow.
-
-### Server lifecycle (agent contract)
-
-Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.
-
-| Script | What it does |
-|---|---|
-| `start-server.mjs` | Start, or detect + reuse a running instance. |
-| `status.mjs` | Print live runtime version/API/source and process status. Exit 0 running, 1 stale, 3 not running. |
-| `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
-| `restart-server.mjs [--replace-runtime]` | Restart the same runtime; explicitly opt in to replacing a different or unknown shared runtime. |
-
-A single running server is shared across both skills and across any number of repos.
-
-Start reuses compatible server APIs even across package releases; unknown/incompatible APIs are left untouched. Status shows the live runtime version, API compatibility, and canonical source path. Restart requires the same version and source path by default; coordinate before `--replace-runtime`, which interrupts shared clients and can downgrade the server. Update every relevant installed skill copy using the same copy-in method (or a checkout link); old launcher copies cannot be retroactively protected, and updating files does not itself restart the server.
-
-## Tests
-
-```bash
-npm test          # logic and file behavior
-npm run test:ui   # browser tests (run `npx playwright install chromium` once)
-```
-
----
-
-<a id="spec-sessions-details"></a>
-## Spec sessions — details
-
-A spec session attaches to one target file. Once attached, minimap tracks comments, replies, and proposed suggestions against that file. The target file may live in any repo — including a repo that doesn't have minimap installed. Session state lives in a local minimap home (`~/.minimap` on macOS/Linux, `%LOCALAPPDATA%/minimap` on Windows), not in the target repo.
-
-### Comments and suggestions
-
-A comment can be:
-- **global** — applies to the whole file
-- **section-anchored** — applies to a heading or section
-- **quote-anchored** — applies to a precise sentence or passage
-
-A suggestion is a proposed edit (replace / insert / delete) anchored to a quote. Suggestions are previewed as a diff before they are applied. Applying writes the target file; agents follow the workflow policy to apply only with explicit user approval. The `--by` actor is attribution, not authentication or authorization; Minimap has no auth system.
-
-Anchors are designed to survive small edits to the surrounding text. When an anchor becomes ambiguous or stale, minimap surfaces that state explicitly instead of silently re-attaching feedback to the wrong place.
-
-### One human, multiple agents
-
-Each comment, suggestion, and applied edit carries an explicit actor (`human`, `claude`, `codex`, …). This is an attribution label supplied by the caller, not a verified identity or permission check; Minimap has no authentication or authorization system. That makes it possible to run reviews like:
-
-1. The human attaches a target file and asks one agent (e.g. Claude) to review it. Claude leaves anchored comments and concrete suggestions.
-2. The human asks a second agent (e.g. Codex) to review *Claude's review* — confirm what looks right, disagree where appropriate, add evidence, propose alternative suggestions. Codex replies to specific comment ids; the threads accumulate.
-3. The human reads the converged review next to the file in the UI, resolves what's settled, applies the suggestions that survived.
-
-The point is that review state is persistent and attributed instead of disappearing with a chat session.
-
-### Agent driver
-
-Agents drive spec sessions through the [`minimap-spec-review`](package/minimap/skills/minimap-spec-review/SKILL.md) skill, which includes a self-contained server runtime, lifecycle scripts, and a CLI launcher. Mutations require an explicit `--by` actor on every write.
-
----
-
-<a id="roadmap-details"></a>
-## Roadmap — details
-
-The roadmap mode is a repo-local view over a small file convention:
-
-- `board.md` owns groups and item order
-- `scope.md` owns the current-focus narrative
-- `features/*.md` owns committed or active work
-- `ideas/*.md` owns uncommitted or parked work
-
-The UI never holds a second copy. Editing through the UI writes the markdown back; agents update the same files directly through the [`minimap-roadmap`](package/minimap/skills/minimap-roadmap/SKILL.md) skill.
-
-When the repository has linked Git worktrees, the board's checkout picker can show **This checkout** or **Across worktrees**. Across is a read-only combined view: it identifies shared features from Git ancestry, keeps divergent checkout versions and their exact values visible, and marks unavailable sources as partial coverage. Choose a version in the item panel before editing; Save changes only that selected checkout and refuses a changed checkout or stale file. Across never synchronizes roadmap files or reorders multiple worktrees. The selected checkout version is retained in the URL on reload. If a checkout fails to open, Refresh or reselecting **This checkout** retries with fresh discovery.
-
-Across shows the opened checkout first while other worktrees load, with an explicit incomplete-coverage label. Feature totals and In play are provisional; session information waits for the full scan. Refresh keeps the current board and editor usable, and failed reads retain the last usable view with a retry through Refresh.
-
-Default layout:
+The default layout is:
 
 ```text
 roadmap/
-  board.md
-  scope.md
-  features/
-  ideas/
+  board.md       # groups and shared item order
+  scope.md       # current focus
+  features/      # one markdown file per feature
+  ideas/         # one markdown file per idea
 ```
 
-Optional repo-root config:
+Item metadata holds status, priority, lane, milestone, and similar classifications. `board.md` holds the shared manual order; use a neutral `# Items` group when you want metadata-based grouping with unrestricted shared ordering. Git records file history.
+
+An optional **`roadmap.config.json`** at the repository root changes the location and available views:
 
 ```json
 {
@@ -207,20 +121,85 @@ Optional repo-root config:
 }
 ```
 
-`defaultLens` controls grouping only; List/Columns stays independent. An explicit URL grouping, including `lens=board`, wins. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. Milestone and Unfinished reuse those filters. In play shows normalized status `active` or `in-progress`, OR any confirmed attached, nonclosed session, including dormant sessions. It combines with search, metadata filters, and Unfinished using AND; Clear resets it, and `inPlay=1` preserves it in the URL. Without complete participant results, known active and in-progress items remain visible with an incomplete-results notice. These controls change neither `board.md` order nor item status. Metadata owns classification and `board.md` owns one shared order; use a neutral `# Items` group for unrestricted metadata-first prioritization.
+Here, a *lens* means a grouping. `defaultLens` sets the initial grouping independently of List/Columns layout; an explicit URL grouping takes precedence. `filters.fields` adds project-specific metadata filters. See the [roadmap contract](package/minimap/CONTRACT.md) for item format, ownership, and editing rules, and the [roadmap skill](package/minimap/skills/minimap-roadmap/SKILL.md) for setup and updates.
 
-For the file contract — required and optional frontmatter, expected sections, board grouping rules, preservation rules — see [`package/minimap/CONTRACT.md`](package/minimap/CONTRACT.md).
+### Optional Pallium participants
 
-### Composing with spec sessions
+With Pallium configured, roadmap items show **Recent** and **Dormant** attached sessions. “Recent” refers to the session's last-seen time within Pallium's 24-hour window, not proof that an agent is working on this feature now. The item panel separates lifecycle groups and shows last-seen information. Missing or partial results are not shown as zero participants.
 
-A roadmap item is just a markdown file. Click `Review` on any item to attach it as a spec session — anchored comments and suggestions on the item live alongside the item's planning state. Items with an open conversation show a small 💬 badge with the open-comment count on the board, so the planning view stays the entry point even when discussion is happening on individual items.
+Lookup is read-only and bounded to 200 features per request. Completed items normally omit board badges; **In play** can include them when the other filters allow it. Their sessions remain accessible in the item panel. Board and detail observations may differ because they refresh at different times.
 
-### Other roadmap views
+To enable lookup, supply `MINIMAP_PALLIUM_ENDPOINT` as an explicit local HTTP origin when starting or restarting the server. Exact-session links require a separate compatible `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`. Successful lifecycle commands remember these settings. Without configuration, Minimap makes no Pallium requests.
 
-Columns view gives the same data a denser kanban-style layout. Collapse columns you are not using to give the remaining columns more reading width; widened dense columns reveal feature descriptions. Drag-and-drop updates the roadmap files instead of creating a second board state.
+Minimap does not detach sessions or manage assignments. Supported links lead to Pallium's controls; associations do not guarantee a complete historical participation record. See [participant integration](package/minimap/skills/minimap-roadmap/references/pallium-participants.md) for compatibility, configuration, and agent work references.
 
-![Columns view](docs/images/minimap-board-columns.png)
+<a id="spec-sessions-details"></a>
 
-Each item opens in `Read` mode. `Edit` is a structured form over the common metadata and known sections; `Raw` is full-file editing for richer item shapes. Markdown is allowed inside every section, and unknown frontmatter and extra sections are preserved instead of flattened.
+## Spec sessions
 
-![Item editor](docs/images/minimap-item-editor.png)
+![Spec session](docs/images/minimap-spec-session.png)
+
+A spec session attaches to one markdown file in any repository. You and your agents can leave whole-document, section, or quote comments, reply in threads, and propose edits. Suggestions display a diff before application; discussion alone does not modify the file.
+
+Anchors track text across edits. If a target becomes ambiguous or cannot be found, Minimap surfaces that state instead of silently attaching feedback elsewhere. Each entry records an actor label such as `human`, `claude`, or `codex`; this is attribution, not authentication.
+
+A typical review:
+
+1. Ask one agent to review the file and leave anchored comments or suggestions.
+2. Ask another agent to review those findings and reply in the same threads.
+3. Read the discussion, resolve settled threads, and apply the suggestions you approve.
+
+Comments and suggestions live outside the repository in the local Minimap home: `~/.minimap` on macOS/Linux or `%LOCALAPPDATA%/minimap` on Windows, unless `MINIMAP_HOME` overrides it. They are not distributed by committing the target file. The [spec-review skill](package/minimap/skills/minimap-spec-review/SKILL.md) documents attach, comment, preview, and apply commands.
+
+<a id="agent-integration"></a>
+
+## Agent guide
+
+Start with the skill matching the task; its references contain the detailed CLI and API contracts.
+
+| Task | Entry point |
+|---|---|
+| Show, create, or update a roadmap | [minimap-roadmap/SKILL.md](package/minimap/skills/minimap-roadmap/SKILL.md) |
+| Review or comment on a markdown file | [minimap-spec-review/SKILL.md](package/minimap/skills/minimap-spec-review/SKILL.md) |
+| Add repository instructions | [AGENTS_SNIPPET.md](package/minimap/AGENTS_SNIPPET.md) |
+| Understand roadmap file ownership | [CONTRACT.md](package/minimap/CONTRACT.md) |
+
+For roadmap work, resolve `roadmap.config.json` first, edit the assigned checkout's canonical files, preserve unknown metadata, and reconcile the owning feature when work completes. The combined board does not authorize copying changes between worktrees or create a second roadmap tracker.
+
+For spec review, read the target file and existing discussion before adding feedback. Use the documented CLI or API; preview suggestions and obtain explicit user approval before applying them. This is workflow policy, not an enforced permission check. CLI mutations require an explicit `--by` actor label.
+
+### Server lifecycle
+
+Both skills expose these scripts under `scripts/`. Use them for lifecycle operations instead of launching `server.js` directly, sending process signals, or editing the registry.
+
+| Script | Purpose |
+|---|---|
+| `start-server.mjs` | Start or reuse a compatible running server. |
+| `status.mjs` | Report live identity, participant settings, and lifecycle diagnostics; exits 0 running, 1 stale, 3 not running. |
+| `stop-server.mjs` | Gracefully stop the server or clean a stale registry. |
+| `restart-server.mjs [--replace-runtime]` | Restart; replacing a different or unknown runtime requires explicit opt-in. |
+
+The server is shared across repositories and both modes. Coordinate before replacing it: replacement interrupts all clients and can downgrade the running version. Updating an installed skill's files does not restart the server. See [server lifecycle](package/minimap/skills/minimap-roadmap/references/server.md) for compatibility, configuration, and diagnostics.
+
+### Local access boundary
+
+The server binds to `127.0.0.1`. Requests must use loopback addresses and a loopback `Host`; browser `Origin` must match the request origin. Minimap has no user authentication or remote team access. Actor labels and participant associations do not grant permissions.
+
+## Development
+
+From a cloned repository:
+
+```bash
+npm ci
+npx playwright install chromium
+npm test
+npm run test:ui
+```
+
+Read [AGENTS.md](AGENTS.md) before changing the implementation. `package/minimap/` is the source of truth; each skill's `runtime/` is generated. After changing server, CLI, UI, or runtime code, run:
+
+```bash
+node scripts/sync-mirrors.mjs
+```
+
+Do not edit the runtime mirrors by hand. Update affected skill documentation alongside behavior changes; mirror synchronization does not update prose. Contributors can link installed skill folders to this checkout instead of copying them. See the [package README](package/minimap/README.md) for the package layout.
