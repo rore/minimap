@@ -1,0 +1,161 @@
+version: 1
+project:
+  name: minimap
+  extension: node
+zones:
+  red:
+  - path: package/minimap/src/source-bound.js
+    reason: Checkout identity and source confinement
+    checkpoint: architecture-review
+  - path: package/minimap/src/source-write-guard.js
+    reason: Write guards
+    checkpoint: architecture-review
+  - path: package/minimap/src/sessions.js
+    reason: Atomic suggestion apply and rollback
+    checkpoint: architecture-review
+  - path: package/minimap/src/server-registry.js
+    reason: Shared server identity and settings
+    checkpoint: architecture-review
+  - path: package/minimap/cli.js
+    reason: Published CLI entry point
+    checkpoint: architecture-review
+  - path: package/minimap/CONTRACT.md
+    reason: Canonical behavior contract
+    checkpoint: architecture-review
+  - path: package/minimap/skills/*/scripts/**
+    reason: Packaged lifecycle and CLI launchers
+    checkpoint: architecture-review
+  - path: package/minimap/skills/*/SKILL.md
+    reason: Agent behavior instructions
+    checkpoint: architecture-review
+  - path: package/minimap/skills/*/references/**
+    reason: Agent-facing behavioral contracts
+    checkpoint: architecture-review
+  - path: AGENTS.md
+    reason: Repository agent governance
+    checkpoint: architecture-review
+  - path: agent-workflow.yaml
+    reason: Workflow policy
+    checkpoint: architecture-review
+  - path: agent-redline-policy.yaml
+    reason: Risk policy
+    checkpoint: architecture-review
+  - path: .agent-redline/**
+    reason: Classifier schema and suppressions
+    checkpoint: architecture-review
+  - path: .agents/skills/agent-workflow/**
+    reason: Installed governance harness
+    checkpoint: architecture-review
+  - path: .claude/skills/agent-workflow/**
+    reason: Installed governance harness
+    checkpoint: architecture-review
+  - path: .claude/hooks/**
+    reason: Mutation and instruction hooks
+    checkpoint: architecture-review
+  - path: .claude/settings.json
+    reason: Hook configuration
+    checkpoint: architecture-review
+  - path: .codex/hooks.json
+    reason: Hook configuration
+    checkpoint: architecture-review
+  - path: .opencode/plugins/agent-workflow.mjs
+    reason: Mutation and instruction hooks
+    checkpoint: architecture-review
+  - path: .github/**
+    reason: CI and review governance
+    checkpoint: architecture-review
+  - path: scripts/agent-workflow*
+    reason: Workflow checker and runtime
+    checkpoint: architecture-review
+  - path: scripts/agent-redline*
+    reason: Risk classifier and local check
+    checkpoint: architecture-review
+  - path: scripts/format-verdict-comment.py
+    reason: CI review reporting
+    checkpoint: architecture-review
+  - path: test/source-bound-context.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: test/source-bound-http-race.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: test/source-bound.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: test/sessions-atomic.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: test/runtime-compatibility.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: test/restart-race.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: test/sync-mirrors.test.js
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  - path: playwright/**
+    reason: Safety or acceptance regression contract
+    checkpoint: architecture-review
+  blue:
+  - path: README.md
+    reason: Ordinary documentation or board placement
+  - path: roadmap/board.md
+    reason: Ordinary documentation or board placement
+  - path: docs/images/**
+    reason: Ordinary documentation or board placement
+  - path: docs/demo-spec/**
+    reason: Ordinary documentation or board placement
+  - path: test/ui-state.test.js
+    reason: Narrow state-container unit tests
+  watch:
+  - path: package.json
+    reason: Build and dependencies
+  - path: package-lock.json
+    reason: Dependency resolution
+  - path: package/minimap/package.json
+    reason: Package entry points
+  - path: playwright.config.js
+    reason: Verification configuration
+  - path: .github/workflows/**
+    reason: CI configuration
+  - path: package/minimap/skills/*/runtime/**
+    reason: Generated runtime mirrors; parity enforced
+  - path: scripts/sync-mirrors.mjs
+    reason: Runtime mirror generation
+boundaryAdapter:
+  outputFormat: none
+behaviorContracts:
+  paths:
+  - test/source-bound-context.test.js
+  - test/source-bound-http-race.test.js
+  - test/source-bound.test.js
+  - test/sessions-atomic.test.js
+  - test/runtime-compatibility.test.js
+  - test/restart-race.test.js
+  - test/sync-mirrors.test.js
+  - playwright/**
+  protection: workflow
+  verification: test
+prRules:
+  maxChangedFiles:
+    warn: 30
+    fail: 80
+  maxLinesChanged:
+    warn: 800
+    fail: 1500
+checkpoints:
+  architecture-review:
+    description: Review structural and safety-contract changes
+    satisfiedBy:
+    - codeownerApproval
+    - label: architecture-reviewed
+modes:
+  default: shadow
+  perCheck:
+    boundary_violation: binding
+suppressions:
+  useExtensionDefaults: true
+  exemptPaths: []
+excludes:
+- .agent-workflow/**

@@ -1,0 +1,8 @@
+{
+  "guardedPaths": [
+    "package/minimap/",
+    "scripts/",
+    "test/",
+    "playwright/"
+  ]
+}

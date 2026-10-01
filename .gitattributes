@@ -9,3 +9,12 @@
 *.css  text eol=lf
 *.md   text eol=lf
 *.svg  text eol=lf
+
+# Preserve vendored manifest sizes and executable script line endings on Windows.
+.agents/skills/agent-workflow/** text eol=lf
+.claude/skills/agent-workflow/** text eol=lf
+.claude/hooks/** text eol=lf
+scripts/agent-workflow* text eol=lf
+scripts/agent-redline* text eol=lf
+scripts/format-verdict-comment.py text eol=lf
+.github/workflows/agent-workflow.yml text eol=lf
