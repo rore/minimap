@@ -125,6 +125,18 @@ zones:
     reason: Runtime mirror generation
 boundaryAdapter:
   outputFormat: none
+behaviorContracts:
+  paths:
+  - test/source-bound-context.test.js
+  - test/source-bound-http-race.test.js
+  - test/source-bound.test.js
+  - test/sessions-atomic.test.js
+  - test/runtime-compatibility.test.js
+  - test/restart-race.test.js
+  - test/sync-mirrors.test.js
+  - playwright/**
+  protection: workflow
+  verification: test
 prRules:
   maxChangedFiles:
     warn: 30

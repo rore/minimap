@@ -13,14 +13,14 @@
 **Plan:** Follow bootstrap phases: inspect, propose, adapt, write, confirm CI, self-summary. Obtain required confirmations at phase boundaries.
 **Verification plan:** Approved Node policy -> configuration and policy schema validation. Complete skill installations -> both manifests and source-byte comparison. Backend reachability -> installed adapter probe with real reporter evidence. Documentation exemptions -> positive documentation-only and negative mixed-change checks. Delivery -> resulting PR test, redline, and agent-workflow checks. Runtime limits -> record native hooks as degraded unless actual interception is demonstrated.
 **Plan review:** Agent technical review: /root/bootstrap_review. Approved Phase 4 on 2026-10-01 after inspecting the record, both configuration drafts, repository instructions and CI. Preserve pending behaviorContracts until combined harness evidence, test documentation-only versus mixed-change applicability, and identify the external interpreter in probe evidence. No unresolved installation findings.
-**Approvals:** Approved by user 2026-10-01: "yes, and also relax documentation only changes". Approval covers the presented Node shadow policy direction, workflow behavior protection, ordinary-documentation relaxation, and read-only calibration. Approved by user 2026-10-01: "yes, go" in response to the explicit CI installation proposal. Human result review remains pending.
+**Approvals:** Approved by user 2026-10-01: "yes, and also relax documentation only changes". Approval covers the presented Node shadow policy direction, workflow behavior protection, ordinary-documentation relaxation, and read-only calibration. Approved by user 2026-10-01: "yes, go" in response to the explicit CI installation proposal. Approved by user 2026-10-01: "approve" for adoption result and architecture-reviewed label.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
 
-Bootstrap record created before repository inspection. Approved policy, configuration, skills, and local adapters are now installed. CI installation remains pending its separate confirmation.
+Bootstrap record created before repository inspection. Approved policy, configuration, skills, and local adapters are now installed. CI installation was separately approved and completed.
 
 ## Phase 1 findings
 
@@ -88,3 +88,9 @@ Verification adequacy: reviewer confirmed focused schema, byte-identity, applica
 PR evidence: https://github.com/rore/minimap/pull/38. First Redline job passed but lacked diff inputs; not accepted as suppression-check evidence. Existing application test and workflow jobs were still running at inspection.
 
 No public report submitted; public submission approval is absent.
+
+## Final approval and activation
+
+Approved by user 2026-10-01: "approve" for the adoption result and architecture-reviewed label. Label applied to PR 38. The existing test check passed on a03661e; combined Redline and workflow jobs executed on that PR. Activated the previously approved behaviorContracts block unchanged from the reviewed draft. Final revision checks must still pass before merge. No platform protection or CODEOWNERS changes made.
+
+Final technical review /root/bootstrap_review confirmed activated behaviorContracts equals the approved eight-path workflow/test draft exactly, with no scope expansion. Local complete-diff reporter and checker exit 1 (advisory); no blocking predicates. The commit-order advisory is expected: this Work Record was written before implementation but committed alongside the installation.

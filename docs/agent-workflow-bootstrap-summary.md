@@ -1,6 +1,6 @@
 # agent-workflow bootstrap — verification self-summary
 
-Generated 2026-10-01. Installed locally; no files staged, committed, or pushed by bootstrap finalization.
+Generated 2026-10-01. Published for review in PR #38; user approved the result and architecture-reviewed label.
 
 ## Installed (ready for review)
 
@@ -45,7 +45,7 @@ Installation, trust, and direct checks do not verify coverage.
 | CODEOWNERS additions | `agent-redline/` and `agent-workflow.yaml` not owned in CODEOWNERS | Edit `.github/CODEOWNERS`. The proposal doc names suggested owners. |
 | Redline mode flip | Currently `shadow` | After 4 weeks / 30 PRs, flip to `binding` per redline's Phase 5 recommendation. |
 | Combined PR execution | PR 38 ran the template, but its reporter lacked suppression and line-count inputs; corrected wiring has not run | Verify `redline`, `agent-workflow`, and existing `test` checks on the PR. |
-| Behavior contracts | Selected workflow protection remains pending; no combined PR evidence yet | Enable the approved block only after named verification and combined harness PR execution evidence are complete. |
+| Behavior contracts | Approved workflow protection activated after combined PR execution and passing test check | Uses the existing test check; no new CODEOWNERS requirement. |
 
 ## Backend reachability probe
 
@@ -59,7 +59,7 @@ Bootstrap probed the Work Record backend:
 
 ## Could not verify
 
-- Combined PR execution and resulting PR checks have not run. Behavior-contract activation remains pending.
+- Combined PR execution is evidenced on PR #38; final revision checks are pending. Behavior-contract protection is now activated; final revision checks remain required.
 - Installed hooks do not demonstrate interception or project trust. Shell mutations bypass runtime guards.
 - The external selected interpreter proves backend reachability only; portable Python discovery and persistent hook prerequisites remain unverified. No environment was installed.
 - Platform protection and CODEOWNERS changes were not applied.
@@ -74,3 +74,5 @@ Bootstrap probed the Work Record backend:
 - Workflow YAML parses, has exactly `redline` and `agent-workflow` jobs, retains `needs: [redline]`, and is derived from the release template with four added lines generating and passing `--lines-per-file` and `--diff-unified`; all existing gates and captured exit codes remain.
 
 - Additional unsent upstream feedback: the combined CI template omits `--diff-unified` and `--lines-per-file`, so suppression detection silently does nothing and per-file line counts are absent. Minimap wires merge-base-to-head numstat and `-U0` diff to the reporter; the earlier PR 38 redline pass is not equivalent evidence for corrected CI.
+
+Human result approval: user "approve" on 2026-10-01. Existing test check passed on a03661e. Final corrected checks remain required before merge; see https://github.com/rore/minimap/pull/38.
