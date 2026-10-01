@@ -13,6 +13,7 @@
 - idea-timeline-view
 
 # Done
+- restore-worktree-participant-badges
 - polish-worktree-view-usability
 - add-worktree-aware-roadmap-view
 - add-server-lifecycle-logging
