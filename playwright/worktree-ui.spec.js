@@ -592,3 +592,138 @@ test("independent same-ID features do not acquire participant detail from each o
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("Across participant badges survive view invalidation and stay scoped to their workspace snapshot", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  const { owned, root, sibling } = await fixture(64);
+  const other = await fixture(2);
+  const completedPath = path.join(sibling, "roadmap", "features", "large-01.md");
+  await fs.writeFile(completedPath, (await fs.readFile(completedPath, "utf8")).replace("status: in-progress", "status: done"));
+  const aggregateReads = [];
+  const boardCountReads = [];
+  const participantReads = [];
+  let injectCounts = true;
+  let recentCount = 1;
+  page.on("request", (request) => {
+    if (/\/api\/worktree-workspace(?:\?|$)/.test(request.url())) aggregateReads.push(request.url());
+    if (/\/api\/(?:source\/)?board\/participant-counts(?:\?|$)/.test(request.url())) boardCountReads.push(request.url());
+    if (/\/api\/(?:source\/)?items\/[^/]+\/participants(?:\?|$)/.test(request.url())) participantReads.push(request.url());
+  });
+  await page.route(/\/api\/worktree-workspace(?:\?|$)/, async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const openedOnly = new URL(route.request().url()).searchParams.get("openedOnly") === "1";
+    if (injectCounts && !openedOnly && !payload.provisional && Array.isArray(payload.features)) {
+      const featureKey = (id) => payload.features.find((feature) => feature.id === id)?.key;
+      const rows = [
+        { id: "large-02", recentParticipantCount: recentCount, dormantParticipantCount: 0 },
+        { id: "large-03", recentParticipantCount: 0, dormantParticipantCount: 2 },
+        { id: "large-04", recentParticipantCount: 1, dormantParticipantCount: 1 },
+        { id: "large-05", recentParticipantCount: 0, dormantParticipantCount: 0 },
+        // Stale/over-inclusive data must not render a completed feature badge.
+        { id: "large-01", recentParticipantCount: 3, dormantParticipantCount: 0 },
+      ].map(({ id, ...counts }) => ({
+        featureKey: featureKey(id),
+        participantCount: counts.recentParticipantCount + counts.dormantParticipantCount,
+        ...counts,
+      }));
+      payload.participantCounts = {
+        status: "ok", counts: rows, partial: true,
+        asOf: "2026-09-24T08:30:00.000Z", recentSeconds: 86400,
+      };
+    }
+    await route.fulfill({ response, json: payload });
+  });
+
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
+    const badges = page.locator(".board-item-participants:visible");
+    await expect(badges).toContainText(["Recent 1", "Dormant 2", "Recent 1", "Dormant 1"]);
+    const completedBadge = page.getByRole("button", { name: /Open large-01/ }).locator(".board-item-participants").first();
+    await expect(page.getByRole("button", { name: /Open large-05/ }).locator(".board-item-participants")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Open large-06/ }).locator(".board-item-participants")).toHaveCount(0);
+    await expect(completedBadge).toHaveCount(0);
+    await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
+    const listScreenshotCard = page.getByRole("button", { name: /Open large-02/ }).first();
+    await listScreenshotCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("across-participant-badges-list-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await listScreenshotCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("across-participant-badges-list-390.png") });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const initialReads = aggregateReads.length;
+    const initialDetailReads = participantReads.length;
+    const initialBoardCountReads = boardCountReads.length;
+    expect(initialReads).toBeGreaterThan(0);
+    await page.locator("#board-focus-in-play").click();
+    await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "true");
+    await expect(completedBadge).toHaveText("Recent 3");
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(5);
+    await page.locator("#board-focus-in-play").click();
+    await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "false");
+    await expect(completedBadge).toHaveCount(0);
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+
+    for (const layout of ["list", "columns"]) {
+      if (layout === "columns") {
+        await page.locator("#board-layout-columns").click();
+        await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+        const columnsScreenshotCard = page.getByRole("button", { name: /Open large-02/ }).first();
+        await columnsScreenshotCard.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath("across-participant-badges-columns-desktop.png") });
+        await page.setViewportSize({ width: 390, height: 840 });
+        await columnsScreenshotCard.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath("across-participant-badges-columns-390.png") });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+        await page.setViewportSize({ width: 1440, height: 900 });
+      }
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+      await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
+      expect(aggregateReads).toHaveLength(initialReads);
+      expect(boardCountReads).toHaveLength(initialBoardCountReads);
+      expect(participantReads).toHaveLength(initialDetailReads);
+
+      await page.locator("#spec-mode-button").click();
+      await expect(page.locator("#spec-workbench")).toBeVisible();
+      await page.locator("#roadmap-mode-button").click();
+      await expect(page.locator("#spec-workbench")).toBeHidden();
+      await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+      expect(aggregateReads).toHaveLength(initialReads);
+      expect(boardCountReads).toHaveLength(initialBoardCountReads);
+      expect(participantReads).toHaveLength(initialDetailReads);
+    }
+
+    await page.locator("#board-source-toggle").click();
+    await page.locator('#board-source-menu [data-source-choice="this"]').click();
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(0);
+    await page.locator("#board-source-toggle").click();
+    await page.locator('#board-source-menu [data-source-choice="across"]').click();
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+
+    recentCount = 2;
+    await page.locator("#refresh-button").click();
+    const large02Card = page.locator(".board-column-card-main").filter({ hasText: "large-02" }).first();
+    await expect(large02Card.locator(".board-item-participants").first()).toHaveText("Recent 2");
+
+    injectCounts = false;
+    await page.evaluate((hash) => { window.location.hash = hash; }, `repo=${encodeURIComponent(other.root)}&sources=across`);
+    await expect(page.locator("#board-source-toggle")).toContainText("Across worktrees");
+    await expect(page.locator("#board-source-status-summary")).toContainText("3 features");
+    const otherLarge02Card = page.locator(".board-item:visible, .board-column-card-main:visible").filter({ hasText: "large-02" }).first();
+    await expect(otherLarge02Card).toBeVisible();
+    await expect(otherLarge02Card.locator(".board-item-participants")).toHaveCount(0);
+    await expect(page.locator("#board-participant-status")).not.toContainText(/partial/i);
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    await fs.rm(other.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
