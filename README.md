@@ -159,7 +159,7 @@ Start with the skill matching the task; its references contain the detailed CLI 
 
 | Task | Entry point |
 |---|---|
-| Show, create, or update a roadmap | [minimap-roadmap/SKILL.md](package/minimap/skills/minimap-roadmap/SKILL.md) |
+| Show, create, or update a roadmap; pick up, resume, investigate, test, or complete assigned roadmap work | [minimap-roadmap/SKILL.md](package/minimap/skills/minimap-roadmap/SKILL.md) |
 | Review or comment on a markdown file | [minimap-spec-review/SKILL.md](package/minimap/skills/minimap-spec-review/SKILL.md) |
 | Add repository instructions | [AGENTS_SNIPPET.md](package/minimap/AGENTS_SNIPPET.md) |
 | Understand roadmap file ownership | [CONTRACT.md](package/minimap/CONTRACT.md) |
