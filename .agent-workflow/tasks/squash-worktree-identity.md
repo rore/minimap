@@ -18,7 +18,7 @@
 **Plan review:** Agent technical review: ## Plan review below; reviewed c209581efa1eb4002c914101b2198eca3de7adbe. Condition resolved by human approval of observational-equivalence boundary. Implementation includes reviewed global work budget and participant attribution coverage.
 **Approvals:** Approved by user 2026-10-07: "ok". Scope: whole-branch change equivalence after squash, including the explicit limitation that Git cannot distinguish independently reproducing exactly the same complete changes; feature names/content alone are insufficient. Global work budget, caching and participant attribution validation are included.
 **Exceptions:** —
-**State:** Implemented; final browser verification and result review pending
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -37,6 +37,10 @@ Final unit verification: added generic regressions for squash integration, later
 
 Initial browser run: 45 passed, two failed, 101 not run behind a serial fixture failure. The asynchronous loading test passes unchanged on a quiet rerun. The title fixture assumes a checkout directory named minimap; this task's isolated directory has a different basename. The affected serial file will be verified from a separate task-owned checkout named minimap, preserving original assertions. This first run is not a full passing browser result.
 
+Final browser verification: the quiet asynchronous loading rerun passed, and the complete 102-test serial roadmap file passed in a separate detached task-owned checkout named minimap at cb9f2bb. Together with the original 45 passing independent cases, all 148 original browser obligations passed without changing assertions. Logs: artifacts/playwright-squash-results/playwright.log, playwright-isolated.log, playwright-roadmap-named.log.
+
+Independent review correction: accept both regular Git blob modes 100644 and 100755 when parsing matched additions; symlinks stay excluded. A portable executable Markdown squash regression checks the committed mode, one logical feature, two versions and complete coverage. Mirrors were synchronized. Post-ed4bdfc full aggregation and mirror run: 24 passed, zero failures or skips, 218 seconds on Node 24.19.0.
+
 ## Evidence
 
 Read-only actual-history comparison: complete integration parent-to-commit patch equals original merge-base-to-branch-tip patch. This proves change equivalence, not causal user intent. Six paths changed together; matching only the new item blob would discard that context.
@@ -45,9 +49,9 @@ Rendered acceptance artifacts: artifacts/squash-visual-1791377794300/squash-list
 
 ## Recovery
 
-Next action: finish final verification and prepare the draft PR. Human result review remains pending; no merge or shared service change until owner acceptance.
+Next action: prepare the draft PR for human result review. No merge or shared service change until owner acceptance.
 
-Current recovery: product implementation is complete at c71aceb and final regression tests at cb9f2bb. Full unit verification passed. Finish browser verification and clean-context adequacy review, then prepare the draft PR. Canonical roadmap owner will reconcile roadmap/features/add-worktree-aware-roadmap-view.md. No live service replacement has occurred.
+Current recovery: source and regular-file correction are complete at ed4bdfc. Unit, browser and post-correction aggregation/mirror verification passed. Record final clean-context disposition and prepare the draft PR. Canonical roadmap owner will reconcile roadmap/features/add-worktree-aware-roadmap-view.md. No live service replacement has occurred.
 
 ## Plan review
 
@@ -56,6 +60,14 @@ Clean-context non-implementer technical review of c209581efa1eb4002c914101b2198e
 Reviewer required a global bounded work budget and attribution checks: no more than 32 cached history loads and 8192 total raw change records per aggregate, with existing per-history 64-commit and 4MiB limits. A limit retains separation and reports uncertainty. Participant checks cover count/detail attribution for accepted squash-equivalent versions and denial for separate ambiguous same-ID features. These refinements are part of the approved plan.
 
 Condition resolution: human approved the whole-change ambiguity and bounded plan on 2026-10-07. Global work limits and participant checks are included in implementation and validation.
+
+## Result review
+
+Agent technical review: clean-context non-implementer review of source, contract, tests, scan budgets, HTTP attribution evidence, browser logs and four rendered screenshots.
+
+Reviewed revision: ed4bdfc394a8ff2f1ee5ec64a11a415f1ed76ef7.
+
+Verification adequacy: adequate; no remaining findings. Clean-context reviewer confirmed the post-correction 24/24 aggregation and mirror pass, including the executable-file case, evidence caps, existing safety obligations and byte parity. Together with the full unit suite, all 148 original browser obligations, real HTTP attribution checks and four inspected screenshots, verification is complete. Exact complete-transition ambiguity remains explicitly approved and documented. Separate human result review and architecture checkpoint remain pending; the draft is not merge approval.
 
 ## Feedback filter
 
