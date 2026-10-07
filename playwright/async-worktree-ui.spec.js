@@ -38,6 +38,7 @@ test("snapshot recovery retains complete cards, badges and drafts through a quie
     await page.locator("#refresh-button").click();
     await expect.poll(() => reads).toBe(3);
     await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Partial coverage");
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });

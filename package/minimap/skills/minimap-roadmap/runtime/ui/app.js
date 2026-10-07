@@ -691,7 +691,7 @@ function renderBoardSourceControl() {
   const across = state.worktreeMode === "across";
   const total = across ? aggregate?.features?.length || 0 : getBoardItems().filter((item) => !item.missing).length;
   const shown = across ? countDistinctWorktreeFeatures(groups) : getVisibleBoardItemIds().length;
-  const partial = Boolean(aggregate?.partial || state.workspaceStale || state.worktreeLoading);
+  const partial = Boolean(aggregate?.partial || aggregate?.provisional || state.workspaceStale);
   const partialLabel = aggregate?.provisional ? "Opened checkout only" : "Partial coverage";
   boardSourceStatusElement.hidden = !state.workspace;
   boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? `<span class="coverage-partial">${escapeHtml(partialLabel)}</span>` : ""}${state.worktreeLoading ? `<span class="coverage-partial" role="status">${state.worktreeRetrying || aggregate && !aggregate.provisional ? "Updating…" : "Loading other worktrees…"}</span>` : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
