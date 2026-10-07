@@ -11,18 +11,20 @@
 **Complexity:** Moderate
 **Reason:** Canonical identity contract changes; matching versions controls participant attribution. Git squash equivalence cannot prove user intent.
 **Discovery:** Existing sharedPaths requires merge-base item ID/path and rejects deletion histories. Actual integration's complete six-path binary/full-index patch equals original branch base-to-tip patch; newly added item is absent at merge-base. Checkout newline variation is already normalized only for display conflicts. Canonical owner item: roadmap/features/add-worktree-aware-roadmap-view.md (owner updates designated main checkout).
-**Material assumptions:** Complete repository change equivalence is an acceptable squash-equivalence signal, despite indistinguishability from independently reproduced identical complete changes. If rejected, stop and report explicit-provenance alternatives. Bounded first-parent history reaches merge-base; unavailable, capped, merge-crossing, malformed, or incomplete evidence retains separation. Current ID/path must agree with parsed historically added item; delete/recreate remains separate.
+**Material assumptions:** Human accepted complete repository change equivalence as a squash-equivalence signal, despite indistinguishability from independently reproduced identical complete changes. Bounded first-parent history reaches merge-base; unavailable, capped, merge-crossing, malformed, or incomplete evidence retains separation. Current ID/path must agree with parsed historically added item; delete/recreate remains separate.
 **Plan:** Preserve ancestor rule. Add bounded, cached, whole-repository raw transition evidence from first-parent history (maximum 64 commits per side and existing 4MiB Git output cap). Compare exact complete changed-path/mode/old-blob/new-blob maps of merge-base-to-branch prefixes against individual single-parent commits in the opposite history. Parse matched introduced roadmap blobs in one batch, then extend sharedPaths only for same added ID/path, with existing deletion exclusions. Do not use matching file contents or whitespace-insensitive patch IDs. Stop if reviewer or owner rejects the observational-equivalence boundary. Edit top-level source, synchronize runtime mirrors, audit skill prose. Preserve participant and source APIs. Add generic regression cases and use isolated acceptance fixture.
 **Verification plan:** When a new item is squash-integrated, aggregate shall show one logical feature with both source versions → focused worktree-aggregate fixture. When either side later edits metadata or body, versions and conflicts shall remain source-specific → regression fixture. When templates collide independently or an item is deleted/recreated, aggregate shall retain distinct identities and unknown participant attribution → aggregate and presence tests. When evidence is missing or exceeds 64 commits/4MiB, identity shall stay separate and disclose uncertainty → boundedness tests. When worktree files differ only in newline formatting, display shall have no conflict and raw revisions shall remain distinct → regression. Render List and Columns on generic fixture → actual screenshots and UI inspection. Run node scripts/sync-mirrors.mjs; focused aggregate/presence/UI tests, required node suite and workflow check; independent result review.
-**Plan review:** Agent technical review: ## Plan review below; reviewed c209581efa1eb4002c914101b2198eca3de7adbe. Conditional on separate human acceptance of observational-equivalence boundary. Additional global work budget and participant attribution coverage required before implementation.
-**Approvals:** Pending human review of exact equivalence boundary and plan.
+**Plan review:** Agent technical review: ## Plan review below; reviewed c209581efa1eb4002c914101b2198eca3de7adbe. Condition resolved by human approval of observational-equivalence boundary. Implementation includes reviewed global work budget and participant attribution coverage.
+**Approvals:** Approved by user 2026-10-07: "ok". Scope: whole-branch change equivalence after squash, including the explicit limitation that Git cannot distinguish independently reproducing exactly the same complete changes; feature names/content alone are insufficient. Global work budget, caching and participant attribution validation are included.
 **Exceptions:** —
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation
 
 Planning only. No product code edited. Isolated branch feat/squash-worktree-identity starts at afbec2142c6674fde9e4b643dbf4e13b3284bc7c.
+
+2026-10-07: Human approved the reviewed plan and exact complete-change ambiguity. Implementation targets package/minimap/src/worktree-aggregate.js, test/worktree-aggregate.test.js, narrowly scoped participant HTTP regression if needed, package/minimap/CONTRACT.md, and relevant skill reference prose; generated runtime mirrors will be synchronized. Test implementation delegated to a bounded non-implementer test agent. No protected behavioral obligations will be changed. User acceptance narrows the collision guarantee only for independently reproduced identical complete changes; independently matching item content alone still remains separate.
 
 ## Evidence
 
@@ -30,7 +32,7 @@ Read-only actual-history comparison: complete integration parent-to-commit patch
 
 ## Recovery
 
-Next action: clean-context plan review and owner disposition of the indistinguishable independently identical complete-change case. No implementation or shared service change until the High gate is satisfied.
+Next action: implement approved whole-transition evidence and regression tests. Human result review remains pending; no merge or shared service change until owner acceptance.
 
 ## Plan review
 
