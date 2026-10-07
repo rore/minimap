@@ -36,6 +36,8 @@ Diagnostic evidence is scoped to local task artifacts and sanitized before any p
 
 Source excerpts: artifacts/test-isolation-diagnosis.txt. Full verification: artifacts/unit-tests.log. The reported registry startup sequence corresponds to legacy test ports; it does not establish canonical server death. Current shared server was never started, stopped, restarted, or modified by this task.
 
+Execution boundary: qualification remained in this isolated checkout and disposable homes. The subprocess caller's registry was byte-identical before and after exactly three legacy cases, and packaged status remained healthy. No installed tools, versions, launchers, PATH, persistent environment, global configuration, integrations, consumer files, or normal registry were changed. Existing bundled Node and Python were invoked by absolute path; environment variables were scoped to child processes. No user app or service was started, stopped or restarted. This standing boundary was also relayed to the non-implementer reviewer.
+
 ## Recovery
 
 Implementation and verification complete at 694265a; independent result review accepted. Finish workflow validation and prepare the draft PR. No shared service or consumer change is required.
