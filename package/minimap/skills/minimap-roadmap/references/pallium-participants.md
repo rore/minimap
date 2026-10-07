@@ -4,7 +4,7 @@ Pallium participation is separate from Minimap's file-backed roadmap. Use it onl
 
 ## When participation applies
 
-Participate when you are explicitly assigned to implement the item or perform a substantive review that can change its deliverable. Passive reading, opening the UI, inspecting behavior, reordering a card, or making a clerical card edit is not participation.
+Participate when explicitly assigned to implement, investigate, test, or substantively review a known roadmap item. Assigned investigation and testing qualify even when they do not change code or roadmap files. Passive reading, opening the UI, casual behavior inspection, reordering a card, or making a clerical card edit is not participation.
 
 Pallium's skill is helpful but not required when this reference and the callable work-reference tools are already available. Missing tools, an unavailable service, or an unavailable exact Minimap identity means continue the roadmap work without an association. Never install Pallium or use shell/HTTP substitutes.
 
