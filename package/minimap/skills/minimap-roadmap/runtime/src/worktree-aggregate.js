@@ -58,7 +58,82 @@ async function ancestorBlobs(root, objects) {
   return { ids, invalid };
 }
 
-// A matching id/path is only one feature when the file survived from common history.
+const transitionKey = (changes) => hash(JSON.stringify([...changes].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+
+// Batch complete repository transitions, not one Git process per item or commit.
+async function transitionHistory(source, base, cache) {
+  const key = `${base}:${source.git.headCommit}`;
+  if (!cache.histories.has(key)) cache.histories.set(key, (async () => {
+    if (cache.historyLoads >= 32) throw new Error("squash-evidence-limit");
+    cache.historyLoads += 1;
+    const raw = await git(source.repoRoot, "log", "--raw", "-z", "--no-abbrev", "--no-renames",
+      "--first-parent", "--diff-merges=first-parent", "--max-count=65", "--format=%x00commit %H %P%x00",
+      `${base}..${source.git.headCommit}`);
+    const tokens = raw.split("\0"), commits = [];
+    for (let i = 0; i < tokens.length; i += 1) {
+      const token = tokens[i].replace(/^\n/, "");
+      if (!token) continue;
+      const header = token.match(/^commit ([0-9a-f]{40,64}) ([0-9a-f]{40,64})$/i);
+      if (header) {
+        if (commits.length >= 64) throw new Error("squash-evidence-limit");
+        commits.push({ commit: header[1], parent: header[2], changes: new Map() });
+        continue;
+      }
+      const change = token.match(/^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) [AMDT]$/i);
+      const file = tokens[++i];
+      if (!change || !commits.length || !file || /[\r\n]/.test(file)
+        || commits.at(-1).changes.has(file)) throw new Error("squash-evidence-unavailable");
+      if (cache.historyChanges >= 8192) throw new Error("squash-evidence-limit");
+      cache.historyChanges += 1;
+      commits.at(-1).changes.set(file, change.slice(1));
+    }
+    commits.reverse();
+    let parent = base;
+    const cumulative = new Map(), prefixes = [];
+    for (const entry of commits) {
+      if (entry.parent !== parent) throw new Error("squash-evidence-unavailable");
+      parent = entry.commit;
+      entry.signature = transitionKey(entry.changes);
+      for (const [file, [oldMode, mode, oldOid, oid]] of entry.changes) {
+        const previous = cumulative.get(file);
+        if (previous && (previous[1] !== oldMode || previous[3] !== oldOid)) throw new Error("squash-evidence-unavailable");
+        const change = [previous?.[0] ?? oldMode, mode, previous?.[2] ?? oldOid, oid];
+        if (change[0] === mode && change[2] === oid) cumulative.delete(file);
+        else cumulative.set(file, change);
+      }
+      prefixes.push({ signature: transitionKey(cumulative), additions: new Map([...cumulative]
+        .filter(([, change]) => change[0] === "000000" && change[1] === "100644")
+        .map(([file, change]) => [file, change[3]])) });
+    }
+    if (parent !== source.git.headCommit) throw new Error("squash-evidence-unavailable");
+    return { commits, prefixes };
+  })());
+  return cache.histories.get(key);
+}
+
+async function squashPaths(left, right, base, candidates, cache) {
+  const histories = [await transitionHistory(left, base, cache), await transitionHistory(right, base, cache)];
+  const objects = new Map();
+  for (const [index, history] of histories.entries()) {
+    const integrations = new Set(histories[1 - index].commits.map((entry) => entry.signature));
+    for (const prefix of history.prefixes) {
+      if (!integrations.has(prefix.signature)) continue;
+      for (const file of candidates.keys()) {
+        const oid = prefix.additions.get(file);
+        if (!oid) continue;
+        if (objects.has(file) && objects.get(file) !== oid) throw new Error("squash-evidence-unavailable");
+        objects.set(file, oid);
+      }
+    }
+  }
+  const parsed = objects.size ? await ancestorBlobs(left.repoRoot, [...objects].map(([file, oid]) => ({ file, oid })))
+    : { ids: new Map(), invalid: false };
+  return { paths: new Map([...parsed.ids].filter(([file, id]) => candidates.get(file) === id)),
+    uncertainty: parsed.invalid ? "squash-item-invalid" : null };
+}
+
+// Shared ancestry or exact whole-change squash equivalence establishes display identity.
+// Git cannot distinguish an independently reproduced identical complete change.
 // Missing, shallow, or oversized Git evidence fails closed: the versions stay separate.
 async function sharedPaths(left, right, roadmapPath, cache) {
   try {
@@ -96,7 +171,25 @@ async function sharedPaths(left, right, roadmapPath, cache) {
       }
       for (const file of paths) deleted.add(file);
     }
-    return { paths: new Map([...tree.ids].filter(([file]) => !deleted.has(file))), uncertainty: tree.uncertainty };
+    const paths = new Map([...tree.ids].filter(([file]) => !deleted.has(file)));
+    const candidates = new Map();
+    for (const [id, summary] of Object.entries(left.workspace.items)) {
+      const file = relative(left.repoRoot, summary.filePath);
+      const other = right.workspace.items[id];
+      if (!tree.ids.has(file) && !deleted.has(file) && other
+        && relative(right.repoRoot, other.filePath) === file) candidates.set(file, id);
+    }
+    let uncertainty = tree.uncertainty;
+    if (candidates.size) {
+      try {
+        const squash = await squashPaths(left, right, base, candidates, cache);
+        for (const [file, id] of squash.paths) paths.set(file, id);
+        uncertainty ||= squash.uncertainty;
+      } catch (error) {
+        uncertainty ||= error.message === "squash-evidence-limit" ? error.message : "squash-evidence-unavailable";
+      }
+    }
+    return { paths, uncertainty };
   } catch (error) {
     return { paths: new Map(), uncertainty: error.message === "ancestor item limit" ? "ancestor-item-limit" : "git-evidence-unavailable" };
   }
@@ -189,7 +282,8 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
   }
 
   const lineage = new Map();
-  const evidenceCache = { bases: new Map(), trees: new Map(), deletions: new Map() };
+  const evidenceCache = { bases: new Map(), trees: new Map(), deletions: new Map(),
+    histories: new Map(), historyLoads: 0, historyChanges: 0 };
   for (let i = 0; i < loaded.length; i += 1) {
     for (let j = i + 1; j < loaded.length; j += 1) {
       const evidence = await sharedPaths(loaded[i], loaded[j], relative(loaded[i].repoRoot, loaded[i].workspace.resolvedPath), evidenceCache);
