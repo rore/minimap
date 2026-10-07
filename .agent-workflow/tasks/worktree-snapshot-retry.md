@@ -16,7 +16,7 @@
 **Approvals:** Approved by user 2026-10-07: "so let's also handle that" in response to the concrete plan to retain last complete cards/badges, use bounded retries with quiet Updating, and leave persistent stale/retry with the consistency guard intact. Approved by user 2026-10-07: "Please drive it until it's done and merged." Parent owns separate final human result acceptance and merge.
 **Exceptions:** —
 **Behavior changes:** [{"target":"task-context.scope","classification":"equivalent","before":"Across full-snapshot UI recovery in package/minimap/ui/app.js, focused Playwright coverage, README, generated runtime mirrors and this Work Record.","after":"Across full-snapshot UI recovery in package/minimap/ui/app.js, focused Playwright coverage, README, generated runtime mirrors and this Work Record. Completion reconciliation in the already targeted roadmap/features/load-worktree-board-progressively.md.","reason":"Clarify completion reconciliation for the canonical feature already listed in Target; no product-scope expansion."},{"target":"repository-contract","path":"playwright/async-worktree-ui.spec.js","classification":"coverage-only","before":"Asynchronous board startup, refresh and intent-preservation coverage without automatic consistency recovery cases.","after":"Preserved asynchronous coverage plus exact HTTP200 consistency recovery success/exhaustion, unrelated errors, provisional coverage, badges, unsaved drafts, navigation and four visual checks.","reason":"Adds verification of user-approved bounded recovery without weakening existing assertions; existing refresh test now waits for a complete snapshot before testing complete-snapshot refresh."}]
-**State:** Ready to implement
+**State:** Blocked
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -32,4 +32,7 @@ Focused UI logic and mirror parity:66passes. First browser batch:2passes,3fixtur
 Corrected focused recovery:5/5passes (quiet success/drafts/visuals, exhaustion, unrelated failure, provisional honesty, late navigation). Existing same-scope full-Git refresh remains pending beyond5s post-release assertion locally; preserved assertion requires CI verification. Quiet complete-snapshot presentation recheck:1pass with four regenerated screenshots and no false Partial coverage; mirrors regenerated.
 Final risk check raised Risk to High due to protected acceptance contract. Human plan/delivery approval is recorded above; separate final human result acceptance is pending with the parent.
 ## Result review
-Pending.
+Agent technical review: /root/tab_state_diagnosis/recovery_review; source approved after resolving misleading Partial coverage during retained-complete updates.
+Reviewed revision: 0bad194
+Verification adequacy: Five focused recovery scenarios pass, plus the refined presentation recheck and four visual screenshots. The retry limit, actual HTTP200 payload, non-race errors, snapshot counts/cards, draft retention, provisional coverage and late navigation are covered. Existing full-Git timing assertions remain intact and require passing CI before completion; separate human result acceptance remains parent-owned.
+Current branch feat/worktree-snapshot-retry; source complete at 0bad194. Blocked only on required CI (including preserved real-Git browser checks) and separate human result acceptance before merge. No live deployment is authorized or performed.
