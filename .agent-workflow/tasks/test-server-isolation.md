@@ -17,7 +17,7 @@
 **Plan review:** Agent technical review: ## Plan review below; accepted 70f55f7 before implementation.
 **Approvals:** Not required at this risk level; bounded isolation fix authorized by task owner.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -26,16 +26,32 @@ Planning checkpoint: isolated branch feat/test-server-isolation from d11bd657; n
 
 Implementation: roadmap.test.js now allocates a fresh worker-owned home before tests, registers scoped packaged cleanup, and preserves explicit per-test homes. The three formerly unscoped server cases use packaged cleanup and wait for the child to exit, avoiding Windows forced-termination registry leftovers. The busy-port fixture closes its own blocker even when cleanup reports an error. No existing assertions or signal-handler tests changed.
 
-Focused verification: disposable caller server starts through packaged lifecycle on a dynamically selected port; the filtered child runner executes exactly three formerly unscoped cases. Caller registry remains byte-identical and packaged status still reports the caller server healthy; its cleanup uses only its own explicit home. Focused regression passes on Node 24.19.0. The first fixture attempt exposed inherited NODE_TEST_CONTEXT suppressing nested runner output; the fixture now removes that internal worker variable and explicitly uses TAP, asserting three passing tests so no empty run can count as success. Full units remain running.
+Focused verification checkpoint: disposable caller server starts through packaged lifecycle on a dynamically selected port; the filtered child runner executes exactly three formerly unscoped cases. Caller registry remains byte-identical and packaged status still reports the caller server healthy; its cleanup uses only its own explicit home. Focused regression passes on Node 24.19.0. The first fixture attempt exposed inherited NODE_TEST_CONTEXT suppressing nested runner output; the fixture now removes that internal worker variable and explicitly uses TAP, asserting three passing tests so no empty run can count as success. This checkpoint preceded the full verification recorded below.
+
+Final verification: Node 24.19.0 full unit run with test-concurrency=2 passed: 370 total, 368 passed, two skipped, zero failures or cancellations, 288 seconds. A fresh focused caller-registry regression rerun on 694265a passed in four seconds, executing all three original startup paths and verifying untouched caller bytes/status. git diff --check passes. No product runtime or documented behavior changed, so mirror synchronization and skill-doc updates are not applicable; mirror parity passed in the required unit suite.
 
 ## Evidence
 
 Diagnostic evidence is scoped to local task artifacts and sanitized before any public delivery. Public fixtures use generic paths and dynamically allocated disposable identity.
 
+Source excerpts: artifacts/test-isolation-diagnosis.txt. Full verification: artifacts/unit-tests.log. The reported registry startup sequence corresponds to legacy test ports; it does not establish canonical server death. Current shared server was never started, stopped, restarted, or modified by this task.
+
 ## Recovery
 
-Review the minimal suite-isolation plan, then implement and verify only disposable fixtures. No public push until review-ready.
+Implementation and verification complete at 694265a; independent result review accepted. Finish workflow validation and prepare the draft PR. No shared service or consumer change is required.
 
 ## Plan review
 
 Clean-context non-implementer inspected 70f55f7, test startup helpers, the three legacy cases, and policy. Disposition: accept Elevated plan; no red checkpoint. Suite-home inheritance covers existing helpers and future unscoped children; explicit per-test overrides remain effective. Register scoped packaged cleanup immediately after creating the home. Ensure legacy server children exit before deleting it. Regression uses only three named legacy cases to avoid recursion, checks exact caller registry bytes and packaged status, and cleans up only its disposable sentinel.
+
+## Feedback filter
+
+Consumer repository test setup caused the confirmed isolation defect; no agent-workflow or provider defect is implicated. No upstream workflow report is appropriate.
+
+## Result review
+
+Agent technical review: clean-context non-implementer review of 694265a, test-only diff, packaged cleanup semantics, targeted subprocess fixture and final verification evidence.
+
+Reviewed revision: 694265a.
+
+Verification adequacy: adequate; accepted with no remaining code findings. Reviewer confirmed the final full-unit summary and focused disposable-registry regression. Scope remains test/roadmap.test.js and this Work Record; product behavior, protected assertions and signal-handler coverage remain unchanged. Elevated review requirements are satisfied; no red architecture checkpoint was triggered.
