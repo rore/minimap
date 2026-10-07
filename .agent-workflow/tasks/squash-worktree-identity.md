@@ -18,7 +18,7 @@
 **Plan review:** Agent technical review: ## Plan review below; reviewed c209581efa1eb4002c914101b2198eca3de7adbe. Condition resolved by human approval of observational-equivalence boundary. Implementation includes reviewed global work budget and participant attribution coverage.
 **Approvals:** Approved by user 2026-10-07: "ok". Scope: whole-branch change equivalence after squash, including the explicit limitation that Git cannot distinguish independently reproducing exactly the same complete changes; feature names/content alone are insufficient. Global work budget, caching and participant attribution validation are included.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Implemented; final browser verification and result review pending
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -33,15 +33,21 @@ Verification checkpoint: source and docs committed in c71aceb. Seven generic foc
 
 Full-suite attempt: 368 tests, 364 passed, two skipped, two cleanup failures. Both failures are Windows Node 24.14.1 native libuv assertions in the stop-script client after it reported successful Minimap shutdown. Actual isolated servers exited cleanly. The new test's fake provider remained open when cleanup threw; its cleanup is being made unconditional and bounded without accepting nonzero stop exits. Failed HTTP tests and the full suite will be rerun with the existing bundled Node 24.19.0 and reduced parallelism. This attempt is not a passing verification result.
 
+Final unit verification: added generic regressions for squash integration, later source edits, newline-only display equality, delete/recreate separation, independent collisions, accepted identical complete transitions with distinct commits, and fail-closed missing/capped evidence. Real workspace HTTP counts include the accepted feature once and omit ambiguous collisions. Full Node 24.19.0 run with test-concurrency=2: 368 total, 366 passed, zero failed, two skipped; 284 seconds. Failed HTTP cleanup cases also pass individually on that runtime. No stop exit failures were suppressed. Full Playwright verification remains in progress.
+
+Initial browser run: 45 passed, two failed, 101 not run behind a serial fixture failure. The asynchronous loading test passes unchanged on a quiet rerun. The title fixture assumes a checkout directory named minimap; this task's isolated directory has a different basename. The affected serial file will be verified from a separate task-owned checkout named minimap, preserving original assertions. This first run is not a full passing browser result.
+
 ## Evidence
 
 Read-only actual-history comparison: complete integration parent-to-commit patch equals original merge-base-to-branch-tip patch. This proves change equivalence, not causal user intent. Six paths changed together; matching only the new item blob would discard that context.
+
+Rendered acceptance artifacts: artifacts/squash-visual-1791377794300/squash-list-desktop.png; squash-columns-desktop.png; squash-columns-narrow-collision.png; squash-list-narrow-collision.png. All four screenshots were opened and visually inspected. The generic accepted feature shows two source versions, one aggregate participant count and one provider detail request. Independent collisions show separate cards and an explicit ambiguous association; opening them sends no provider detail request.
 
 ## Recovery
 
 Next action: finish final verification and prepare the draft PR. Human result review remains pending; no merge or shared service change until owner acceptance.
 
-Current recovery: product implementation is complete at c71aceb; finish full verification and focused test refinements, commit tests, obtain final clean-context adequacy review, then prepare the draft PR. Canonical roadmap owner will reconcile roadmap/features/add-worktree-aware-roadmap-view.md. No live service replacement has occurred.
+Current recovery: product implementation is complete at c71aceb and final regression tests at cb9f2bb. Full unit verification passed. Finish browser verification and clean-context adequacy review, then prepare the draft PR. Canonical roadmap owner will reconcile roadmap/features/add-worktree-aware-roadmap-view.md. No live service replacement has occurred.
 
 ## Plan review
 
