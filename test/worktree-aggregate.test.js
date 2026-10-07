@@ -148,6 +148,23 @@ test("squash-integrated feature keeps one identity across later source edits", a
   assert.ok(selectWorktreeParticipantCandidates(recreated).ambiguous.some((entry) => entry.reference === "new"));
 });
 
+test("squash-integrated executable regular Markdown file shares identity", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/executable.md", item("executable"));
+  await write(sibling, "roadmap/scope.md", "executable feature context\n");
+  git(sibling, "add", "roadmap/features/executable.md", "roadmap/scope.md");
+  git(sibling, "update-index", "--chmod=+x", "roadmap/features/executable.md");
+  git(sibling, "commit", "-m", "introduce executable regular feature");
+  git(main, "merge", "--squash", "feature/sibling");
+  git(main, "commit", "-m", "integrate executable regular feature");
+  assert.match(git(main, "ls-tree", "HEAD", "roadmap/features/executable.md"), /^100755 blob/);
+  const result = await loadWorktreeAggregate(main);
+  const features = result.features.filter(({ id }) => id === "executable");
+  assert.equal(result.partial, false);
+  assert.equal(features.length, 1);
+  assert.equal(features[0].versions.length, 2);
+});
+
 test("identical item blobs with different complete changes stay separate", async () => {
   const { main, sibling } = await fixture();
   for (const [root, marker] of [[main, "main"], [sibling, "sibling"]]) {

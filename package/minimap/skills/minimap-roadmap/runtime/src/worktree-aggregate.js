@@ -102,7 +102,7 @@ async function transitionHistory(source, base, cache) {
         else cumulative.set(file, change);
       }
       prefixes.push({ signature: transitionKey(cumulative), additions: new Map([...cumulative]
-        .filter(([, change]) => change[0] === "000000" && change[1] === "100644")
+        .filter(([, change]) => change[0] === "000000" && /^100(644|755)$/.test(change[1]))
         .map(([file, change]) => [file, change[3]])) });
     }
     if (parent !== source.git.headCommit) throw new Error("squash-evidence-unavailable");
