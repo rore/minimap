@@ -1,10 +1,12 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   deriveAvailableLenses,
@@ -51,6 +53,24 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+
+// This file runs in its own test worker. Never inherit the developer's registry.
+const suiteHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-tests-"));
+const execFileAsync = promisify(execFile);
+after(async () => {
+  await stopSuiteServer();
+  await fs.rm(suiteHome, { recursive: true, force: true });
+});
+process.env.MINIMAP_HOME = suiteHome;
+
+async function stopSuiteServer(child) {
+  await execFileAsync(process.execPath, [path.join(projectRoot, "package/minimap/skills/minimap-roadmap/scripts/stop-server.mjs")], {
+    env: { ...process.env, MINIMAP_HOME: suiteHome }, windowsHide: true, timeout: 10000,
+  });
+  if (child && child.exitCode === null && child.signalCode === null) {
+    await once(child, "exit", { signal: AbortSignal.timeout(10000) });
+  }
+}
 
 const sampleItemText = `---
 id: feature-a
@@ -649,7 +669,7 @@ test("server endpoints return workspace and allow board, scope, structured, and 
     const rawItem = await rawSaveResponse.json();
     assert.equal(rawItem.metadata.title, "API raw edit");
   } finally {
-    child.kill();
+    await stopSuiteServer(child);
   }
 });
 
@@ -863,7 +883,7 @@ test("server binds only to IPv4 loopback", async () => {
       }),
     );
   } finally {
-    await stopServer(child);
+    await stopSuiteServer(child);
   }
 });
 
@@ -915,9 +935,61 @@ test("server falls forward to the next free port when requested port is busy", a
     const response = await fetch("http://localhost:4511/health");
     assert.equal(response.status, 200);
   } finally {
-    child.kill();
-    await new Promise((resolve) => blocker.close(resolve));
+    try {
+      await stopSuiteServer(child);
+    } finally {
+      await new Promise((resolve) => blocker.close(resolve));
+    }
   }
+});
+
+test("legacy server tests preserve an inherited caller registry and running server", async (t) => {
+  const callerHome = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-caller-test-"));
+  const scripts = path.join(projectRoot, "package/minimap/skills/minimap-roadmap/scripts");
+  const probe = http.createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const port = probe.address().port;
+  await new Promise((resolve) => probe.close(resolve));
+  const env = { ...process.env, MINIMAP_HOME: callerHome, PORT: String(port),
+    MINIMAP_PALLIUM_ENDPOINT: "", MINIMAP_PALLIUM_DASHBOARD_ENDPOINT: "" };
+  const run = (name) => execFileAsync(process.execPath, [path.join(scripts, name)], {
+    env, windowsHide: true, timeout: 10000,
+  });
+  let sentinel;
+  t.after(async () => {
+    await run("stop-server.mjs");
+    if (sentinel && sentinel.exitCode === null && sentinel.signalCode === null) {
+      await once(sentinel, "exit", { signal: AbortSignal.timeout(10000) });
+    }
+    await fs.rm(callerHome, { recursive: true, force: true });
+  });
+  sentinel = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+    cwd: callerHome, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+  });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Disposable caller server did not start")), 10000);
+    let output = "";
+    sentinel.stderr.resume();
+    sentinel.once("error", reject);
+    sentinel.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Caller server exited: ${code}`)); });
+    sentinel.stdout.on("data", (chunk) => {
+      output += chunk;
+      if (output.includes("Minimap running at")) { clearTimeout(timer); resolve(); }
+    });
+  });
+  const registry = path.join(callerHome, "server.json");
+  const before = await fs.readFile(registry);
+  assert.match((await run("status.mjs")).stdout, /Minimap is running/);
+  // Select only the three legacy leak paths, never this regression itself.
+  const names = "^(server endpoints return workspace and allow board, scope, structured, and raw saves|server binds only to IPv4 loopback|server falls forward to the next free port when requested port is busy)$";
+  const testEnv = { ...env };
+  delete testEnv.NODE_TEST_CONTEXT; // Start a real nested runner, not another worker.
+  const result = await execFileAsync(process.execPath, ["--test", "--test-reporter=tap", `--test-name-pattern=${names}`, __filename], {
+    cwd: projectRoot, env: testEnv, windowsHide: true, timeout: 60000, maxBuffer: 1024 * 1024,
+  });
+  assert.match(result.stdout, /# pass 3\b/);
+  assert.deepEqual(await fs.readFile(registry), before);
+  assert.match((await run("status.mjs")).stdout, /Minimap is running/);
 });
 
 test("portable minimap package includes app, skills, and starter templates", async () => {

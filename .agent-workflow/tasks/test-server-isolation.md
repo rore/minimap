@@ -24,6 +24,10 @@
 
 Planning checkpoint: isolated branch feat/test-server-isolation from d11bd657; no product or test edits yet. Current shared server will not be started, stopped or restarted.
 
+Implementation: roadmap.test.js now allocates a fresh worker-owned home before tests, registers scoped packaged cleanup, and preserves explicit per-test homes. The three formerly unscoped server cases use packaged cleanup and wait for the child to exit, avoiding Windows forced-termination registry leftovers. The busy-port fixture closes its own blocker even when cleanup reports an error. No existing assertions or signal-handler tests changed.
+
+Focused verification: disposable caller server starts through packaged lifecycle on a dynamically selected port; the filtered child runner executes exactly three formerly unscoped cases. Caller registry remains byte-identical and packaged status still reports the caller server healthy; its cleanup uses only its own explicit home. Focused regression passes on Node 24.19.0. The first fixture attempt exposed inherited NODE_TEST_CONTEXT suppressing nested runner output; the fixture now removes that internal worker variable and explicitly uses TAP, asserting three passing tests so no empty run can count as success. Full units remain running.
+
 ## Evidence
 
 Diagnostic evidence is scoped to local task artifacts and sanitized before any public delivery. Public fixtures use generic paths and dynamically allocated disposable identity.
