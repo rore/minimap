@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
 import { loadWorktreeAggregate } from "../package/minimap/src/worktree-aggregate.js";
+import { selectWorktreeParticipantCandidates } from "../package/minimap/src/worktree-presence.js";
 
 const dirs = [];
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, windowsHide: true, encoding: "utf8" }).trim();
@@ -104,6 +105,166 @@ test("independent same-id creation and delete/readd stay distinct", async () => 
   assert.equal(result.features.filter((feature) => feature.id === "shared").length, 2);
   assert.equal(result.features.filter((feature) => feature.id === "independent").length, 2);
   assert.equal(result.groups.find((group) => group.name === "Now").items.length, 2);
+});
+
+test("squash-integrated feature keeps one identity across later source edits", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/new.md", item("new").replaceAll("\n", "\r\n"));
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  git(sibling, "add", "roadmap/features/new.md", "roadmap/board.md");
+  git(sibling, "commit", "-m", "introduce feature");
+  await write(sibling, "roadmap/scope.md", "scope updated by feature\n");
+  git(sibling, "add", "roadmap/scope.md"); git(sibling, "commit", "-m", "finish feature change");
+
+  git(main, "merge", "--squash", "feature/sibling");
+  git(main, "commit", "-m", "squash feature");
+  await write(main, "roadmap/features/new.md", item("new"));
+  git(main, "add", "roadmap/features/new.md"); git(main, "commit", "-m", "normalize integrated feature line endings");
+  const normalized = await loadWorktreeAggregate(main);
+  const normalizedFeature = normalized.features.find((feature) => feature.id === "new");
+  assert.equal(normalizedFeature.versions.length, 2);
+  assert.equal(normalizedFeature.conflicts.some((entry) => entry.field === "revision"), false);
+
+  await write(main, "roadmap/features/new.md", item("new", "in-progress"));
+  git(main, "add", "roadmap/features/new.md"); git(main, "commit", "-m", "edit integrated feature");
+  await write(sibling, "roadmap/features/new.md", item("new", "blocked").replaceAll("\n", "\r\n"));
+  git(sibling, "add", "roadmap/features/new.md"); git(sibling, "commit", "-m", "edit original feature");
+
+  const result = await loadWorktreeAggregate(main);
+  const matches = result.features.filter((feature) => feature.id === "new");
+  assert.equal(matches.length, 1);
+  assert.deepEqual(matches[0].versions.map((version) => version.summary.status), ["in-progress", "blocked"]);
+  assert.ok(matches[0].conflicts.some((entry) => entry.field === "status"));
+  assert.ok(matches[0].conflicts.some((entry) => entry.field === "revision"));
+  assert.deepEqual(selectWorktreeParticipantCandidates(result).features.filter(({ id }) => id === "new"),
+    [{ key: matches[0].key, id: "new" }]);
+
+  git(sibling, "rm", "roadmap/features/new.md"); git(sibling, "commit", "-m", "delete integrated feature");
+  await write(sibling, "roadmap/features/new.md", item("new", "blocked").replaceAll("\n", "\r\n"));
+  git(sibling, "add", "roadmap/features/new.md"); git(sibling, "commit", "-m", "recreate integrated feature");
+  const recreated = await loadWorktreeAggregate(main);
+  assert.equal(recreated.features.filter((feature) => feature.id === "new").length, 2);
+  assert.deepEqual(selectWorktreeParticipantCandidates(recreated).features.filter(({ id }) => id === "new"), []);
+  assert.ok(selectWorktreeParticipantCandidates(recreated).ambiguous.some((entry) => entry.reference === "new"));
+});
+
+test("identical item blobs with different complete changes stay separate", async () => {
+  const { main, sibling } = await fixture();
+  for (const [root, marker] of [[main, "main"], [sibling, "sibling"]]) {
+    await write(root, "roadmap/features/collision.md", item("collision"));
+    await write(root, `notes/${marker}.txt`, `${marker}\n`);
+    await write(root, "roadmap/board.md", `# Now\n- shared\n- collision\n`);
+    git(root, "add", "roadmap/features/collision.md", `notes/${marker}.txt`, "roadmap/board.md");
+    git(root, "commit", `-m`, `create collision with ${marker} change`);
+  }
+
+  const result = await loadWorktreeAggregate(main);
+  const collisions = result.features.filter((feature) => feature.id === "collision");
+  assert.equal(collisions.length, 2);
+  assert.deepEqual(selectWorktreeParticipantCandidates(result).features.filter(({ id }) => id === "collision"), []);
+  assert.equal(selectWorktreeParticipantCandidates(result).ambiguous.some((entry) => entry.reference === "collision"), true);
+});
+
+test("identical complete committed transitions are accepted as equivalent", async () => {
+  const { main, sibling } = await fixture();
+  for (const [root, name] of [[main, "main"], [sibling, "sibling"]]) {
+    await write(root, "roadmap/features/reproduced.md", item("reproduced"));
+    await write(root, "notes/shared-transition.txt", "same complete ancillary change\n");
+    await write(root, "roadmap/board.md", "# Now\n- shared\n- reproduced\n");
+    git(root, "add", "roadmap/features/reproduced.md", "notes/shared-transition.txt", "roadmap/board.md");
+    git(root, "commit", "-m", `reproduce complete transition from ${name}`);
+  }
+
+  const mainHead = git(main, "rev-parse", "HEAD"), siblingHead = git(sibling, "rev-parse", "HEAD");
+  assert.notEqual(mainHead, siblingHead);
+  const base = git(main, "merge-base", mainHead, siblingHead);
+  assert.equal(git(main, "ls-tree", "--name-only", base, "roadmap/features/reproduced.md"), "");
+  const result = await loadWorktreeAggregate(main);
+  const matches = result.features.filter((feature) => feature.id === "reproduced");
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].versions.length, 2);
+  assert.deepEqual(selectWorktreeParticipantCandidates(result).features.filter(({ id }) => id === "reproduced"),
+    [{ key: matches[0].key, id: "reproduced" }]);
+});
+
+test("identity evidence beyond the first 64 commits fails closed", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/new.md", item("new"));
+  git(sibling, "add", "roadmap/features/new.md"); git(sibling, "commit", "-m", "introduce feature");
+  for (let index = 0; index < 63; index += 1) git(sibling, "commit", "--allow-empty", "-m", `history ${index}`);
+  git(main, "merge", "--squash", "feature/sibling");
+  git(main, "commit", "-m", "squash long feature history");
+
+  const atLimit = await loadWorktreeAggregate(main);
+  assert.equal(atLimit.partial, false);
+  assert.equal(atLimit.features.filter((feature) => feature.id === "new").length, 1);
+  assert.equal(atLimit.features.find((feature) => feature.id === "shared").versions.length, 2);
+
+  git(sibling, "commit", "--allow-empty", "-m", "history past cap");
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.partial, true);
+  assert.equal(result.features.filter((feature) => feature.id === "new").length, 2);
+  assert.equal(result.features.find((feature) => feature.id === "shared").versions.length, 2);
+  assert.ok(result.coverage.identityUncertain.some((entry) => entry.reason === "squash-evidence-limit"));
+});
+
+test("missing merge-base history fails closed", async () => {
+  const { main, sibling } = await fixture();
+  git(sibling, "checkout", "--orphan", "unrelated");
+  git(sibling, "rm", "-r", "--cached", ".");
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n");
+  await write(sibling, "roadmap/scope.md", "unrelated scope\n");
+  await write(sibling, "roadmap/features/shared.md", item("shared"));
+  await write(sibling, "roadmap/ideas/.keep", "");
+  git(sibling, "add", "."); git(sibling, "commit", "-m", "unrelated root");
+
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.partial, true);
+  assert.equal(result.features.filter((feature) => feature.id === "shared").length, 2);
+  assert.ok(result.coverage.identityUncertain.length > 0);
+});
+
+test("raw change-record budget preserves separate identities", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/new.md", item("new"));
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  await fs.mkdir(path.join(sibling, "notes"), { recursive: true });
+  await Promise.all(Array.from({ length: 4095 }, (_, index) => fs.writeFile(
+    path.join(sibling, "notes", `change-${index}.txt`), "changed\n")));
+  git(sibling, "add", "roadmap/features/new.md", "roadmap/board.md", "notes");
+  git(sibling, "commit", "-m", "add feature and many ancillary changes");
+  git(main, "merge", "--squash", "feature/sibling"); git(main, "commit", "-m", "squash large transition");
+
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.partial, true);
+  assert.equal(result.features.filter((feature) => feature.id === "new").length, 2);
+  assert.equal(result.features.find((feature) => feature.id === "shared").versions.length, 2);
+  assert.ok(result.coverage.identityUncertain.some((entry) => entry.reason === "squash-evidence-limit"));
+});
+
+test("global history-load budget fails closed across branch pairs", async () => {
+  const { main } = await fixture();
+  const bases = [];
+  for (let index = 0; index < 9; index += 1) {
+    await write(main, `history/step-${index}.txt`, `${index}\n`);
+    git(main, "add", `history/step-${index}.txt`); git(main, "commit", "-m", `base step ${index}`);
+    bases.push(git(main, "rev-parse", "HEAD"));
+  }
+  for (let index = 0; index < bases.length; index += 1) {
+    const linked = path.join(path.dirname(main), `history-${index}`);
+    git(main, "worktree", "add", "--detach", linked, bases[index]);
+    await write(linked, "roadmap/features/repeated.md", item("repeated"));
+    await write(linked, "roadmap/board.md", "# Now\n- shared\n- repeated\n");
+    await write(linked, `notes/branch-${index}.txt`, `${index}\n`);
+    git(linked, "add", "roadmap/features/repeated.md", "roadmap/board.md", `notes/branch-${index}.txt`);
+    git(linked, "commit", "-m", `introduce independent repeated feature ${index}`);
+  }
+
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.partial, true);
+  assert.ok(result.features.filter((feature) => feature.id === "repeated").length > 1);
+  assert.equal(result.features.find((feature) => feature.id === "shared").versions.length, result.coverage.loaded);
+  assert.ok(result.coverage.identityUncertain.some((entry) => entry.reason === "squash-evidence-limit"));
 });
 
 test("source-specific display config stays compatible and its supported lens values are unioned", async () => {
