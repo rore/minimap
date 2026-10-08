@@ -32,13 +32,32 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
   const port = await freePort();
   const preload = path.join(root, "short-read-budget.mjs");
   await fs.writeFile(preload, [
+    'import fs from "node:fs/promises";',
+    'import path from "node:path";',
     "const original = AbortSignal.timeout.bind(AbortSignal);",
-    "AbortSignal.timeout = (milliseconds) => original(milliseconds === 30_000 ? 20 : milliseconds);",
+    "AbortSignal.timeout = (milliseconds) => original(milliseconds === 30_000 ? 2_000 : milliseconds);",
+    "const readFile = fs.readFile.bind(fs);",
+    "const writeFile = fs.writeFile.bind(fs);",
+    "const delayedSignals = new WeakSet();",
+    "fs.readFile = async (file, options, ...rest) => {",
+    "  const signal = options && typeof options === 'object' ? options.signal : null;",
+    "  if (path.basename(String(file)) === 'board.md' && signal && !delayedSignals.has(signal)) {",
+    "    delayedSignals.add(signal);",
+    "    await writeFile(process.env.MINIMAP_TEST_DELAY_MARKER, 'started');",
+    "    await new Promise((resolve, reject) => {",
+    "      const abort = () => { signal.removeEventListener('abort', abort); reject(signal.reason || new DOMException('aborted', 'AbortError')); };",
+    "      signal.addEventListener('abort', abort, { once: true });",
+    "      if (signal.aborted) abort();",
+    "    });",
+    "  }",
+    "  return readFile(file, options, ...rest);",
+    "};",
     "",
   ].join("\n"));
   const env = {
     ...process.env,
     MINIMAP_HOME: home,
+    MINIMAP_TEST_DELAY_MARKER: path.join(root, "delayed-read-started"),
     PORT: String(port),
     MINIMAP_PALLIUM_ENDPOINT: "http://127.0.0.1:9",
     NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${pathToFileURL(preload).href}`].filter(Boolean).join(" "),
@@ -71,9 +90,18 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
 
   const headers = { "X-Minimap-Repo": repo };
   for (const route of ["/api/items/missing/participants", "/api/board/participant-counts"]) {
-    const response = await fetch(`http://127.0.0.1:${port}${route}`, { headers });
+    await fs.rm(env.MINIMAP_TEST_DELAY_MARKER, { force: true });
+    const responsePromise = fetch(`http://127.0.0.1:${port}${route}`, { headers });
+    let delayedReadStarted = false;
+    for (let attempt = 0; attempt < 150 && !delayedReadStarted; attempt += 1) {
+      delayedReadStarted = await fs.readFile(env.MINIMAP_TEST_DELAY_MARKER, "utf8").then(() => true, () => false);
+      if (!delayedReadStarted) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(delayedReadStarted, true, `${route} did not reach the delayed board read before its deadline`);
+    const response = await responsePromise;
     assert.equal(response.status, 503, `${route}: ${await response.clone().text()}`);
     assert.equal((await response.json()).error.code, "snapshot_unavailable");
+    assert.equal(await fs.readFile(env.MINIMAP_TEST_DELAY_MARKER, "utf8"), "started");
   }
 });
 
