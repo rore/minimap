@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const batchRoute = /\/api\/board\/participant-counts(?:\?.*)?$/;
+const batchRoute = /\/api\/board\/observations(?:\?.*)?$/;
 const itemId = (index) => `play-${String(index).padStart(3, "0")}`;
 const cardSelector = (layout) => layout === "columns" ? ".board-column-card-main[data-item-dblopen]" : ".board-item[data-item-id]";
 const card = (page, index, layout = "list") => page.locator(`${cardSelector(layout)}[${layout === "columns" ? "data-item-dblopen" : "data-item-id"}="${itemId(index)}"]`);
@@ -34,7 +34,10 @@ async function makeDenseBoard() {
 }
 
 function responseCounts(ids, includeCompleted, detached = false) {
-  return ids.filter((_, index) => includeCompleted || (index + 1 !== 4 && (index + 1) % 11 !== 0)).slice(0, 200).map((id) => {
+  const isCompleted = (_, index) => index + 1 === 4 || (index + 1) % 11 === 0;
+  const unfinished = ids.filter((id, index) => !isCompleted(id, index));
+  const candidates = includeCompleted ? [...unfinished, ...ids.filter(isCompleted)] : unfinished;
+  return candidates.slice(0, 200).map((id) => {
     const number = Number(id.slice(-3));
     const participantCount = !detached && ([2, 3, 4].includes(number) || number % 7 === 0) ? 1 : 0;
     const dormantParticipantCount = number === 3 ? participantCount : 0;
@@ -42,7 +45,7 @@ function responseCounts(ids, includeCompleted, detached = false) {
   });
 }
 
-const ok = (counts, partial = false) => ({ status: "ok", counts, partial, ...(partial ? { includeCompleted: true } : {}), asOf: "2026-09-28T00:00:00Z", recentSeconds: 86400 });
+const ok = (counts, includeCompleted = false, partial = false) => ({ status: "ok", counts, partial, ...(includeCompleted ? { includeCompleted: true } : {}), asOf: "2026-09-28T00:00:00Z", recentSeconds: 86400 });
 const url = (root, suffix = "") => `/#repo=${encodeURIComponent(root)}${suffix}`;
 async function refresh(page, settle = true) {
   if (settle) await page.waitForLoadState("networkidle");
@@ -83,7 +86,7 @@ test("In play combines status or attached sessions with every existing filter an
     batches.push(includeCompleted);
     const counts = responseCounts(ids, includeCompleted, detached);
     if (changedCount && !detached) Object.assign(counts.find((row) => row.itemId === itemId(7)), { participantCount: 2, recentParticipantCount: 2 });
-    await route.fulfill({ json: ok(counts, includeCompleted) });
+    await route.fulfill({ json: ok(counts, includeCompleted, includeCompleted) });
   });
   page.on("request", (request) => {
     if (request.url().includes("/api/") && request.method() !== "GET") writes.push(`${request.method()} ${request.url()}`);
@@ -216,7 +219,7 @@ test("In play combines status or attached sessions with every existing filter an
 
 test("In play makes loading, disabled, unsupported, unavailable and partial observations explicit", async ({ page }) => {
   const { root, ids } = await makeDenseBoard();
-  let result = ok(responseCounts(ids, true), true);
+  let result = ok(responseCounts(ids, true), true, true);
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   let requests = 0;
@@ -237,12 +240,12 @@ test("In play makes loading, disabled, unsupported, unavailable and partial obse
       await expect(page.locator("#board-participant-status")).toContainText(status === "unsupported" ? /newer|unsupported/i : status === "disabled" ? /disabled|not configured/i : /unavailable/i);
       await expectIds(page, [1, 204]);
     }
-    result = ok(responseCounts(ids, true), true);
+    result = ok(responseCounts(ids, true), true, true);
     delete result.includeCompleted; // An older server silently ignoring the query is not a complete answer.
     await page.reload();
     await expect(page.locator("#board-participant-status")).toContainText(/newer Minimap/i);
     await expectIds(page, [1, 204]);
-    result = ok(responseCounts(ids, true), true);
+    result = ok(responseCounts(ids, true), true, true);
     await page.reload();
     await expect(card(page, 3)).toBeVisible();
     await expect(page.locator("#board-participant-status")).toContainText(/200|partial|limited/i);

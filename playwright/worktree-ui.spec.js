@@ -112,6 +112,10 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await page.screenshot({ path: testInfo.outputPath("expanded-versions-columns-390.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await page.locator("#board-layout-list").click();
+    await page.getByRole("button", { name: /Open large-02/ }).first().click();
+    await expect(page.locator("#editor-title")).toContainText("large-02");
+    if (!(await page.locator("#editor-source-label").evaluate((element) => element.open))) await page.locator("#editor-source-summary").click();
+    await expect(contentOnlyVersion).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("expanded-versions-list-390.png") });
     await page.locator("#board-source-toggle").click();
     const menuBounds = await page.locator("#board-source-menu").evaluate((menu) => ({
@@ -127,8 +131,25 @@ test("combined large board stays usable in List and Columns at desktop and narro
       return card.getBoundingClientRect().right > parent.getBoundingClientRect().right + 2;
     }).length);
     expect(overflowing).toBe(0);
+    const layoutTiming = await page.evaluate(async () => {
+      const samples = [];
+      for (let index = 0; index < 10; index += 1) {
+        const started = performance.now();
+        document.querySelector(index % 2 ? "#board-layout-list" : "#board-layout-columns").click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        samples.push(performance.now() - started);
+      }
+      const ordered = [...samples].sort((a, b) => a - b);
+      return { fixture: "85 features across two checkouts at 390px", samplesMs: samples, p95Ms: ordered[Math.ceil(ordered.length * 0.95) - 1], targetMs: 100 };
+    });
+    const timingPath = testInfo.outputPath("layout-interaction-timing.json");
+    await fs.writeFile(timingPath, JSON.stringify(layoutTiming, null, 2));
+    await testInfo.attach("layout-interaction-timing", { path: timingPath, contentType: "application/json" });
+    await page.getByRole("button", { name: /Open large-01/ }).first().click();
+    await expect(page.locator("#field-status")).toHaveValue("in-progress");
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#tab-raw").click();
+    await expect(page.locator("#raw-text")).toHaveValue(/id: large-01/);
     const raw = await page.locator("#raw-text").inputValue();
     const draft = `${raw}\n<!-- unsaved worktree draft -->\n`;
     await page.locator("#raw-text").fill(draft);
@@ -144,6 +165,8 @@ test("combined large board stays usable in List and Columns at desktop and narro
 
 test("source menu stays responsive during discovery, deduplicates refresh, and ignores a closed response", async ({ page }) => {
   const { owned, root } = await fixture(2);
+  const now = Date.now();
+  await page.clock.setFixedTime(now);
   let inventoryCalls = 0;
   let releaseFirst;
   let releaseSecond;
@@ -191,6 +214,12 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     await firstResponse;
     await expect(page.locator("#board-source-menu")).toBeHidden();
 
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
+    expect(inventoryCalls).toBe(1);
+    await page.locator("#board-source-toggle").click();
+    await page.clock.setFixedTime(now + 31_000);
+
     const secondRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
     await page.locator("#board-source-toggle").click();
     await secondRequest;
@@ -206,6 +235,7 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toBeFocused();
     await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
 
+    await page.clock.setFixedTime(now + 62_000);
     const thirdRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
     await page.locator("#board-source-toggle").click();
     await page.locator("#board-source-toggle").click();
@@ -247,7 +277,7 @@ test("inventory from a previous repository cannot replace the current repository
     await page.locator("#board-source-toggle").click();
     await inventoryA;
 
-    const workspaceB = page.waitForResponse((response) => response.url().endsWith("/api/workspace")
+    const workspaceB = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/workspace"
       && response.request().headers()["x-minimap-repo"]?.toLowerCase() === b.root.toLowerCase());
     await page.evaluate((repo) => {
       const params = new URLSearchParams(window.location.hash.slice(1));
@@ -415,7 +445,7 @@ for (const [trigger, discoveryFails] of [["Refresh", false], ["Refresh", true], 
   });
 }
 
-test("bound HTTP routes reject missing, stale, and escaping source context without modifying files", async ({ request }) => {
+test("bound HTTP routes reject missing, stale, and escaping source context without modifying files", async ({ request, baseURL }) => {
   const { owned, root } = await fixture(2);
   try {
     const repoHeaders = { "X-Minimap-Repo": root };
@@ -468,7 +498,7 @@ test("bound HTTP routes reject missing, stale, and escaping source context witho
     await fs.rm(configPath);
     const delayedBody = JSON.stringify({ scopeText: "must not be saved", expectedRevision: (await workspace.json()).scopeRevision });
     const delayedStatus = await new Promise((resolve, reject) => {
-      const outbound = http.request("http://127.0.0.1:4315/api/source/scope", {
+      const outbound = http.request(new URL("/api/source/scope", baseURL), {
         method: "POST", headers: { ...headers, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(delayedBody) },
       }, (incoming) => {
         incoming.resume();
@@ -593,7 +623,7 @@ test("independent same-ID features do not acquire participant detail from each o
   }
 });
 
-test("Across participant badges survive view invalidation and stay scoped to their workspace snapshot", async ({ page }, testInfo) => {
+test("Across participant badges refresh independently and remain scoped through view changes", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   const { owned, root, sibling } = await fixture(64);
   const other = await fixture(2);
@@ -602,11 +632,12 @@ test("Across participant badges survive view invalidation and stay scoped to the
   const aggregateReads = [];
   const boardCountReads = [];
   const participantReads = [];
+  const observations = new Map();
   let injectCounts = true;
   let recentCount = 1;
   page.on("request", (request) => {
     if (/\/api\/worktree-workspace(?:\?|$)/.test(request.url())) aggregateReads.push(request.url());
-    if (/\/api\/(?:source\/)?board\/participant-counts(?:\?|$)/.test(request.url())) boardCountReads.push(request.url());
+    if (/\/api\/board\/observations(?:\?|$)/.test(request.url())) boardCountReads.push(request.url());
     if (/\/api\/(?:source\/)?items\/[^/]+\/participants(?:\?|$)/.test(request.url())) participantReads.push(request.url());
   });
   await page.route(/\/api\/worktree-workspace(?:\?|$)/, async (route) => {
@@ -627,12 +658,16 @@ test("Across participant badges survive view invalidation and stay scoped to the
         participantCount: counts.recentParticipantCount + counts.dormantParticipantCount,
         ...counts,
       }));
-      payload.participantCounts = {
-        status: "ok", counts: rows, partial: true,
-        asOf: "2026-09-24T08:30:00.000Z", recentSeconds: 86400,
-      };
+      observations.set(payload.snapshot.id, {
+        status: "ok", counts: rows, partial: true, includeCompleted: true,
+        asOf: new Date().toISOString(), recentSeconds: 86400,
+      });
     }
     await route.fulfill({ response, json: payload });
+  });
+  await page.route("**/api/board/observations**", (route) => {
+    const counts = observations.get(new URL(route.request().url()).searchParams.get("snapshot"));
+    return counts && injectCounts ? route.fulfill({ json: counts }) : route.continue();
   });
 
   try {
@@ -654,7 +689,7 @@ test("Across participant badges survive view invalidation and stay scoped to the
     await page.setViewportSize({ width: 1440, height: 900 });
     const initialReads = aggregateReads.length;
     const initialDetailReads = participantReads.length;
-    const initialBoardCountReads = boardCountReads.length;
+    expect(boardCountReads.length).toBeGreaterThan(0);
     expect(initialReads).toBeGreaterThan(0);
     await page.locator("#board-focus-in-play").click();
     await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "true");
@@ -678,6 +713,7 @@ test("Across participant badges survive view invalidation and stay scoped to the
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
         await page.setViewportSize({ width: 1440, height: 900 });
       }
+      const beforeVisibility = boardCountReads.length;
       await page.evaluate(() => {
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
         document.dispatchEvent(new Event("visibilitychange"));
@@ -689,16 +725,17 @@ test("Across participant badges survive view invalidation and stay scoped to the
       await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
       await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
       expect(aggregateReads).toHaveLength(initialReads);
-      expect(boardCountReads).toHaveLength(initialBoardCountReads);
+      await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeVisibility);
       expect(participantReads).toHaveLength(initialDetailReads);
 
+      const beforeSpec = boardCountReads.length;
       await page.locator("#spec-mode-button").click();
       await expect(page.locator("#spec-workbench")).toBeVisible();
       await page.locator("#roadmap-mode-button").click();
       await expect(page.locator("#spec-workbench")).toBeHidden();
       await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
       expect(aggregateReads).toHaveLength(initialReads);
-      expect(boardCountReads).toHaveLength(initialBoardCountReads);
+      await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeSpec);
       expect(participantReads).toHaveLength(initialDetailReads);
     }
 

@@ -12,6 +12,7 @@
 - idea-timeline-view
 
 # Done
+- consolidate-roadmap-refresh
 - restore-worktree-participant-badges
 - load-worktree-board-progressively
 - polish-worktree-view-usability

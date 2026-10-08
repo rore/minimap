@@ -65,7 +65,7 @@ import {
 import { initSpec } from "/spec/index.js";
 import { detectSpecFileChange } from "/spec/file-change.js";
 import { createState } from "/state.js";
-import { projectWorktreeGroups, countDistinctWorktreeFeatures, versionDifferences } from "/worktrees.js";
+import { projectWorktreeGroups, createWorktreeProjector, countDistinctWorktreeFeatures, versionDifferences } from "/worktrees.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -185,11 +185,13 @@ state.pinnedSource = null;
 state.boundRequired = false;
 state.confirmedEditSource = null;
 state.preferredVersions = new Map();
+let specMetadataDirty = false;
 
 const api = createApi({
   getRepo: () => state.repoPath,
   getSource: () => state.worktreeMode === "across" || state.boundRequired
     ? { mode: "across", identity: state.worktreeMode === "across" ? state.selectedSource : state.pinnedSource } : null,
+  onMutation: (url) => { if (url.includes("/spec-sessions")) specMetadataDirty = true; },
 });
 let boardParticipantCounts = new Map();
 let boardParticipantStatus = "idle";
@@ -197,7 +199,19 @@ let boardParticipantPartial = false;
 let boardParticipantGeneration = 0;
 let boardParticipantController = null;
 let boardParticipantIncludeCompleted = null;
+let boardParticipantAsOf = null;
 let workspaceLoadGeneration = 0;
+let workspaceLoadController = null;
+let workspaceSnapshot = null;
+let lastWorkspaceAttemptAt = 0;
+let specLoadGeneration = 0;
+let specSessionsGeneration = 0;
+let specPollGeneration = 0;
+let boardDraftRevision = null;
+let scopeDraftRevision = null;
+let loadedItemSource = null;
+let loadedBoardAppearance = null;
+const projectCurrentWorktrees = createWorktreeProjector();
 let sourceInventoryRequest = null;
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
@@ -699,11 +713,12 @@ function renderBoardSourceControl() {
   const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} roadmap checkouts loaded; ${escapeHtml(String(aggregate?.excluded?.length || 0))} excluded. Feature counts cover loaded local worktrees only.</p><p>${escapeHtml(String(placements))} placements in ${groups.length} groups. A feature can appear in multiple groups when its versions differ.</p>` : `<p>${total} items on this checkout's board. ${escapeHtml(String(shown))} match the current view.</p>`;
   const exclusions = (aggregate?.excluded || []).map((entry) => `<li>${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}</li>`).join("");
   const missingRows = missing.slice(0, 20).map((entry) => `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId} (missing file)`)}</li>`).join("");
-  const sessions = boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session information has partial coverage." : "Session information is available for the loaded items.") : "Session information is unavailable; status-based matches still apply.";
+  const sessions = (boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session information has partial coverage." : "Session information is available for the loaded items.") : boardParticipantCounts.size ? "Showing last-known session information; lookup is currently unavailable." : "Session information is unavailable; status-based matches still apply.")
+    + (boardParticipantAsOf ? ` Last observed ${new Date(boardParticipantAsOf).toLocaleString()}.` : "");
   const missingNotice = missingRows ? `<p>${missing.length} missing board references:</p><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}` : "";
   boardSourceStatusDetailsElement.innerHTML = coverage
     + (aggregate?.provisional ? `<p>Only the opened checkout is shown. Other worktrees and session information ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; feature totals and In play are incomplete.</p>` : state.worktreeLoading ? "<p>Updating worktrees. The previous board remains available until the refresh finishes.</p>" : "")
-    + (state.workspaceStale ? "<p>The refresh failed. These are the last-known results; refresh before relying on coverage.</p>" : "")
+    + (state.workspaceStale ? "<p>These are the last-known results; fresh validation is pending or unavailable.</p>" : "")
     + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
     + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
 }
@@ -765,6 +780,10 @@ async function refreshSourceInventory() {
   const generation = workspaceLoadGeneration;
   if (sourceInventoryRequest?.repoPath === repoPath && sourceInventoryRequest.generation === generation) return sourceInventoryRequest.promise;
   const previous = state.sourceMenuData?.repoPath === repoPath ? state.sourceMenuData : null;
+  if (previous?.validatedAt && Date.now() - previous.validatedAt < 30_000 && !previous.error) {
+    renderBoardSourceMenu(previous);
+    return;
+  }
   state.sourceMenuData = { ...previous, repoPath, loading: true };
   renderBoardSourceMenu(state.sourceMenuData);
   const request = { repoPath, generation };
@@ -773,7 +792,7 @@ async function refreshSourceInventory() {
     try {
       const inventory = await api.discoverWorktreeSources();
       if (repoPath !== state.repoPath || generation !== workspaceLoadGeneration) return;
-      state.sourceMenuData = { ...inventory, repoPath, loading: false };
+      state.sourceMenuData = { ...inventory, repoPath, loading: false, validatedAt: Date.now() };
     } catch (error) {
       if (repoPath !== state.repoPath || generation !== workspaceLoadGeneration) return;
       state.sourceMenuData = { ...previous, repoPath, loading: false, error: error.message };
@@ -786,7 +805,20 @@ async function refreshSourceInventory() {
 }
 
 function getBoardItemById(itemId, workspace = state.workspace) {
+  if (workspace === state.workspace && state.worktreeMode === "across" && state.worktreeData) {
+    return getWorktreeProjection(workspace).items.get(itemId)
+      || (loadedBoardAppearance?.id === itemId ? loadedBoardAppearance : null)
+      || workspace?.items?.[itemId] || null;
+  }
   return workspace?.items?.[itemId] ?? null;
+}
+
+function getWorktreeProjection(workspace = state.workspace) {
+  return projectCurrentWorktrees(state.worktreeData, {
+    lens: getActiveLensDefinition(workspace)?.key || DEFAULT_LENS_KEY,
+    searchQuery: state.searchQuery, activeFilters: state.activeFilters, inPlay: state.inPlay,
+    participantCounts: boardParticipantCounts, showEmptyGroups: !isSearchActive(),
+  });
 }
 
 function getAvailableLenses(workspace = state.workspace) {
@@ -902,16 +934,8 @@ function getVisibleBoardGroups(workspace = state.workspace) {
     return [];
   }
   if (state.worktreeMode === "across" && state.worktreeData) {
-    const groups = projectWorktreeGroups(state.worktreeData, {
-      lens: getActiveLensDefinition(workspace)?.key || DEFAULT_LENS_KEY,
-      searchQuery: state.searchQuery,
-      activeFilters: state.activeFilters,
-      inPlay: state.inPlay,
-      participantCounts: boardParticipantCounts,
-      showEmptyGroups: !isSearchActive(),
-    }).map((group, index) => ({ ...group, originalIndex: index, isDerived: group.kind === "derived", draggable: false }));
-    for (const group of groups) for (const item of group.items) if (!item.missing) workspace.items[item.id] = item;
-    return groups;
+    return getWorktreeProjection(workspace).groups
+      .map((group, index) => ({ ...group, originalIndex: index, isDerived: group.kind === "derived", draggable: false }));
   }
 
   const activeLens = getActiveLensDefinition(workspace);
@@ -1669,11 +1693,11 @@ function renderBoardParticipantStatus() {
     : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "Session badges have partial checkout coverage" : "Session badges limited to 200 items")
     : status === "unsupported" ? "Participant recency needs a newer Pallium"
     : ["disabled", "idle", "ok"].includes(status) ? ""
-    : "Session badges unavailable";
+    : boardParticipantCounts.size ? "Session lookup unavailable · showing last-known badges" : "Session badges unavailable";
   boardParticipantStatusElement.hidden = !message || state.appMode !== "roadmap" || !state.workspace;
   boardParticipantStatusElement.textContent = message;
   boardParticipantStatusElement.title = message;
-  boardParticipantStatusElement.classList.toggle("is-incomplete", incomplete);
+  boardParticipantStatusElement.classList.toggle("is-incomplete", incomplete || boardParticipantPartial || !["loading", "disabled", "idle", "ok"].includes(status));
 }
 
 function renderSearchControls() {
@@ -1827,7 +1851,7 @@ function renderEditorChrome() {
     // loaded — it opens a spec session on the item file regardless of whether
     // the user is in read, edit, or raw mode.
     openInSpecButton.hidden = setupMode || !hasItem;
-    openInSpecButton.disabled = !hasItem;
+    openInSpecButton.disabled = !hasItem || loadedItemSource !== state.selectedSource;
   }
 
   if (setupMode) {
@@ -2142,6 +2166,7 @@ function startBoardEditMode() {
 
   state.boardEditMode = true;
   state.boardDraft = cloneBoardDraftFromWorkspace();
+  boardDraftRevision = state.workspace.boardRevision;
   state.boardDirty = false;
   renderBoardChrome();
   renderBoard();
@@ -2156,6 +2181,7 @@ function cancelBoardEditMode(force = false) {
 
   state.boardEditMode = false;
   state.boardDraft = null;
+  boardDraftRevision = null;
   state.boardDirty = false;
   renderBoardChrome();
   renderBoard();
@@ -2206,19 +2232,26 @@ async function saveBoardDraft() {
 
   boardSaveButton.disabled = true;
   setBanner("Saving board...");
+  const scope = currentReadScopeKey();
+  const submitted = JSON.stringify(state.boardDraft);
 
   try {
-    const workspace = await api.saveBoard(state.boardDraft, state.workspace?.boardRevision);
-
+    const workspace = await api.saveBoard(state.boardDraft, boardDraftRevision);
+    if (scope !== currentReadScopeKey()) return;
     state.workspace = workspace;
-    state.boardEditMode = false;
-    state.boardDraft = null;
-    state.boardDirty = false;
+    boardDraftRevision = workspace.boardRevision;
+    if (JSON.stringify(state.boardDraft) === submitted) {
+      state.boardEditMode = false;
+      state.boardDraft = null;
+      boardDraftRevision = null;
+      state.boardDirty = false;
+    }
     syncWorkspaceChrome();
     renderBoard();
     renderScope();
     setBanner("Board saved.", "success");
   } catch (error) {
+    if (scope !== currentReadScopeKey()) return;
     renderBoardChrome();
     setBanner(error.message, "error");
   }
@@ -2433,7 +2466,7 @@ function buildParticipantRecencyBadges(recent, dormant, closed = 0) {
 function syncBoardParticipantBadges() {
   for (const card of boardGroupsElement.querySelectorAll(".board-item[data-item-id], .board-column-card-main[data-item-dblopen]")) {
     const itemId = card.dataset.itemId || card.dataset.itemDblopen;
-    const item = state.workspace?.items?.[itemId];
+    const item = getBoardItemById(itemId);
     if (!item) continue;
     const markup = buildBoardParticipantBadge(item);
     for (const row of card.querySelectorAll(".badge-row, .board-card-signals")) {
@@ -2467,7 +2500,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
   const participantBadge = buildBoardParticipantBadge(item);
   const signalBadges = `${cardStatus ? renderBadge(metadata.status, "status") : ""}${numericPriority}${participantBadge}`;
   const statusSignal = `<span class="board-card-signals">${signalBadges}</span>`;
-  const specLink = state.workspace?.specSessionsByItemId?.[item.id];
+  const specLink = item.sourceVersion ? item.sourceVersion.summary.specSession : state.workspace?.specSessionsByItemId?.[item.id];
   const specBadge = specLink?.unavailable
     ? `<span class="board-item-spec-badge is-unavailable" title="Spec session unavailable" aria-label="Spec session unavailable">⚠</span>`
     : specLink
@@ -2639,7 +2672,7 @@ async function persistDerivedLensMove(itemId, targetValue) {
       metadata: {
         [activeLens.key]: targetValue === UNASSIGNED_GROUP_KEY ? null : targetValue,
       },
-      expectedRevision: state.workspace?.items?.[itemId]?.revision,
+      expectedRevision: getBoardItemById(itemId)?.revision,
     });
 
     const keepItemOpen = !shouldUseEditorOverlay() || (state.editorOverlayOpen && state.selectedItemId === itemId);
@@ -2647,6 +2680,7 @@ async function persistDerivedLensMove(itemId, targetValue) {
       state.editorOverlayOpen = false;
     }
     await loadWorkspace(keepItemOpen ? itemId : "", {
+      fresh: true,
       replaceRoute: true,
       forceReloadItem: keepItemOpen,
       preferredLayout: state.boardLayout,
@@ -2747,7 +2781,7 @@ function bindItemOrderDropTargets() {
 }
 
 async function persistMetadataOrder(itemId, anchorItemId, placement, triggerButton) {
-  const item = state.workspace?.items?.[itemId];
+  const item = getBoardItemById(itemId);
   if (!state.workspace || !item || !anchorItemId) return;
 
   const columnScrollLeft = captureColumnScrollState();
@@ -3546,6 +3580,16 @@ function itemIntentIsCurrent(intent, { requireSelected = false } = {}) {
   );
 }
 
+function currentReadScopeKey() {
+  return JSON.stringify([state.repoPath, state.worktreeMode, state.appMode,
+    state.selectedSource?.sourceKey || null, sourceRef(state.selectedSource)]);
+}
+
+function specIntentIsCurrent(intent) {
+  return state.appMode === "spec" && intent.generation === specLoadGeneration
+    && intent.scope === currentReadScopeKey() && sameSpecUiPath(intent.filePath, state.spec.selectedPath);
+}
+
 function participantStatusText(result) {
   if (!result) return "";
   if (result.status === "loading") return "Refreshing…";
@@ -3675,7 +3719,7 @@ async function loadItemParticipants(itemId, generation = state.itemLoadGeneratio
   }
 
   if (state.worktreeMode === "across") {
-    const featureKey = state.workspace?.items?.[itemId]?.featureKey;
+    const featureKey = getBoardItemById(itemId)?.featureKey;
     const feature = state.worktreeData?.features?.find((entry) => entry.key === featureKey);
     if (feature && state.worktreeData.features.filter((entry) => entry.id.normalize("NFC") === feature.id.normalize("NFC")).length > 1) {
       state.itemParticipants = { status: "ambiguous-feature", participants: [], itemId };
@@ -3721,6 +3765,8 @@ async function loadItemParticipants(itemId, generation = state.itemLoadGeneratio
 }
 
 function resetEditor() {
+  loadedBoardAppearance = null;
+  loadedItemSource = null;
   invalidateItemRequests();
   state.currentItem = null;
   state.confirmedEditSource = null;
@@ -3888,7 +3934,7 @@ function positionEditorSourceMenu() {
 function renderEditorSourceSelect() {
   const card = state.worktreeMode === "across"
     ? getVisibleBoardGroups().flatMap((group) => group.items).find((item) => item.id === state.selectedItemId)
-      || state.workspace?.items?.[state.selectedItemId] : null;
+      || getBoardItemById(state.selectedItemId) : null;
   const feature = card ? state.worktreeData?.features?.find((entry) => entry.key === card.featureKey) : null;
   const versions = feature ? [...new Map(feature.versions.map((version) => [version.sourceKey, version])).values()] : [];
   editorSourceLabelElement.hidden = state.worktreeMode !== "across" || versions.length === 0;
@@ -4189,7 +4235,12 @@ function updateSpecNavButtons() {
 
 
 async function loadSpecSessions(options = {}) {
-  const payload = await api.listSessions();
+  const generation = ++specSessionsGeneration;
+  const intent = { generation: specLoadGeneration, scope: currentReadScopeKey(), filePath: state.spec.selectedPath };
+  let payload;
+  try { payload = await api.listSessions(); }
+  catch (error) { if (generation === specSessionsGeneration && specIntentIsCurrent(intent)) throw error; return; }
+  if (generation !== specSessionsGeneration || !specIntentIsCurrent(intent)) return;
   state.spec.sessions = payload.sessions || [];
   if (state.spec.selectedPath && !state.spec.sessions.some((session) => sameSpecUiPath(session.targetFile, state.spec.selectedPath))) {
     state.spec.selectedPath = "";
@@ -4219,12 +4270,15 @@ async function loadSpecSession(filePath, options = {}) {
   captureSpecReplyDraft();
   state.spec.selectedPath = filePath;
   state.spec.loadError = null;
+  const intent = { generation: ++specLoadGeneration, scope: currentReadScopeKey(), filePath };
   let context;
   let content;
   try {
     context = await api.getSessionContext(filePath);
+    if (!specIntentIsCurrent(intent)) return;
     content = await api.getSessionContent(filePath);
   } catch (error) {
+    if (!specIntentIsCurrent(intent)) return;
     state.spec.context = null;
     state.spec.content = "";
     state.spec.lastSeenContentHash = "";
@@ -4245,6 +4299,7 @@ async function loadSpecSession(filePath, options = {}) {
     }
     return;
   }
+  if (!specIntentIsCurrent(intent)) return;
   state.spec.context = context;
   state.spec.content = content.content || "";
   state.spec.lastSeenContentHash = context?.session?.contentHash || "";
@@ -4304,8 +4359,12 @@ async function refreshSpecReviewState() {
   const activeReplyId = state.spec.replyComposerCommentId;
   const shouldRestoreReplyFocus = Boolean(activeReplyId && specMarginElement.contains(document.activeElement));
   captureSpecReplyDraft();
-
-  const context = await api.getSessionContext(state.spec.selectedPath);
+  const generation = ++specPollGeneration;
+  const intent = { generation: specLoadGeneration, scope: currentReadScopeKey(), filePath: state.spec.selectedPath };
+  let context;
+  try { context = await api.getSessionContext(intent.filePath); }
+  catch (error) { if (generation === specPollGeneration && specIntentIsCurrent(intent)) throw error; return; }
+  if (generation !== specPollGeneration || !specIntentIsCurrent(intent)) return;
   state.spec.context = context;
   // Compare BEFORE rendering so the new flag is in scope when the banner
   // predicate runs below. The hash watermark is only ever advanced by full
@@ -4345,11 +4404,16 @@ async function openCurrentItemAsSpecSession() {
     setBanner("No item is loaded.", "error");
     return;
   }
+  if (loadedItemSource !== state.selectedSource) {
+    setBanner("Load the selected checkout before opening this item in Review.", "error");
+    return;
+  }
   // item.filePath is repo-relative (path.relative(repoRoot, item.filePath) on
   // the server). Build the absolute path so the spec-session attach succeeds
   // regardless of the server's cwd.
-  const absolutePath = state.repoPath
-    ? joinRepoPath(state.repoPath, item.filePath)
+  const repoPath = state.selectedSource?.repoRoot || state.repoPath;
+  const absolutePath = repoPath
+    ? joinRepoPath(repoPath, item.filePath)
     : item.filePath;
   try {
     await switchAppMode("spec");
@@ -4360,7 +4424,9 @@ async function openCurrentItemAsSpecSession() {
 }
 
 async function attachSpecSession(filePath) {
+  const intent = { generation: specLoadGeneration, scope: currentReadScopeKey(), filePath: state.spec.selectedPath };
   const result = await api.attachSession(filePath);
+  if (!specIntentIsCurrent(intent)) return;
   state.spec.selectedPath = result.session.targetFile;
   await loadSpecSessions();
   syncRouteState({ replace: true });
@@ -4516,10 +4582,12 @@ async function setSpecSuggestionStatus(suggestionId, action) {
 }
 
 async function switchAppMode(nextMode) {
+  if (state.appMode !== nextMode) specLoadGeneration += 1;
   state.appMode = nextMode;
   applyAppMode();
   if (nextMode === "spec") {
-    invalidateBoardPresence();
+    pauseWorkspaceRead();
+    invalidateBoardPresence({ keepCounts: true });
     try {
       await loadSpecSessions();
       syncRouteState({ replace: true });
@@ -4532,10 +4600,13 @@ async function switchAppMode(nextMode) {
   syncWorkspaceChrome();
   renderBoard();
   syncRouteState({ replace: true });
-  void refreshBoardPresence();
+  if (specMetadataDirty) await loadWorkspace(state.selectedItemId, { fresh: true, preserveDirtyItem: true, background: true });
+  else refreshVisibleRoadmap();
 }
 
 function resetAncillaryEditModes() {
+  boardDraftRevision = null;
+  scopeDraftRevision = null;
   state.boardEditMode = false;
   state.boardDraft = null;
   state.boardDirty = false;
@@ -4549,14 +4620,14 @@ async function syncVisibleSelection(options = {}) {
   const visibleItemIds = getVisibleBoardItemIds();
   const preferredItemId = options.preferredItemId || "";
   const pendingPresenceItemId = state.inPlay && ["idle", "loading"].includes(boardParticipantStatus)
-    && preferredItemId && state.workspace?.items?.[preferredItemId] ? preferredItemId : "";
+    && preferredItemId && getBoardItemById(preferredItemId) ? preferredItemId : "";
   const useOverlay = shouldUseEditorOverlay();
 
   syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
   renderBoard(options.preserveBoardControls === true);
   if (state.currentItem && state.worktreeMode === "across") renderEditorSourceSelect();
 
-  if (options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges()) {
+  if (options.preserveDirtyItem !== false && state.currentItem && hasUnsavedCurrentItemChanges()) {
     if (options.syncRoute !== false) syncRouteState({ replace: options.replaceRoute !== false });
     return;
   }
@@ -4613,13 +4684,16 @@ async function syncVisibleSelection(options = {}) {
 }
 
 async function applyRouteStateFromLocation() {
-  if ((hasUnsavedCurrentItemChanges() || state.boardDirty || state.scopeDirty)
-    && window.location.hash !== buildRouteHash()
+  const discardDraft = (hasUnsavedCurrentItemChanges() || state.boardDirty || state.scopeDirty)
+    && window.location.hash !== buildRouteHash();
+  if (discardDraft
     && !window.confirm("Discard unsaved item, board, or scope changes before navigating?")) {
     syncRouteState({ replace: true });
     return;
   }
+  if (discardDraft) resetAncillaryEditModes();
   const route = readRouteState();
+  if ((route.view === "spec" ? "spec" : "roadmap") !== state.appMode) specLoadGeneration += 1;
   if (route.itemId && route.sourceKey && route.sources === "across") {
     state.preferredVersions.set(route.itemId, { sourceKey: route.sourceKey, gitRef: route.sourceRef });
   }
@@ -4636,7 +4710,8 @@ async function applyRouteStateFromLocation() {
   state.boundRequired = requestedWorktreeMode === "this" && route.bound;
   state.pinnedSource = state.boundRequired ? restorePinnedSource(state.repoPath) : null;
   if (route.view === "spec") {
-    invalidateBoardPresence();
+    pauseWorkspaceRead();
+    invalidateBoardPresence({ keepCounts: !repoChanged && !worktreeModeChanged && !boundChanged });
     state.appMode = "spec";
     state.spec.selectedPath = route.specFile || state.spec.selectedPath;
     applyAppMode();
@@ -4665,16 +4740,16 @@ async function applyRouteStateFromLocation() {
   // If the URL points at a different repo than what state currently holds,
   // reload the workspace before reconciling selection. Without this, navigating
   // to a new #repo=... silently keeps showing the previous repo's data.
-  // Same applies when leaving spec mode: spec sessions may have changed while
-  // the user was in spec mode, so the badge counts in workspace.specSessionsByItemId
-  // need a refresh.
-  if (repoChanged || exitedSpecMode || worktreeModeChanged || boundChanged) {
+  // Spec mutations invalidate summaries; an unchanged return shares normal freshness policy.
+  if (repoChanged || exitedSpecMode && specMetadataDirty || worktreeModeChanged || boundChanged) {
     closeBoardSourceMenu();
     await loadWorkspace(route.itemId || "", {
       syncRoute: false,
       preferredLens: route.lens,
       routeLensSpecified: route.lensSpecified,
       preferredLayout: route.layout,
+      fresh: exitedSpecMode && specMetadataDirty,
+      discardDraft,
     });
     return;
   }
@@ -4683,14 +4758,15 @@ async function applyRouteStateFromLocation() {
   await syncVisibleSelection({
     preferredItemId: route.itemId || state.selectedItemId,
     replaceRoute: true,
-    forceReloadItem: Boolean(route.sourceKey && (route.sourceKey !== state.selectedSource?.sourceKey
+    preserveDirtyItem: !discardDraft,
+    forceReloadItem: discardDraft || Boolean(route.sourceKey && (route.sourceKey !== state.selectedSource?.sourceKey
       || (route.sourceRef && route.sourceRef !== sourceRef(state.selectedSource)))),
   });
+  if (exitedSpecMode) refreshVisibleRoadmap();
 }
 function boardPresenceIsVisible() {
   return document.visibilityState === "visible"
     && state.appMode === "roadmap"
-    && state.worktreeMode !== "across"
     && Boolean(state.workspace)
     && !state.boardEditMode
     && !state.dragItemId
@@ -4701,11 +4777,9 @@ function invalidateBoardPresence({ keepCounts = false } = {}) {
   boardParticipantController?.abort();
   boardParticipantController = null;
   boardParticipantGeneration += 1;
-  // Across counts belong to the workspace snapshot, not the visibility poller.
-  // Preserve them while paused; a repo/source change still discards them.
-  if (state.worktreeMode === "across" && state.workspaceScope?.mode === "across"
-    && state.workspaceScope.repoPath === state.repoPath) return;
+  if (keepCounts) return;
   if (!keepCounts) boardParticipantCounts = new Map();
+  boardParticipantAsOf = null;
   boardParticipantIncludeCompleted = null;
   boardParticipantStatus = "idle";
   boardParticipantPartial = false;
@@ -4713,8 +4787,23 @@ function invalidateBoardPresence({ keepCounts = false } = {}) {
   if (state.workspace && state.appMode === "roadmap") syncBoardParticipantBadges();
 }
 
+function boardPresenceKeys() {
+  if (state.worktreeMode !== "across") return new Set(Object.keys(state.workspace?.items || {}));
+  if (state.worktreeData?.provisional) return new Set();
+  const features = state.worktreeData?.features || [];
+  const ids = new Map();
+  for (const feature of features) {
+    const id = feature.id.normalize("NFC");
+    ids.set(id, (ids.get(id) || 0) + 1);
+  }
+  return new Set(features.filter((feature) => ids.get(feature.id.normalize("NFC")) === 1).map((feature) => feature.key));
+}
+
 async function refreshBoardPresence() {
   if (!boardPresenceIsVisible()) return;
+  const snapshotId = workspaceSnapshot?.id;
+  // Older servers can supply combined observations, but have no independent Across lookup.
+  if (state.worktreeMode === "across" && (!snapshotId || state.worktreeData?.provisional)) return;
   const includeCompleted = boardPresenceIncludesCompleted();
   if (boardParticipantIncludeCompleted !== includeCompleted) {
     invalidateBoardPresence({ keepCounts: true });
@@ -4734,16 +4823,17 @@ async function refreshBoardPresence() {
   }
   try {
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]);
-    let result = await api.readBoardParticipantCounts({ signal, includeCompleted });
+    let result = snapshotId
+      ? await api.readBoardObservations({ snapshot: snapshotId, signal, includeCompleted })
+      : await api.readBoardParticipantCounts({ signal, includeCompleted });
     if (includeCompleted && result.status === "ok" && result.includeCompleted !== true) {
       result = { status: "server-unsupported", counts: [] };
     }
-    if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode || !boardPresenceIsVisible()) return;
+    if (generation !== boardParticipantGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode
+      || snapshotId !== workspaceSnapshot?.id || !boardPresenceIsVisible()) return;
     if (result.status === "ok") {
       const keyName = worktreeMode === "across" ? "featureKey" : "itemId";
-      const knownKeys = worktreeMode === "across"
-        ? new Set(state.worktreeData?.features?.map((feature) => feature.key) || [])
-        : new Set(Object.keys(state.workspace.items || {}));
+      const knownKeys = boardPresenceKeys();
       if (!Array.isArray(result.counts) || result.counts.length > 200
         || (result.counts.length > 0 && (result.recentSeconds !== 86400 || typeof result.asOf !== "string"
         || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(result.asOf)
@@ -4755,8 +4845,11 @@ async function refreshBoardPresence() {
       ) || new Set(result.counts.map((row) => row[keyName])).size !== result.counts.length) {
         throw new Error("Invalid board participant counts.");
       }
-      boardParticipantCounts = new Map(result.counts.map((row) => [row[keyName], row]));
-    } else {
+      const next = result.partial ? new Map([...boardParticipantCounts].filter(([key]) => knownKeys.has(key))) : new Map();
+      for (const row of result.counts) next.set(row[keyName], row);
+      boardParticipantCounts = next;
+      boardParticipantAsOf = result.asOf || null;
+    } else if (result.status === "disabled") {
       boardParticipantCounts = new Map();
     }
     boardParticipantStatus = result.status;
@@ -4765,9 +4858,9 @@ async function refreshBoardPresence() {
     renderBoardParticipantStatus();
   } catch (error) {
     if (controller.signal.aborted || generation !== boardParticipantGeneration || repoPath !== state.repoPath || worktreeMode !== state.worktreeMode) return;
-    boardParticipantCounts = new Map();
     boardParticipantStatus = "unavailable";
-    boardParticipantPartial = false;
+    boardParticipantPartial = true;
+    if (error.code === "snapshot_expired" && workspaceSnapshot?.id === snapshotId) workspaceSnapshot = { ...workspaceSnapshot, stale: true };
     await syncBoardPresenceView();
     renderBoardParticipantStatus();
   } finally {
@@ -4785,25 +4878,33 @@ async function syncBoardPresenceView() {
 }
 
 async function loadWorkspace(preferredItemId = state.selectedItemId, options = {}) {
+  workspaceLoadController?.abort();
+  const controller = new AbortController();
+  workspaceLoadController = controller;
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
+  const cached = options.fresh !== true;
+  lastWorkspaceAttemptAt = Date.now();
   const generation = ++workspaceLoadGeneration;
   const repoPath = state.repoPath;
   const worktreeMode = state.worktreeMode;
-  const stillCurrent = () => generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode;
+  const stillCurrent = () => !controller.signal.aborted && generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode;
   const sameScope = state.workspaceScope?.repoPath === repoPath && state.workspaceScope?.mode === worktreeMode
     && (!state.boundRequired || (state.workspaceScope.sourceKey === state.pinnedSource?.sourceKey
       && state.workspaceScope.sourceRef === sourceRef(state.pinnedSource)));
-  const preserveDirtyItem = Boolean(options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges());
+  // Preserve the option through settlement: a clean editor can become dirty while awaiting either read.
+  const preserveDirtyItem = Boolean(options.preserveDirtyItem && sameScope);
   const draftSource = preserveDirtyItem ? state.selectedSource : null;
   const originalSelection = state.selectedItemId;
   let presented = sameScope;
   if (!sameScope || worktreeMode !== "across") {
     invalidateItemRequests();
-    invalidateBoardPresence();
+    invalidateBoardPresence({ keepCounts: sameScope });
   }
   const initialItemGeneration = state.itemLoadGeneration;
   state.worktreeLoading = worktreeMode === "across";
   state.worktreeRetrying = false;
   if (!sameScope) {
+    workspaceSnapshot = null;
     state.workspace = null;
     state.worktreeData = null;
     state.workspaceScope = null;
@@ -4824,20 +4925,30 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     if (aggregate && !aggregate.workspace) throw Object.assign(new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace."), { code: aggregate.unavailable?.reason });
     workspace = aggregate ? buildCombinedWorkspace(aggregate) : workspace;
     if (!stillCurrent()) return;
-    const reconcile = worktreeMode === "across" && presented;
+    const reconcile = presented && !options.discardDraft;
     const retainUnfinished = reconcile && isUnfinishedFocused();
     const keepEditor = reconcile && (state.currentItem || state.itemLoadController);
-    resetAncillaryEditModes();
+    if (!sameScope && !presented) resetAncillaryEditModes();
     state.setupState = null;
-    state.workspaceStale = false;
+    state.workspaceStale = Boolean(aggregate?.snapshot?.stale || workspace?.snapshot?.stale);
     if (sourceWorkspace) rememberPinnedSource(sourceWorkspace.source);
     state.worktreeData = aggregate;
     state.selectedSource = (keepEditor ? state.selectedSource : draftSource) || aggregate?.sources?.[0] || sourceWorkspace?.source || state.pinnedSource || null;
     state.workspace = workspace;
+    const nextSnapshot = aggregate?.snapshot || workspace?.snapshot || null;
+    if (nextSnapshot?.id !== workspaceSnapshot?.id) invalidateBoardPresence({ keepCounts: sameScope || presented });
+    workspaceSnapshot = nextSnapshot;
+    const presenceKeys = boardPresenceKeys();
+    boardParticipantCounts = new Map([...boardParticipantCounts].filter(([key]) => presenceKeys.has(key)));
+    if (!cached && !nextSnapshot?.stale) specMetadataDirty = false;
+    if (aggregate && !aggregate.provisional && !aggregate.snapshot?.stale) {
+      state.sourceMenuData = { sources: aggregate.sources, excluded: aggregate.excluded, partial: aggregate.partial,
+        repoPath, loading: false, validatedAt: Date.parse(aggregate.snapshot?.validatedAt || "") || Date.now() };
+    }
     const unfinishedStatuses = retainUnfinished ? getUnfinishedStatusValues() : [];
     if (unfinishedStatuses.length) state.activeFilters = normalizeFilterMap({ ...state.activeFilters, status: unfinishedStatuses });
     state.workspaceScope = { repoPath, mode: worktreeMode, sourceKey: state.pinnedSource?.sourceKey, sourceRef: sourceRef(state.pinnedSource) };
-    if (aggregate) {
+    if (aggregate?.participantCounts && !nextSnapshot) {
       const presence = aggregate.participantCounts;
       const known = new Set(aggregate.features.map((feature) => feature.key));
       const counts = presence?.status === "ok" && Array.isArray(presence.counts)
@@ -4848,6 +4959,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       boardParticipantStatus = presence?.status || "unavailable";
       boardParticipantPartial = Boolean(presence?.partial || (presence?.status === "ok" && counts.length !== (presence.counts?.length || 0)));
       boardParticipantIncludeCompleted = true;
+      boardParticipantAsOf = presence?.asOf || null;
     }
     if (reconcile) {
       if (state.lensExplicit) applyLensRouteChoice(workspace, { lens: state.activeLens, lensSpecified: true });
@@ -4870,7 +4982,8 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     renderScope();
     clearTransientBanner();
 
-    const desiredItemId = reconcile ? state.selectedItemId || (state.itemLoadGeneration === initialItemGeneration ? preferredItemId : "") : preferredItemId;
+    const desiredItemId = reconcile || state.itemLoadGeneration !== initialItemGeneration
+      ? state.selectedItemId || (state.itemLoadGeneration === initialItemGeneration ? preferredItemId : "") : preferredItemId;
     const desiredSource = state.preferredVersions.get(desiredItemId);
     const deferSelection = aggregate?.provisional && desiredItemId
       && (!workspace.items[desiredItemId] || desiredSource && !aggregate.sources.some((source) => source.sourceKey === desiredSource.sourceKey));
@@ -4894,6 +5007,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       return;
     }
     const fallbackItemId = shouldUseEditorOverlay() ? "" : (getFirstVisibleBoardItemId(workspace) || getFirstBoardItemId(workspace));
+    const previousItem = state.currentItem;
     await syncVisibleSelection({
       preferredItemId: reconcile || worktreeMode === "across" ? desiredItemId : desiredItemId && workspace.items?.[desiredItemId] ? desiredItemId : fallbackItemId,
       syncRoute: aggregate?.provisional ? false : options.syncRoute,
@@ -4903,17 +5017,23 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       preserveBoardControls: reconcile,
       refreshPresence: false,
     });
-    if (stillCurrent() && aggregate && !aggregate.provisional && state.currentItem && !state.itemLoadController) void loadItemParticipants(state.selectedItemId);
+    // loadItem owns freshly loaded details; only retained editors need a separate refresh.
+    if (stillCurrent() && !aggregate?.provisional && state.currentItem && state.currentItem === previousItem && !state.itemLoadController) void loadItemParticipants(state.selectedItemId);
     if (stillCurrent()) void refreshBoardPresence();
   };
 
   try {
     if (worktreeMode === "across" && !options.aggregate) {
-      // Render one guarded checkout while the full scan continues; no background service or cache.
-      const readFullSnapshot = async () => {
+      // Render one guarded checkout while a cold full scan continues.
+      const readFullSnapshot = async (useCached = cached) => {
         for (let attempt = 0; ; attempt += 1) {
           if (!stillCurrent()) return null;
-          const aggregate = await api.loadWorktreeWorkspace();
+          let aggregate;
+          try { aggregate = await api.loadWorktreeWorkspace({ cached: useCached, compact: true, participants: false, signal }); }
+          catch (error) {
+            if (error.code === "snapshot_invalidated" && attempt === 0) { useCached = false; continue; }
+            throw error;
+          }
           if (!stillCurrent()) return null;
           if (aggregate?.workspace || aggregate?.unavailable?.reason !== "source-changed-during-read") return aggregate;
           if (attempt === 2) throw Object.assign(new Error("Could not read a consistent worktree snapshot. Refresh to try again."), { code: aggregate.unavailable.reason });
@@ -4922,8 +5042,16 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
           await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
         }
       };
-      const completed = readFullSnapshot().then((aggregate) => ({ aggregate }), (error) => ({ error }));
-      const opened = !sameScope ? api.loadWorktreeWorkspace({ openedOnly: true }).then((aggregate) => ({ aggregate, opened: true }), (error) => ({ error, opened: true })) : null;
+      let fullReady = false;
+      const completed = readFullSnapshot().then((aggregate) => ({ aggregate }), (error) => ({ error }))
+        .then((result) => { fullReady = Boolean(result.aggregate?.workspace); return result; });
+      // A warm snapshot should not launch a second scan merely to provide a cold-load fallback.
+      const opened = !sameScope ? (async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (fullReady || !stillCurrent()) return { opened: true };
+        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, compact: true, participants: false, signal }), opened: true }; }
+        catch (error) { return { error, opened: true }; }
+      })() : null;
       const first = opened ? await Promise.race([completed, opened]) : await completed;
       if (!stillCurrent()) return;
       if (first.opened && !first.error && first.aggregate?.workspace) await present(first.aggregate);
@@ -4939,12 +5067,30 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       }
       state.worktreeLoading = false;
       await present(result.aggregate);
+      if (stillCurrent() && result.aggregate?.snapshot?.stale && cached) {
+        state.worktreeLoading = true;
+        renderBoardSourceControl();
+        const fresh = await readFullSnapshot(false);
+        state.worktreeLoading = false;
+        if (stillCurrent()) await present(fresh);
+      }
     } else {
-      const sourceWorkspace = options.sourceCandidate ? await api.loadSourceWorkspace(options.sourceCandidate) : null;
-      const workspace = options.aggregate ? null : sourceWorkspace?.workspace || await api.loadWorkspace();
+      const sourceWorkspace = options.sourceCandidate ? await api.loadSourceWorkspace(options.sourceCandidate, { signal }) : null;
+      const readThisSnapshot = async (useCached = cached) => {
+        try { return await api.loadWorkspace({ cached: useCached, signal }); }
+        catch (error) {
+          if (error.code !== "snapshot_invalidated" || !stillCurrent()) throw error;
+          return api.loadWorkspace({ signal });
+        }
+      };
+      const workspace = options.aggregate ? null : sourceWorkspace?.workspace || await readThisSnapshot();
       if (!stillCurrent()) return;
       state.worktreeLoading = false;
       await present(options.aggregate || null, sourceWorkspace, workspace);
+      if (stillCurrent() && workspace?.snapshot?.stale && cached && !sourceWorkspace) {
+        const fresh = await readThisSnapshot(false);
+        if (stillCurrent()) await present(null, null, fresh);
+      }
     }
   } catch (error) {
     if (!stillCurrent()) return;
@@ -4956,7 +5102,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
         renderBoardParticipantStatus();
       }
       renderBoardSourceControl();
-      setBanner(error.code === "source-changed-during-read"
+      if (!options.background) setBanner(error.code === "source-changed-during-read"
         ? `Showing the last-known view. ${error.message}`
         : `Refresh failed. Showing the last-known view. ${error.message}`, "error");
       return;
@@ -4982,6 +5128,8 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     }
 
     setBanner("");
+  } finally {
+    if (workspaceLoadController === controller) workspaceLoadController = null;
   }
 }
 
@@ -4995,7 +5143,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     state.editorOverlayOpen = options.openOverlay;
   }
   const card = state.worktreeMode === "across"
-    ? getVisibleBoardGroups().flatMap((group) => group.items).find((item) => item.id === itemId) || state.workspace?.items?.[itemId]
+    ? getBoardItemById(itemId)
     : null;
   const feature = card ? state.worktreeData?.features?.find((entry) => entry.key === card.featureKey) : null;
   const preferredSource = state.preferredVersions.get(itemId);
@@ -5014,6 +5162,8 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
+  renderEditorSourceSelect();
+  renderEditorChrome();
 
   try {
     const item = await api.readItem(version?.itemId || itemId, { signal: intent.controller.signal });
@@ -5021,6 +5171,8 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     if (options.preserveDirtyItem && (state.currentItem !== previousItem || state.selectedItemId !== previousItemId || hasUnsavedCurrentItemChanges())) return;
     state.confirmedEditSource = null;
     state.selectedItemId = itemId;
+    loadedItemSource = state.selectedSource;
+    loadedBoardAppearance = card;
     renderItem(item);
     applyEditorMode();
     syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
@@ -5212,6 +5364,9 @@ async function saveCurrentItem() {
 
   saveButton.disabled = true;
   setBanner(state.editorMode === "raw" ? "Saving raw item..." : "Saving item...");
+  const savedItemId = state.selectedItemId;
+  const savedScope = currentReadScopeKey();
+  const stillCurrent = () => state.selectedItemId === savedItemId && savedScope === currentReadScopeKey();
 
   try {
     const payload = state.editorMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
@@ -5221,15 +5376,12 @@ async function saveCurrentItem() {
     const currentBoardGroupIndex = getBoardGroupIndexForItem(state.selectedItemId);
     const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : state.selectedItemId;
 
-    const savedItemId = state.selectedItemId;
-    const savedSourceKey = state.selectedSource?.sourceKey;
     const savedMode = state.editorMode;
     const savedItem = await api.saveItem(actualItemId, { ...payload, expectedRevision: state.currentItem?.revision });
-    if (state.selectedItemId === savedItemId && state.selectedSource?.sourceKey === savedSourceKey) {
-      const currentPayload = savedMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
-      if (state.editorMode === savedMode && JSON.stringify(currentPayload) === JSON.stringify(payload)) renderItem(savedItem);
-      else state.currentItem.revision = savedItem.revision;
-    }
+    if (!stillCurrent()) return;
+    const currentPayload = savedMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
+    if (state.editorMode === savedMode && JSON.stringify(currentPayload) === JSON.stringify(payload)) renderItem(savedItem);
+    else state.currentItem = savedItem;
     if (state.worktreeMode === "across" && state.selectedSource) {
       rememberPreferredVersion(state.selectedItemId, state.selectedSource);
     }
@@ -5241,12 +5393,13 @@ async function saveCurrentItem() {
       }
     }
 
-    await loadWorkspace(state.selectedItemId);
-    setBanner("Saved.", "success");
+    if (!stillCurrent()) return;
+    await loadWorkspace(savedItemId, { fresh: true, preserveDirtyItem: true });
+    if (stillCurrent()) setBanner("Saved.", "success");
   } catch (error) {
-    setBanner(error.message, "error");
+    if (stillCurrent()) setBanner(error.message, "error");
   } finally {
-    saveButton.disabled = false;
+    if (stillCurrent()) renderEditorChrome();
   }
 }
 
@@ -5259,6 +5412,7 @@ function startScopeEditMode() {
   persistScopePreference();
   state.scopeEditMode = true;
   state.scopeDraft = state.workspace.scopeText || "";
+  scopeDraftRevision = state.workspace.scopeRevision;
   state.scopeDirty = false;
   renderScopeChrome();
   renderScope();
@@ -5275,6 +5429,7 @@ function cancelScopeEditMode(force = false) {
 
   state.scopeEditMode = false;
   state.scopeDraft = state.workspace?.scopeText || "";
+  scopeDraftRevision = null;
   state.scopeDirty = false;
   renderScopeChrome();
   renderScope();
@@ -5283,19 +5438,26 @@ function cancelScopeEditMode(force = false) {
 async function saveScopeDraft() {
   scopeSaveButton.disabled = true;
   setBanner("Saving scope...");
+  const scope = currentReadScopeKey();
+  const submitted = state.scopeDraft;
 
   try {
-    const workspace = await api.saveScope(state.scopeDraft, state.workspace?.scopeRevision);
-
+    const workspace = await api.saveScope(state.scopeDraft, scopeDraftRevision);
+    if (scope !== currentReadScopeKey()) return;
     state.workspace = workspace;
-    state.scopeEditMode = false;
-    state.scopeDraft = workspace.scopeText || "";
-    state.scopeDirty = false;
+    scopeDraftRevision = workspace.scopeRevision;
+    if (state.scopeDraft === submitted) {
+      state.scopeEditMode = false;
+      state.scopeDraft = workspace.scopeText || "";
+      state.scopeDirty = false;
+      scopeDraftRevision = null;
+    }
     syncWorkspaceChrome();
     renderBoard();
     renderScope();
     setBanner("Scope saved.", "success");
   } catch (error) {
+    if (scope !== currentReadScopeKey()) return;
     renderScopeChrome();
     setBanner(error.message, "error");
   }
@@ -5323,6 +5485,7 @@ refreshButton.addEventListener("click", () => {
   }
 
   const options = {
+    fresh: true,
     forceReloadItem: Boolean(state.selectedItemId),
     replaceRoute: true,
     preserveDirtyItem: true,
@@ -6277,13 +6440,36 @@ window.addEventListener("hashchange", () => {
   void applyRouteStateFromLocation();
 });
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") invalidateBoardPresence();
-  else void refreshBoardPresence();
-});
-window.setInterval(() => {
+function pauseWorkspaceRead() {
+  if (!workspaceLoadController) return;
+  const controller = workspaceLoadController;
+  workspaceLoadController = null;
+  controller.abort();
+  state.workspaceStale = Boolean(state.workspace);
+  state.worktreeLoading = false;
+  state.worktreeRetrying = false;
+  lastWorkspaceAttemptAt = 0;
+  renderBoardSourceControl();
+}
+
+function refreshVisibleRoadmap() {
+  if (document.visibilityState !== "visible" || state.appMode !== "roadmap") return;
+  const validatedAt = Date.parse(workspaceSnapshot?.validatedAt || "") || lastWorkspaceAttemptAt;
+  if (!workspaceLoadController && !state.boardEditMode && !state.scopeEditMode
+    && (!state.workspace || state.workspaceStale || state.worktreeData?.provisional || workspaceSnapshot && (workspaceSnapshot.stale || Date.now() - validatedAt >= 30_000))
+    && Date.now() - lastWorkspaceAttemptAt >= 1_000) {
+    void loadWorkspace(state.selectedItemId, { fresh: state.workspaceStale, preserveDirtyItem: true, preserveBoardControls: true, background: true });
+  }
   if (boardPresenceIsVisible()) void refreshBoardPresence();
-}, 30_000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    pauseWorkspaceRead();
+    invalidateBoardPresence({ keepCounts: true });
+  } else refreshVisibleRoadmap();
+});
+window.setInterval(refreshVisibleRoadmap, 30_000);
 
 window.addEventListener("resize", () => {
   if (state.lensesExpanded) {

@@ -11,17 +11,20 @@ const execFileAsync = promisify(execFile);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const relative = (root, file) => path.relative(root, path.isAbsolute(file) ? file : path.resolve(root, file)).replaceAll("\\", "/");
 
-async function git(root, ...args) {
+async function git(root, ...argsAndOptions) {
+  const last = argsAndOptions.at(-1);
+  const options = last && typeof last === "object" && Object.hasOwn(last, "signal") ? argsAndOptions.pop() : {};
+  const args = argsAndOptions;
   return (await execFileAsync("git", args, {
     cwd: root, windowsHide: true, shell: false, timeout: 5000,
-    maxBuffer: 4 * 1024 * 1024, encoding: "utf8",
+    maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal: options.signal,
   })).stdout.trim();
 }
 
-async function ancestorBlobs(root, objects) {
+async function ancestorBlobs(root, objects, signal) {
   if (objects.length > 500) throw new Error("ancestor item limit");
   const output = await new Promise((resolve, reject) => {
-    const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false });
+    const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false, signal });
     const chunks = [];
     let size = 0;
     const timer = setTimeout(() => child.kill(), 5000);
@@ -61,14 +64,14 @@ async function ancestorBlobs(root, objects) {
 const transitionKey = (changes) => hash(JSON.stringify([...changes].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
 
 // Batch complete repository transitions, not one Git process per item or commit.
-async function transitionHistory(source, base, cache) {
+async function transitionHistory(source, base, cache, signal) {
   const key = `${base}:${source.git.headCommit}`;
   if (!cache.histories.has(key)) cache.histories.set(key, (async () => {
     if (cache.historyLoads >= 32) throw new Error("squash-evidence-limit");
     cache.historyLoads += 1;
     const raw = await git(source.repoRoot, "log", "--raw", "-z", "--no-abbrev", "--no-renames",
       "--first-parent", "--diff-merges=first-parent", "--max-count=65", "--format=%x00commit %H %P%x00",
-      `${base}..${source.git.headCommit}`);
+      `${base}..${source.git.headCommit}`, { signal });
     const tokens = raw.split("\0"), commits = [];
     for (let i = 0; i < tokens.length; i += 1) {
       const token = tokens[i].replace(/^\n/, "");
@@ -111,8 +114,8 @@ async function transitionHistory(source, base, cache) {
   return cache.histories.get(key);
 }
 
-async function squashPaths(left, right, base, candidates, cache) {
-  const histories = [await transitionHistory(left, base, cache), await transitionHistory(right, base, cache)];
+async function squashPaths(left, right, base, candidates, cache, signal) {
+  const histories = [await transitionHistory(left, base, cache, signal), await transitionHistory(right, base, cache, signal)];
   const objects = new Map();
   for (const [index, history] of histories.entries()) {
     const integrations = new Set(histories[1 - index].commits.map((entry) => entry.signature));
@@ -126,7 +129,7 @@ async function squashPaths(left, right, base, candidates, cache) {
       }
     }
   }
-  const parsed = objects.size ? await ancestorBlobs(left.repoRoot, [...objects].map(([file, oid]) => ({ file, oid })))
+  const parsed = objects.size ? await ancestorBlobs(left.repoRoot, [...objects].map(([file, oid]) => ({ file, oid })), signal)
     : { ids: new Map(), invalid: false };
   return { paths: new Map([...parsed.ids].filter(([file, id]) => candidates.get(file) === id)),
     uncertainty: parsed.invalid ? "squash-item-invalid" : null };
@@ -135,12 +138,12 @@ async function squashPaths(left, right, base, candidates, cache) {
 // Shared ancestry or exact whole-change squash equivalence establishes display identity.
 // Git cannot distinguish an independently reproduced identical complete change.
 // Missing, shallow, or oversized Git evidence fails closed: the versions stay separate.
-async function sharedPaths(left, right, roadmapPath, cache) {
+async function sharedPaths(left, right, roadmapPath, cache, signal) {
   try {
     const heads = [left.git.headCommit, right.git.headCommit].sort().join(":");
     let base = cache.bases.get(heads);
     if (base === undefined) {
-      base = await git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit);
+      base = await git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit, { signal });
       cache.bases.set(heads, base);
     }
     if (!/^[0-9a-f]{40,64}$/i.test(base)) throw new Error("invalid merge base");
@@ -148,24 +151,34 @@ async function sharedPaths(left, right, roadmapPath, cache) {
     const treeKey = `${base}:${roadmapPath}`;
     let tree = cache.trees.get(treeKey);
     if (!tree) {
-      const records = (await git(left.repoRoot, "ls-tree", "-r", "-z", "--long", base, "--", ...dirs))
+      const records = (await git(left.repoRoot, "ls-tree", "-r", "-z", "--long", base, "--", ...dirs, { signal }))
         .split("\0").filter(Boolean).map((record) => {
           const match = record.match(/^[0-7]{6} blob ([0-9a-f]{40,64}) +\d+\t([\s\S]*)$/i);
           if (!match) throw new Error("ambiguous ancestor tree");
           return { oid: match[1], file: match[2] };
         });
       const objects = records.filter((entry) => !/[\r\n]/.test(entry.file) && entry.file.endsWith(".md"));
-      const parsed = objects.length ? await ancestorBlobs(left.repoRoot, objects) : { ids: new Map(), invalid: false };
+      let parsed;
+      try {
+        parsed = objects.length ? await ancestorBlobs(left.repoRoot, objects, signal) : { ids: new Map(), invalid: false };
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason || error;
+        if (error.message !== "ancestor item limit") throw error;
+        // This fixed tree exceeds the cap for every pair in this request.
+        cache.trees.set(treeKey, { ids: new Map(), uncertainty: "ancestor-item-limit" });
+        throw error;
+      }
       tree = { ids: parsed.ids, uncertainty: parsed.invalid || records.length !== objects.length && records.some((entry) => /[\r\n]/.test(entry.file))
         ? "ancestor-item-or-path-invalid" : null };
       cache.trees.set(treeKey, tree);
     }
+    if (tree.uncertainty === "ancestor-item-limit") return { paths: new Map(), uncertainty: tree.uncertainty };
     const deleted = new Set();
     for (const source of [left, right]) {
       const key = `${base}:${source.git.headCommit}`;
       let paths = cache.deletions.get(key);
       if (!paths) {
-        const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames", `${base}..${source.git.headCommit}`, "--", ...dirs);
+        const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames", `${base}..${source.git.headCommit}`, "--", ...dirs, { signal });
         paths = new Set(output.split("\0").filter(Boolean));
         cache.deletions.set(key, paths);
       }
@@ -182,20 +195,22 @@ async function sharedPaths(left, right, roadmapPath, cache) {
     let uncertainty = tree.uncertainty;
     if (candidates.size) {
       try {
-        const squash = await squashPaths(left, right, base, candidates, cache);
+        const squash = await squashPaths(left, right, base, candidates, cache, signal);
         for (const [file, id] of squash.paths) paths.set(file, id);
         uncertainty ||= squash.uncertainty;
       } catch (error) {
+        if (signal?.aborted) throw signal.reason || error;
         uncertainty ||= error.message === "squash-evidence-limit" ? error.message : "squash-evidence-unavailable";
       }
     }
     return { paths, uncertainty };
   } catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
     return { paths: new Map(), uncertainty: error.message === "ancestor item limit" ? "ancestor-item-limit" : "git-evidence-unavailable" };
   }
 }
 
-async function conflicts(versions, displayRevisions) {
+async function conflicts(versions, displayRevisions, signal) {
   if (versions.length < 2) return [];
   const fields = ["title", "status", "priority", "commitment", "milestone", "kind"];
   const differences = fields.flatMap((field) => {
@@ -207,7 +222,7 @@ async function conflicts(versions, displayRevisions) {
     const key = `${version.sourceKey}:${version.itemId}`;
     const file = path.isAbsolute(version.summary.filePath) ? version.summary.filePath
       : path.resolve(version.repoRoot, version.summary.filePath);
-    if (!displayRevisions.has(key)) displayRevisions.set(key, fs.readFile(file, "utf8")
+    if (!displayRevisions.has(key)) displayRevisions.set(key, fs.readFile(file, { encoding: "utf8", signal })
       .then((raw) => {
         const text = raw.replace(/^\uFEFF/, "");
         return hash(text) === version.summary.revision ? hash(text.replace(/\r\n?/g, "\n")) : version.summary.revision;
@@ -222,13 +237,14 @@ async function conflicts(versions, displayRevisions) {
 }
 
 /** Read-only, opened-first projection of compatible linked worktrees. */
-export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false } = {}) {
+export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, signal } = {}) {
+  if (signal?.aborted) throw signal.reason;
   let discovery;
   if (openedOnly) {
-    const opened = await readWorktreeIdentity(openRepoRoot);
+    const opened = await readWorktreeIdentity(openRepoRoot, { signal });
     discovery = { sources: opened ? [opened] : [], excluded: [], partial: false,
       unavailable: opened ? null : { reason: "not-git-or-unavailable" } };
-  } else discovery = await discoverWorktreeSources(openRepoRoot);
+  } else discovery = await discoverWorktreeSources(openRepoRoot, { signal });
   const result = { ...discovery, workspace: null, features: [], groups: [],
     coverage: { loaded: 0, excluded: 0, missingBoardRefs: [], identityUncertain: [] } };
   if (openedOnly) {
@@ -241,9 +257,10 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
 
   const loaded = [];
   for (const source of discovery.sources) {
+    if (signal?.aborted) throw signal.reason;
     try {
-      await requireRoadmapInSource(source.repoRoot);
-      const workspace = await loadWorkspace(source.repoRoot);
+      await requireRoadmapInSource(source.repoRoot, { signal });
+      const workspace = await loadWorkspace(source.repoRoot, { signal });
       source.roadmapBinding = { roadmapPath: workspace.roadmapPath, resolvedPath: workspace.resolvedPath };
       source.availableLenses = workspace.availableLenses;
       source.availableFilters = workspace.availableFilters;
@@ -254,6 +271,7 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
       }
       loaded.push({ ...source, workspace });
     } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
       result.excluded.push({ repoRoot: source.repoRoot, sourceKey: source.sourceKey,
         reason: "workspace-load-failed", code: error.code || null, message: error.message });
       if (source === discovery.sources[0]) {
@@ -267,6 +285,9 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
   result.coverage.loaded = loaded.length;
   result.coverage.excluded = result.excluded.length;
   if (!loaded.length) { result.unavailable = { reason: "no-loadable-workspace" }; return result; }
+  Object.defineProperty(result, "snapshotChecks", { value: loaded.map((source) => ({
+    sourceKey: source.sourceKey, workspace: source.workspace,
+  })), enumerable: false });
   if (result.excluded.length) result.partial = true;
 
   for (const source of loaded.slice(1)) {
@@ -286,7 +307,8 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
     histories: new Map(), historyLoads: 0, historyChanges: 0 };
   for (let i = 0; i < loaded.length; i += 1) {
     for (let j = i + 1; j < loaded.length; j += 1) {
-      const evidence = await sharedPaths(loaded[i], loaded[j], relative(loaded[i].repoRoot, loaded[i].workspace.resolvedPath), evidenceCache);
+      if (signal?.aborted) throw signal.reason;
+      const evidence = await sharedPaths(loaded[i], loaded[j], relative(loaded[i].repoRoot, loaded[i].workspace.resolvedPath), evidenceCache, signal);
       lineage.set(`${i}:${j}`, evidence.paths);
       if (evidence.uncertainty) {
         result.partial = true;
@@ -296,10 +318,14 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
     }
   }
   const features = [];
+  const featureCandidates = new Map();
+  const featuresBySource = [];
   const displayRevisions = new Map();
   const groupMap = new Map();
   const appearanceOrder = [];
   for (const [sourceIndex, source] of loaded.entries()) {
+    const sourceFeatures = new Map();
+    featuresBySource.push(sourceFeatures);
     const sourceContext = { sourceKey: source.sourceKey, repoRoot: source.repoRoot,
       label: source.label, git: source.git, roadmapBinding: source.roadmapBinding };
     const memberships = new Map();
@@ -323,11 +349,15 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
     }
     for (const [id, summary] of Object.entries(source.workspace.items)) {
       const filePath = relative(source.repoRoot, summary.filePath);
-      const match = features.find((feature) => feature.id === id && feature.filePath === filePath
-        && feature.sourceIndexes.every((other) => lineage.get(`${Math.min(other, sourceIndex)}:${Math.max(other, sourceIndex)}`)?.get(filePath) === id));
+      const candidateKey = JSON.stringify([id, filePath]);
+      let candidates = featureCandidates.get(candidateKey);
+      if (!candidates) featureCandidates.set(candidateKey, candidates = []);
+      const match = candidates.find((feature) => feature.sourceIndexes.every((other) =>
+        lineage.get(`${Math.min(other, sourceIndex)}:${Math.max(other, sourceIndex)}`)?.get(filePath) === id));
       const feature = match || { key: hash(`${source.sourceKey}\0${id}\0${filePath}`), id, filePath,
         versions: [], groups: [], conflicts: [], sourceIndexes: [] };
-      if (!match) features.push(feature);
+      if (!match) { features.push(feature); candidates.push(feature); }
+      sourceFeatures.set(id, feature);
       feature.sourceIndexes.push(sourceIndex);
       for (const groupName of memberships.get(id) || ["Not on a board"]) {
         const groupKind = memberships.has(id) ? "board" : "unlisted";
@@ -342,21 +372,30 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false }
     }
   }
   for (const feature of features) {
-    feature.conflicts = await conflicts(feature.versions, displayRevisions);
+    feature.conflicts = await conflicts(feature.versions, displayRevisions, signal);
     delete feature.sourceIndexes;
   }
+  const groupItemKeys = new Map([...groupMap.keys()].map((key) => [key, new Set()]));
   for (const appearance of appearanceOrder) {
     const group = groupMap.get(appearance.groupKey);
-    if (appearance.missing) { group.items.push(appearance.missing); continue; }
-    const feature = features.find((entry) => entry.id === appearance.id
-      && entry.versions.some((version) => version.sourceKey === loaded[appearance.sourceIndex].sourceKey));
-    if (group.items.some((item) => item.key === feature.key)) continue;
+    const itemKeys = groupItemKeys.get(appearance.groupKey);
+    if (appearance.missing) { group.items.push(appearance.missing); itemKeys.add(appearance.missing.key); continue; }
+    const feature = featuresBySource[appearance.sourceIndex].get(appearance.id);
+    if (itemKeys.has(feature.key)) continue;
+    itemKeys.add(feature.key);
     const versions = feature.versions.filter((version) => `${version.groupKind === "board" ? "board:" + version.group : "unlisted"}` === appearance.groupKey);
-    group.items.push({ key: feature.key, id: feature.id, versions, conflicts: await conflicts(versions, displayRevisions) });
+    group.items.push({ key: feature.key, id: feature.id, versions, conflicts: await conflicts(versions, displayRevisions, signal) });
   }
   for (const source of loaded) {
-    const current = await readWorktreeIdentity(source.repoRoot);
-    if (!current || current.sourceKey !== source.sourceKey || current.repoRoot !== source.repoRoot
+    const current = await readWorktreeIdentity(source.repoRoot, { signal });
+    if (!current) {
+      result.partial = true;
+      result.unavailable = { reason: "source-identity-unavailable", message: "A checkout could not be revalidated while the combined board loaded." };
+      result.coverage.identityUncertain.push({ sourceKey: source.sourceKey, reason: "source-identity-unavailable" });
+      result.workspace = null;
+      return result;
+    }
+    if (current.sourceKey !== source.sourceKey || current.repoRoot !== source.repoRoot
       || JSON.stringify(current.git) !== JSON.stringify(source.git)) {
       result.partial = true;
       result.unavailable = { reason: "source-changed-during-read", message: "A checkout changed while the combined board loaded. Refresh to read one consistent snapshot." };

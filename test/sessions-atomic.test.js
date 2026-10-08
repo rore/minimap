@@ -16,6 +16,7 @@ import {
   addFileSessionSuggestion,
   applyFileSessionSuggestion,
   rollbackFileSessionSuggestion,
+  getFileSession,
   getFileSessionContext,
   listFileSessions,
 } from "../package/minimap/src/sessions.js";
@@ -230,6 +231,35 @@ test("apply interruption recovers metadata when the document still matches", asy
   await assert.rejects(() => fs.access(path.join(sessionDir, "suggestion-transaction.json")), { code: "ENOENT" });
   const events = (await fs.readFile(path.join(sessionDir, "events.jsonl"), "utf8")).trim().split("\n");
   assert.equal(events.filter((line) => JSON.parse(line).type === "suggestion_applied").length, 1);
+});
+
+test("read-side session recovery reports the durable mutation to its caller", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  let recoveries = 0;
+  const sessions = await listFileSessions({ minimapHome, targetFiles: [targetPath], onMutation: () => { recoveries += 1; } });
+  assert.equal(recoveries, 1);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].counts.pendingSuggestions, 0);
+});
+
+test("getFileSession reports a read-side recovery mutation to its caller", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  let recoveries = 0;
+  const session = await getFileSession(targetPath, { ...opts, onMutation: () => { recoveries += 1; } });
+  assert.equal(recoveries, 1);
+  assert.ok(session.id);
+});
+
+test("a rejected comment mutation still reports its read-side recovery", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  let recoveries = 0;
+  await assert.rejects(addFileSessionComment(targetPath, { by: "", text: "comment" }, {
+    ...opts, onMutation: () => { recoveries += 1; },
+  }), /Comment actor is required\./);
+  assert.equal(recoveries, 1);
 });
 
 test("rollback interruption recovers metadata and preserves the original document", async (t) => {

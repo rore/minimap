@@ -33,6 +33,11 @@ function repoUrlFor(repoRoot, suffix = "") {
   return suffix.startsWith("/#") ? `/#${repo}&${suffix.slice(2)}` : `${suffix}#${repo}`;
 }
 
+async function refreshWorkspaceSnapshot(page, repoRoot = process.cwd()) {
+  const workspace = await page.request.get("/api/workspace", { headers: { "X-Minimap-Repo": repoRoot } });
+  expect(workspace.status()).toBe(200);
+}
+
 function participantPayload(itemId, alias = "minimap-dev", count = 1) {
   const scopeRef = "roadmap:v1:git:github.com/rore/minimap#roadmap";
   const localRef = "item:v1:" + encodeURIComponent(itemId);
@@ -252,13 +257,16 @@ let originalSearchFeatureText = "";
 let originalIdeaCreateText = "";
 let originalConfigText = null;
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
   originalBoardText = await fs.readFile(boardPath, "utf8");
   originalScopeText = await fs.readFile(scopePath, "utf8");
   originalFeatureText = await fs.readFile(featurePath, "utf8");
   originalSearchFeatureText = await fs.readFile(searchFeaturePath, "utf8");
   originalIdeaCreateText = await fs.readFile(ideaCreatePath, "utf8");
   originalConfigText = await fs.readFile(configPath, "utf8").catch(() => null);
+  // External fixture restores from prior tests must be visible before this page reads a cached workspace.
+  const workspace = await request.get("/api/workspace", { headers: { "X-Minimap-Repo": process.cwd() } });
+  expect(workspace.status()).toBe(200);
   await fs.rm(setupSandboxPath, { recursive: true, force: true });
   await page.addInitScript(() => window.localStorage.removeItem("roadmap-ui.scope-collapsed"));
 });
@@ -912,6 +920,7 @@ test("saves optional milestone metadata and reflects it in the board", async ({ 
 test("renders extra sections from the item file in the structured editor", async ({ page }) => {
   const nextText = addExtraSection(addMilestone(originalFeatureText, "P3"), "Decision Locks", "- keep the file contract thin");
   await fs.writeFile(featurePath, nextText, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await expect(page.locator("#editor-title")).toContainText("Setup guidance");
@@ -925,6 +934,7 @@ test("renders extra sections from the item file in the structured editor", async
 
 test("edit mode renders the item's real section headings for repo-specific item shapes", async ({ page }) => {
   await fs.writeFile(featurePath, repoSpecificFeatureText, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await expect(page.locator("#editor-title")).toContainText("Repo-specific feature shape");
@@ -955,6 +965,8 @@ test("read mode shows the full item and reflects the current edit state", async 
 
 test("renders and edits generic scalar metadata fields like lane", async ({ page }) => {
   await fs.writeFile(featurePath, addFrontmatterField(originalFeatureText, "lane", "integration-feedback"), "utf8");
+  const workspace = await page.request.get("/api/workspace", { headers: { "X-Minimap-Repo": process.cwd() } });
+  expect(workspace.status()).toBe(200);
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await expect(page.locator("#editor-title")).toContainText("Setup guidance");
@@ -988,6 +1000,7 @@ test("renders nested and wrapped markdown list content in read mode", async ({ p
   ].join("\n");
 
   await fs.writeFile(featurePath, replaceSectionContent(originalFeatureText, "In Scope", nestedInScope), "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   await expect(page.locator("#editor-title")).toContainText("Setup guidance");
@@ -1200,6 +1213,7 @@ test("selecting a board item in stacked layout returns focus to the editor", asy
 test("search filters the grouped board by item body text and persists in the URL", async ({ page }) => {
   const nextText = originalSearchFeatureText.replace("Add fast search plus dynamic filter controls", "Add fast search plus dynamic filter controls for lighthouse review");
   await fs.writeFile(searchFeaturePath, nextText, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
   await page.locator("#board-search").fill("lighthouse review");
@@ -1266,6 +1280,7 @@ test("repository default grouping stays independent from layout and explicit Boa
     defaultLens: "status",
     lenses: { fields: { status: { order: ["queued", "in-progress", "blocked", "done"], draggable: true } } },
   }), "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
   await expect(page.locator("#board-view-toggle")).toContainText("By status");
@@ -1283,9 +1298,10 @@ test("repository default grouping stays independent from layout and explicit Boa
 test("keeps the view chooser compact when switching to the milestone lens", async ({ page }) => {
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
-  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.locator("#refresh-button").click();
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="milestone"]').click();
 
@@ -1336,7 +1352,7 @@ test("status columns keep configured empty lanes visible in columns mode", async
 });
 test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
   await page.setViewportSize({ width: 1697, height: 1100 });
-  await page.route(/\/api\/board\/participant-counts$/, (route) => route.fulfill({
+  await page.route(/\/api\/board\/observations(?:\?.*)?$/, (route) => route.fulfill({
     json: { status: "unreachable", counts: [], partial: false, asOf: null, recentSeconds: 86400 },
   }));
   await page.goto(repoUrl());
@@ -1424,6 +1440,7 @@ test("keeps list-mode board controls compact and non-overlapping", async ({ page
 test("uses a board-first columns layout when many groups are visible", async ({ page }) => {
   const sixGroupBoard = `# Backlog\n\n- feature-edit-board-and-scope\n\n# Next\n\n- feature-setup-guidance\n\n# Ready\n\n- feature-search-and-filters\n\n# Working\n\n- feature-card-preview-and-overview\n\n# Verify\n\n- feature-derived-roadmap-lenses\n\n# done\n\n- idea-create-items\n`;
   await fs.writeFile(boardPath, sixGroupBoard, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.setViewportSize({ width: 1180, height: 1100 });
   await page.goto(repoUrl());
@@ -1479,6 +1496,7 @@ test("uses a board-first columns layout when many groups are visible", async ({ 
 test("opens a card in an overlay from columns and keeps the full title as a tooltip", async ({ page }) => {
   const longTitle = "Add a recurring-question value benchmark with a long descriptive title that still needs the full tooltip";
   await fs.writeFile(featurePath, replaceTitle(originalFeatureText, longTitle), "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
@@ -1505,6 +1523,7 @@ test("opens a card in an overlay from columns and keeps the full title as a tool
 test("overlay scroll locks the page background and scrolls the item instead", async ({ page }) => {
   const longNotes = "Paragraph ".repeat(1200);
   await fs.writeFile(featurePath, addExtraSection(originalFeatureText, "Overlay Scroll Notes", longNotes), "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto(repoUrl());
@@ -1630,6 +1649,7 @@ test("dragging within a board column reprioritizes items in canonical board orde
 # Done
 `;
   await fs.writeFile(boardPath, customBoard, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
@@ -1711,6 +1731,8 @@ test("list view opens cards and supports moving and ordering with its in-card dr
     await expect(page.locator("#status-banner")).toContainText("Lane updated.");
     expect(await fs.readFile(path.join(featureDir, "drag-source.md"), "utf8")).not.toMatch(/^lane:/m);
 
+    // Let the intentional post-drag guard expire before testing a separate card click.
+    await page.waitForTimeout(350);
     await card.click();
     await expect(page.locator("#editor-title")).toHaveText("Drag source");
   } finally {
@@ -1724,7 +1746,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
   let countForFeaturedItem = { recentParticipantCount: 1, dormantParticipantCount: 1 };
   let countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 0 };
   const detailRequests = [];
-  await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+  await page.route(/\/api\/board\/observations(?:\?.*)?$/, async (route) => {
     boardRequests.push(route.request().url());
     await route.fulfill({ json: {
       status: "ok",
@@ -1876,7 +1898,7 @@ test("does not show zero badges when board recency is disabled, unsupported, or 
   try {
     for (const status of ["disabled", "unsupported", "unreachable"]) {
       let requests = 0;
-      await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+      await page.route(/\/api\/board\/observations(?:\?.*)?$/, async (route) => {
         requests += 1;
         await route.fulfill({ json: { status, counts: [], partial: false, asOf: null, recentSeconds: 86400 } });
       });
@@ -1899,7 +1921,7 @@ test("does not show zero badges when board recency is disabled, unsupported, or 
       await expect.poll(() => originalCard.evaluate((element) => document.activeElement === element)).toBe(true);
       await expect(card.locator(".board-item-participants")).toHaveCount(0);
       await originalCard.dispose();
-      await page.unroute(/\/api\/board\/participant-counts$/);
+      await page.unroute(/\/api\/board\/observations(?:\?.*)?$/);
     }
   } finally {
     await fs.rm(fixture, { recursive: true, force: true });
@@ -1913,7 +1935,7 @@ test("ignores a delayed board count response after switching repositories", asyn
   const oldStarted = new Promise((resolve) => { markOldStarted = resolve; });
   let releaseOldResponse;
   const oldResponseGate = new Promise((resolve) => { releaseOldResponse = resolve; });
-  await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+  await page.route(/\/api\/board\/observations(?:\?.*)?$/, async (route) => {
     const repo = route.request().headers()["x-minimap-repo"];
     if (repo === oldFixture) {
       markOldStarted();
@@ -2382,6 +2404,7 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
 test("milestone columns stay browse-only without drag handles", async ({ page }) => {
   await fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, "P3"), "utf8");
   await fs.writeFile(ideaCreatePath, addFrontmatterField(originalIdeaCreateText, "milestone", "P1"), "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl("/#layout=columns"));
   await expect(page.locator("#board-layout-columns")).toBeVisible();
@@ -2405,6 +2428,7 @@ test("keeps long milestone labels and cards inside columns while list remains re
     fs.writeFile(searchFeaturePath, addMilestone(originalSearchFeatureText, longMilestone), "utf8"),
     fs.writeFile(ideaCreatePath, addMilestone(originalIdeaCreateText, longMilestone), "utf8"),
   ]);
+  await refreshWorkspaceSnapshot(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(repoUrl("/#layout=columns"));
   await expect(page.locator(".board-columns")).toBeVisible();
@@ -2729,6 +2753,7 @@ test("orphan board ids render as inert placeholder cards and surface a warning b
   const orphanId = "ghost-orphan-feature";
   const mutatedBoard = `${originalBoardText.trimEnd()}\n- ${orphanId}\n`;
   await fs.writeFile(boardPath, mutatedBoard, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
 
@@ -2766,6 +2791,7 @@ test("orphan board ids: full page screenshot for visual review", async ({ page }
   const orphanId = "ghost-orphan-feature";
   const mutatedBoard = `${originalBoardText.trimEnd()}\n- ${orphanId}\n`;
   await fs.writeFile(boardPath, mutatedBoard, "utf8");
+  await refreshWorkspaceSnapshot(page);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(repoUrl());

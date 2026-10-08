@@ -4574,16 +4574,19 @@ test("createTextAnchor disambiguates same-line duplicates via quoteOffset hint",
   assert.equal(nearSecond.offset, secondOffset);
 });
 
-test("board participant-count route validates completed inclusion and preserves one deduplicated bounded batch", async () => {
+test("board participant-count route prioritizes unfinished items under the completed-inclusive batch cap", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-board-counts-"));
   const roadmapRoot = path.join(repoRoot, "roadmap");
   const featuresRoot = path.join(roadmapRoot, "features");
   await fs.mkdir(featuresRoot, { recursive: true });
   await fs.mkdir(path.join(roadmapRoot, "ideas"), { recursive: true });
-  const itemIds = Array.from({ length: 206 }, (_, index) => `item-${String(index).padStart(3, "0")}`);
-  const terminal = new Map([[0, "done"], [3, "shipped"], [4, "cancelled"], [5, "canceled"], [6, "superseded"]]);
+  const itemIds = Array.from({ length: 406 }, (_, index) => `item-${String(index).padStart(3, "0")}`);
+  const terminal = new Map(Array.from({ length: 205 }, (_, index) => [index, "done"]));
+  for (const [index, status] of [[0, "done"], [3, "shipped"], [4, "cancelled"], [5, "canceled"], [6, "superseded"]]) {
+    terminal.set(index, status);
+  }
   await fs.writeFile(path.join(roadmapRoot, "scope.md"), "Test scope.\n", "utf8");
-  await fs.writeFile(path.join(roadmapRoot, "board.md"), `# Now\n- missing-item\n${itemIds.map((id) => `- ${id}`).join("\n")}\n\n# Later\n- item-001\n- item-000\n`, "utf8");
+  await fs.writeFile(path.join(roadmapRoot, "board.md"), `# Now\n- missing-item\n${itemIds.map((id) => `- ${id}`).join("\n")}\n\n# Later\n- item-001\n- item-000\n- item-206\n- item-205\n`, "utf8");
   await Promise.all(itemIds.map((id, index) => fs.writeFile(
     path.join(featuresRoot, `${id}.md`),
     `---\nid: ${id}\ntitle: ${id}\nstatus: ${terminal.get(index) || "queued"}\npriority: medium\ncommitment: committed\n---\n\n## Summary\nTest item.\n`,
@@ -4643,7 +4646,7 @@ test("board participant-count route validates completed inclusion and preserves 
     assert.equal(body.counts[1].dormantParticipantCount, 1);
     assert.equal(body.asOf, "2026-09-27T10:00:00Z");
     assert.equal(body.recentSeconds, 86400);
-    assert.equal(body.counts.some((row) => ["item-000", "item-003", "item-004", "item-005", "item-006", "item-205", "missing-item"].includes(row.itemId)), false);
+    assert.equal(body.counts.some((row) => ["item-000", "item-003", "item-004", "item-005", "item-006", "item-405", "missing-item"].includes(row.itemId)), false);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");
     assert.equal(requests[0].url, "/relay/work-refs/participant-counts");
@@ -4658,10 +4661,15 @@ test("board participant-count route validates completed inclusion and preserves 
     assert.equal(included.status, "ok");
     assert.equal(included.includeCompleted, true);
     assert.equal(included.partial, true);
-    assert.deepEqual(included.counts.map((row) => row.itemId), itemIds.slice(0, 200));
+    assert.equal(included.counts.length, 200);
+    assert.deepEqual(included.counts.map((row) => row.itemId), selectedIds.slice(0, 200),
+      "unfinished items retain priority under the shared 200-reference cap");
+    assert.equal(included.counts.some((row) => terminal.has(Number(row.itemId.slice("item-".length)))), false,
+      "completed items cannot displace unfinished items while unfinished candidates fill the cap");
     assert.equal(requests.length, 3, "one Pallium batch per valid nonempty request");
     assert.equal(requests[2].payload.references.length, 200);
-    assert.deepEqual(requests[2].payload.references.map((ref) => ref.local_ref), itemIds.slice(0, 200).map((id) => `item:v1:${id}`));
+    assert.deepEqual(requests[2].payload.references.map((ref) => ref.local_ref), selectedIds.slice(0, 200).map((id) => `item:v1:${id}`));
+    assert.equal(new Set(requests[2].payload.references.map((ref) => ref.local_ref)).size, 200, "duplicate board IDs are deduplicated before truncation");
 
     for (const query of ["includeCompleted=", "includeCompleted=true", "includeCompleted=2", "includeCompleted=1&includeCompleted=1", "includeCompleted=0&includeCompleted=1"]) {
       const invalidResponse = await fetch(`${url}?${query}`, { headers });

@@ -120,10 +120,13 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     page.on("request", (request) => {
       if (request.url().includes("/api/") && request.method() !== "GET") writes.push(`${request.method()} ${request.url()}`);
     });
-    const countsResponse = page.waitForResponse((response) => response.url().includes("/api/board/participant-counts"));
+    const countsResponse = page.waitForResponse((response) => response.url().includes("/api/board/observations?"));
     await page.goto(`http://127.0.0.1:${appPort}/#repo=${encodeURIComponent(repoRoot)}`);
     const response = await countsResponse;
     expect(response.status()).toBe(200);
+    const observationsUrl = new URL(response.url());
+    expect(observationsUrl.searchParams.get("snapshot")).toBeTruthy();
+    expect(observationsUrl.searchParams.get("includeCompleted")).toBeNull();
     const localResult = await response.json();
     expect(localResult.status).toBe("ok");
     expect(localResult.counts).toEqual([
