@@ -691,10 +691,10 @@ function renderBoardSourceControl() {
   const across = state.worktreeMode === "across";
   const total = across ? aggregate?.features?.length || 0 : getBoardItems().filter((item) => !item.missing).length;
   const shown = across ? countDistinctWorktreeFeatures(groups) : getVisibleBoardItemIds().length;
-  const partial = Boolean(aggregate?.partial || state.workspaceStale || state.worktreeLoading);
+  const partial = Boolean(aggregate?.partial || aggregate?.provisional || state.workspaceStale);
   const partialLabel = aggregate?.provisional ? "Opened checkout only" : "Partial coverage";
   boardSourceStatusElement.hidden = !state.workspace;
-  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? `<span class="coverage-partial">${escapeHtml(partialLabel)}</span>` : ""}${state.worktreeLoading ? '<span class="coverage-partial" role="status">Loading other worktrees…</span>' : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
+  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? `<span class="coverage-partial">${escapeHtml(partialLabel)}</span>` : ""}${state.worktreeLoading ? `<span class="coverage-partial" role="status">${state.worktreeRetrying || aggregate && !aggregate.provisional ? "Updating…" : "Loading other worktrees…"}</span>` : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
   const placements = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
   const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} roadmap checkouts loaded; ${escapeHtml(String(aggregate?.excluded?.length || 0))} excluded. Feature counts cover loaded local worktrees only.</p><p>${escapeHtml(String(placements))} placements in ${groups.length} groups. A feature can appear in multiple groups when its versions differ.</p>` : `<p>${total} items on this checkout's board. ${escapeHtml(String(shown))} match the current view.</p>`;
   const exclusions = (aggregate?.excluded || []).map((entry) => `<li>${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}</li>`).join("");
@@ -4802,6 +4802,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   }
   const initialItemGeneration = state.itemLoadGeneration;
   state.worktreeLoading = worktreeMode === "across";
+  state.worktreeRetrying = false;
   if (!sameScope) {
     state.workspace = null;
     state.worktreeData = null;
@@ -4820,7 +4821,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   }
 
   const present = async (aggregate, sourceWorkspace = null, workspace = sourceWorkspace?.workspace) => {
-    if (aggregate && !aggregate.workspace) throw new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace.");
+    if (aggregate && !aggregate.workspace) throw Object.assign(new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace."), { code: aggregate.unavailable?.reason });
     workspace = aggregate ? buildCombinedWorkspace(aggregate) : workspace;
     if (!stillCurrent()) return;
     const reconcile = worktreeMode === "across" && presented;
@@ -4909,7 +4910,19 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   try {
     if (worktreeMode === "across" && !options.aggregate) {
       // Render one guarded checkout while the full scan continues; no background service or cache.
-      const completed = api.loadWorktreeWorkspace().then((aggregate) => ({ aggregate }), (error) => ({ error }));
+      const readFullSnapshot = async () => {
+        for (let attempt = 0; ; attempt += 1) {
+          if (!stillCurrent()) return null;
+          const aggregate = await api.loadWorktreeWorkspace();
+          if (!stillCurrent()) return null;
+          if (aggregate?.workspace || aggregate?.unavailable?.reason !== "source-changed-during-read") return aggregate;
+          if (attempt === 2) throw Object.assign(new Error("Could not read a consistent worktree snapshot. Refresh to try again."), { code: aggregate.unavailable.reason });
+          state.worktreeRetrying = true;
+          renderBoardSourceControl();
+          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        }
+      };
+      const completed = readFullSnapshot().then((aggregate) => ({ aggregate }), (error) => ({ error }));
       const opened = !sameScope ? api.loadWorktreeWorkspace({ openedOnly: true }).then((aggregate) => ({ aggregate, opened: true }), (error) => ({ error, opened: true })) : null;
       const first = opened ? await Promise.race([completed, opened]) : await completed;
       if (!stillCurrent()) return;
@@ -4943,7 +4956,9 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
         renderBoardParticipantStatus();
       }
       renderBoardSourceControl();
-      setBanner(`Refresh failed. Showing the last-known view. ${error.message}`, "error");
+      setBanner(error.code === "source-changed-during-read"
+        ? `Showing the last-known view. ${error.message}`
+        : `Refresh failed. Showing the last-known view. ${error.message}`, "error");
       return;
     }
     state.workspace = null;
