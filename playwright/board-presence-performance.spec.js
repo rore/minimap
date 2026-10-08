@@ -45,7 +45,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
   const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
 
   const counts = ids.slice(0, 200).map((itemId, index) => ({ itemId, participantCount: index === 0 ? 3 : 0, recentParticipantCount: index === 0 ? 2 : 0, dormantParticipantCount: index === 0 ? 1 : 0 }));
-  await page.route(/\/api\/board\/participant-counts$/, async (route) => {
+  await page.route(/\/api\/board\/observations(?:\?.*)?$/, async (route) => {
     requests += 1;
     const current = requests;
     if (current === 1) {
@@ -118,7 +118,8 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
       document.dispatchEvent(new Event("visibilitychange"));
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await expect(page.locator(".board-item-participants")).toHaveCount(0);
+    // Hidden tabs pause refresh while retaining the last-known badges.
+    await expect(listCard.locator(".board-item-participants")).toHaveText(["Recent 2", "Dormant 1"]);
     expect(requests).toBe(1);
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
@@ -126,8 +127,8 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await expect.poll(() => requests).toBe(2);
-    await expect(page.locator("#board-participant-status")).toHaveText("Session badges unavailable", { timeout: 10_000 });
-    await expect(page.locator("#board-source-status-details")).toContainText("Session information is unavailable");
+    await expect(page.locator("#board-participant-status")).toHaveText("Session lookup unavailable · showing last-known badges", { timeout: 10_000 });
+    await expect(page.locator("#board-source-status-details")).toContainText("Showing last-known session information; lookup is currently unavailable.");
 
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect.poll(() => requests).toBe(3);
