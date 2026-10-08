@@ -28,8 +28,9 @@ async function git(repo, ...args) {
 test("snapshot endpoints scope observations and invalidate after a roadmap write", { timeout: 30_000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-snapshot-server-"));
   const home = path.join(root, "home"), repo = path.join(root, "repo"), other = path.join(root, "other");
-  const nonGit = path.join(root, "non-git");
-  await Promise.all([fs.mkdir(home), fs.mkdir(repo), fs.mkdir(other), fs.mkdir(nonGit)]);
+  const nonGit = path.join(root, "non-git"), unborn = path.join(root, "unborn");
+  const nested = path.join(repo, "nested-roadmap");
+  await Promise.all([fs.mkdir(home), fs.mkdir(repo), fs.mkdir(other), fs.mkdir(nonGit), fs.mkdir(unborn)]);
   const port = await freePort();
   const env = { ...process.env, MINIMAP_HOME: home, PORT: String(port), MINIMAP_PALLIUM_ENDPOINT: "" };
   let launcher;
@@ -40,6 +41,8 @@ test("snapshot endpoints scope observations and invalidate after a roadmap write
   try {
     await initializeWorkspace(repo);
     await initializeWorkspace(nonGit);
+    await fs.mkdir(nested);
+    await initializeWorkspace(nested);
     await git(repo, "init", "--initial-branch=main");
     await git(repo, "config", "user.email", "test@example.invalid");
     await git(repo, "config", "user.name", "Snapshot Test");
@@ -52,6 +55,8 @@ test("snapshot endpoints scope observations and invalidate after a roadmap write
     await fs.writeFile(path.join(other, "marker"), "fixture\n");
     await git(other, "add", ".");
     await git(other, "commit", "-m", "fixture");
+    await initializeWorkspace(unborn);
+    await git(unborn, "init", "--initial-branch=main");
     launcher = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
       cwd: projectRoot, env, windowsHide: true, stdio: "ignore",
     });
@@ -73,6 +78,10 @@ test("snapshot endpoints scope observations and invalidate after a roadmap write
 
     const nonGitResponse = await fetch(`${endpoint}/api/workspace`, { headers: { "X-Minimap-Repo": nonGit } });
     assert.equal(nonGitResponse.status, 200, await nonGitResponse.clone().text());
+    const nestedResponse = await fetch(`${endpoint}/api/workspace`, { headers: { "X-Minimap-Repo": nested } });
+    assert.equal(nestedResponse.status, 200, await nestedResponse.clone().text());
+    const unbornResponse = await fetch(`${endpoint}/api/workspace`, { headers: { "X-Minimap-Repo": unborn } });
+    assert.equal(unbornResponse.status, 200, await unbornResponse.clone().text());
 
     const cachedResponse = await fetch(`${endpoint}/api/workspace?cached=1`, { headers });
     const cached = await cachedResponse.json();

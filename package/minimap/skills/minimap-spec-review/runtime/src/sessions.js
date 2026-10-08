@@ -1221,7 +1221,7 @@ export async function getFileSession(filePath, options = {}) {
   const minimapHome = options.minimapHome || resolveMinimapHome(options.env || process.env, options.platform || process.platform);
   const targetPath = path.resolve(cwd, filePath);
   const fileKey = normalizeFileKey(targetPath, options.platform || process.platform);
-  const index = await loadSessionIndex(minimapHome);
+  const index = await loadSessionIndex(minimapHome, { signal: options.signal });
   const sessionId = index.files[fileKey];
 
   if (!sessionId) {
@@ -1229,8 +1229,8 @@ export async function getFileSession(filePath, options = {}) {
   }
 
   const paths = makeSessionPaths(minimapHome, sessionId);
-  await recoverSuggestionTransaction(paths);
-  const session = await readJson(paths.sessionJson, null);
+  await recoverSuggestionTransaction(paths, { signal: options.signal, onMutation: options.onMutation });
+  const session = await readJson(paths.sessionJson, null, options.signal);
   if (!session) {
     throw new AppError(`Session metadata is missing for ${filePath}.`, 404, "not_found");
   }

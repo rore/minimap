@@ -16,6 +16,7 @@ import {
   addFileSessionSuggestion,
   applyFileSessionSuggestion,
   rollbackFileSessionSuggestion,
+  getFileSession,
   getFileSessionContext,
   listFileSessions,
 } from "../package/minimap/src/sessions.js";
@@ -240,6 +241,15 @@ test("read-side session recovery reports the durable mutation to its caller", as
   assert.equal(recoveries, 1);
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].counts.pendingSuggestions, 0);
+});
+
+test("getFileSession reports a read-side recovery mutation to its caller", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  let recoveries = 0;
+  const session = await getFileSession(targetPath, { ...opts, onMutation: () => { recoveries += 1; } });
+  assert.equal(recoveries, 1);
+  assert.ok(session.id);
 });
 
 test("rollback interruption recovers metadata and preserves the original document", async (t) => {

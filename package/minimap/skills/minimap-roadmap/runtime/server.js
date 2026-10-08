@@ -162,12 +162,17 @@ function samePath(left, right) {
   return canonicalPath(left) === canonicalPath(right);
 }
 
+function sameSourceIdentity(left, right) {
+  return Boolean(left && right && samePath(left.repoRoot, right.repoRoot)
+    && left.sourceKey === right.sourceKey && JSON.stringify(left.git) === JSON.stringify(right.git));
+}
+
 function snapshotKey(repoRoot, mode) {
   const root = canonicalPath(repoRoot);
   return `${process.platform === "win32" ? root.toLowerCase() : root}\0${mode}`;
 }
 
-async function captureAdmissionEvidence(repoRoot, git, resolvedPath, signal) {
+async function captureAdmissionEvidence(repoRoot, gitRoot, git, resolvedPath, signal) {
   const statValue = async (file) => {
     if (signal?.aborted) throw signal.reason;
     try {
@@ -179,24 +184,31 @@ async function captureAdmissionEvidence(repoRoot, git, resolvedPath, signal) {
     }
   };
   const root = await fs.realpath(repoRoot);
-  const gitEntry = path.join(root, ".git");
+  const gitFilesystemRoot = gitRoot ? await fs.realpath(gitRoot) : root;
+  const gitEntry = path.join(gitFilesystemRoot, ".git");
   let gitEntryStat = null, gitEntryText = null;
+  let actualGitDir = null;
   try {
     const entry = await fs.lstat(gitEntry, { signal });
     gitEntryStat = [entry.dev, entry.ino, entry.birthtimeMs, entry.size, entry.mtimeMs, entry.ctimeMs];
     if (entry.isFile()) {
       gitEntryText = await fs.readFile(gitEntry, { encoding: "utf8", signal });
       const target = gitEntryText.match(/^gitdir:\s*(.+)\s*$/im)?.[1];
-      if (!target || !git || !samePath(path.resolve(root, target), git.gitDir)) return null;
-    } else if (!git || !samePath(await fs.realpath(gitEntry), git.gitDir)) return null;
+      if (!target) return null;
+      actualGitDir = await fs.realpath(path.resolve(gitFilesystemRoot, target));
+    } else actualGitDir = await fs.realpath(gitEntry);
+    if (git && !samePath(actualGitDir, git.gitDir)) return null;
+    if (gitRoot && !git) return null;
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
     if (git) return null;
+    if (gitRoot) return null;
   }
 
   let gitEvidence = null;
-  if (git) {
-    const gitDir = git.gitDir, commonDir = git.commonDir;
+  if (git || actualGitDir) {
+    const gitDir = git?.gitDir || actualGitDir;
+    const commonDir = git?.commonDir || gitDir;
     const head = await fs.readFile(path.join(gitDir, "HEAD"), { encoding: "utf8", signal });
     const commonDirPath = path.join(gitDir, "commondir");
     let commonDirText = null;
@@ -217,7 +229,9 @@ async function captureAdmissionEvidence(repoRoot, git, resolvedPath, signal) {
   try { config = createHash("sha256").update(await fs.readFile(configPath, { signal })).digest("hex"); }
   catch (error) { if (error?.code !== "ENOENT") throw error; }
   const bindingRoot = await fs.realpath(resolvedPath);
-  return { root: canonicalPath(root), rootStat: await statValue(root), git: gitEvidence,
+  return { root: canonicalPath(root), rootStat: await statValue(root),
+    gitRoot: gitRoot ? canonicalPath(gitFilesystemRoot) : null, gitRootStat: gitRoot ? await statValue(gitFilesystemRoot) : null,
+    git: gitEvidence,
     config, configStat: await statValue(configPath), bindingRoot: canonicalPath(bindingRoot),
     bindingStat: await statValue(bindingRoot) };
 }
@@ -227,14 +241,24 @@ async function captureSourceAdmission(repoRoot, roadmapBinding, identity, signal
   if (currentBinding.roadmapPath !== roadmapBinding.roadmapPath
     || !samePath(currentBinding.resolvedPath, roadmapBinding.resolvedPath)) return null;
   const git = identity?.git || null;
-  const evidence = await captureAdmissionEvidence(repoRoot, git, currentBinding.resolvedPath, signal);
+  const gitRoot = identity?.repoRoot || null;
+  const evidence = await captureAdmissionEvidence(repoRoot, gitRoot, git, currentBinding.resolvedPath, signal);
   if (!evidence) return null;
+  if (!identity && !evidence.git) return null;
   if (git) {
     const expectedHead = git.branchRef ? `ref: ${git.branchRef}` : git.headCommit;
     if (evidence.git.head.trim() !== expectedHead) return null;
   }
-  return { repoRoot: canonicalPath(repoRoot), sourceKey: identity?.sourceKey || null, git,
+  return { repoRoot: canonicalPath(repoRoot), gitRoot: gitRoot ? canonicalPath(gitRoot) : null,
+    sourceKey: identity?.sourceKey || null, git,
     roadmapPath: currentBinding.roadmapPath, resolvedPath: canonicalPath(currentBinding.resolvedPath), evidence };
+}
+
+async function admitSource(expected, signal) {
+  const binding = await requireRoadmapInSource(expected.repoRoot, { signal });
+  if (binding.roadmapPath !== expected.roadmapPath || !samePath(binding.resolvedPath, expected.resolvedPath)) return false;
+  const evidence = await captureAdmissionEvidence(expected.repoRoot, expected.gitRoot, expected.git, binding.resolvedPath, signal);
+  return Boolean(evidence && JSON.stringify(expected.evidence) === JSON.stringify(evidence));
 }
 
 function sameWorkspaceRevision(left, right) {
@@ -250,12 +274,6 @@ function sameWorkspaceRevision(left, right) {
   });
 }
 
-async function admitSource(expected, signal) {
-  const binding = await requireRoadmapInSource(expected.repoRoot, { signal });
-  if (binding.roadmapPath !== expected.roadmapPath || !samePath(binding.resolvedPath, expected.resolvedPath)) return false;
-  const evidence = await captureAdmissionEvidence(expected.repoRoot, expected.git, binding.resolvedPath, signal);
-  return Boolean(evidence && JSON.stringify(expected.evidence) === JSON.stringify(evidence));
-}
 function sendText(response, statusCode, payload, contentType) {
   response.writeHead(statusCode, { "Content-Type": contentType });
   response.end(payload);
@@ -508,19 +526,40 @@ async function readThisSnapshot(repoRoot, { signal, cached = false } = {}) {
       });
       const observation = await buildObservationManifest(repoRoot, workspace, null, scanSignal);
       const finalWorkspace = await loadWorkspace(repoRoot, { signal: scanSignal });
-      if (!sameWorkspaceRevision(workspace, finalWorkspace)) throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
-      const admission = await captureSourceAdmission(repoRoot, workspace, identity, scanSignal);
-      if (!admission || (identity && (identity.sourceKey !== admission.sourceKey
-        || JSON.stringify(identity.git) !== JSON.stringify(admission.git)))) {
-        throw identity
-          ? new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated")
-          : new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
+      if (!sameWorkspaceRevision(workspace, finalWorkspace)) {
+        throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
       }
+      const finalIdentity = await readWorktreeIdentity(repoRoot, { signal: scanSignal });
+      if ((identity && !finalIdentity) || (!identity && finalIdentity)) {
+        throw new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
+      }
+      if (identity && !sameSourceIdentity(identity, finalIdentity)) {
+        throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+      }
+      const admission = await captureSourceAdmission(repoRoot, workspace, finalIdentity, scanSignal);
+      if (!admission && finalIdentity) throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
       return { value: workspace, manifest: { openedRepo: canonicalPath(repoRoot), mode: "this", observation }, admission };
     },
     admit: async (admission, { signal: admitSignal }) => {
       if (!admission) return false;
       return admitSource(admission, admitSignal);
+    },
+  });
+}
+
+async function readParticipantWorkspace(repoRoot, { signal } = {}) {
+  return roadmapSnapshots.read({ key: snapshotKey(repoRoot, "participants"), retain: false, signal,
+    load: async ({ signal: scanSignal }) => {
+      const identity = await readWorktreeIdentity(repoRoot, { signal: scanSignal });
+      const workspace = await loadWorkspace(repoRoot, { signal: scanSignal });
+      const finalIdentity = await readWorktreeIdentity(repoRoot, { signal: scanSignal });
+      if ((identity && !finalIdentity) || (!identity && finalIdentity)) {
+        throw new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
+      }
+      if (identity && !sameSourceIdentity(identity, finalIdentity)) {
+        throw new AppError("Roadmap source changed while participants were loading.", 409, "snapshot_invalidated");
+      }
+      return { value: workspace };
     },
   });
 }
@@ -568,8 +607,12 @@ async function handleSpecAttach(request, response) {
   sendJson(response, 200, result);
 }
 
+function sessionReadOptions() {
+  return { cwd: cwdFallback, onMutation: () => roadmapSnapshots.invalidateAll() };
+}
+
 async function handleListSpecSessions(request, response) {
-  let sessions = await listFileSessions();
+  let sessions = await listFileSessions(sessionReadOptions());
   if (request.boundSpecRepo) {
     const scoped = await Promise.all(sessions.map(async (session) => {
       try { await requirePathInSource(request.boundSpecRepo, session.targetFile); return session; }
@@ -582,19 +625,19 @@ async function handleListSpecSessions(request, response) {
 
 async function handleGetSpecSession(request, response, ctx) {
   const file = requireQueryParam(ctx.url, "path");
-  const session = await getFileSession(file, { cwd: cwdFallback });
+  const session = await getFileSession(file, sessionReadOptions());
   sendJson(response, 200, { session });
 }
 
 async function handleGetSpecContext(request, response, ctx) {
   const file = requireQueryParam(ctx.url, "path");
-  const context = await getFileSessionContext(file, { cwd: cwdFallback });
+  const context = await getFileSessionContext(file, sessionReadOptions());
   sendJson(response, 200, context);
 }
 
 async function handleGetSpecContent(request, response, ctx) {
   const file = requireQueryParam(ctx.url, "path");
-  const content = await getFileSessionFileContent(file, { cwd: cwdFallback });
+  const content = await getFileSessionFileContent(file, sessionReadOptions());
   sendJson(response, 200, content);
 }
 
@@ -669,13 +712,14 @@ async function handleSuggestionPreviewApply(request, response, ctx) {
   const file = requireFileFromBody(body, "Suggestion preview/apply/rollback requires a file path.");
   const suggestionId = decodeURIComponent(ctx.params[0]);
   const action = ctx.params[1];
+  const options = sessionReadOptions();
   let result;
   if (action === "apply") {
-    result = await applyFileSessionSuggestion(file, suggestionId, body, { cwd: cwdFallback });
+    result = await applyFileSessionSuggestion(file, suggestionId, body, options);
   } else if (action === "rollback") {
-    result = await rollbackFileSessionSuggestion(file, suggestionId, body, { cwd: cwdFallback });
+    result = await rollbackFileSessionSuggestion(file, suggestionId, body, options);
   } else {
-    result = await previewFileSessionSuggestion(file, suggestionId, { cwd: cwdFallback });
+    result = await previewFileSessionSuggestion(file, suggestionId, options);
   }
   sendJson(response, 200, result);
 }
@@ -784,9 +828,13 @@ async function handleWorktreeWorkspace(request, response) {
           if (!sameWorkspaceRevision(check.workspace, finalWorkspace)) {
             throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
           }
-          const admission = await captureSourceAdmission(source.repoRoot, binding, source, scanSignal);
-          if (!admission || source.sourceKey !== admission.sourceKey
-            || JSON.stringify(source.git) !== JSON.stringify(admission?.git)) {
+          const finalIdentity = await readWorktreeIdentity(source.repoRoot, { signal: scanSignal });
+          if (!finalIdentity) throw new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
+          if (!sameSourceIdentity(source, finalIdentity)) {
+            throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+          }
+          const admission = await captureSourceAdmission(source.repoRoot, binding, finalIdentity, scanSignal);
+          if (!admission || !sameSourceIdentity(source, admission)) {
             throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
           }
           sources.set(source.sourceKey, admission);
@@ -908,7 +956,7 @@ async function handleItemParticipants(request, response, ctx) {
   try {
     const repoRoot = await resolveRoadmapRepo(request);
     const id = decodeURIComponent(ctx.params[0]);
-    const snapshot = await readThisSnapshot(repoRoot, { signal });
+    const snapshot = await readParticipantWorkspace(repoRoot, { signal });
     const workspace = snapshot.value;
     if (!Object.hasOwn(workspace.items, id)) throw new AppError(`Item "${id}" was not found.`, 404, "not_found");
     const reference = await resolveRoadmapItemReference(repoRoot, workspace.roadmapPath, id, { signal });
@@ -916,7 +964,9 @@ async function handleItemParticipants(request, response, ctx) {
     if (snapshot.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
     if (!response.destroyed) sendJson(response, 200, result);
   } catch (error) {
-    if (!signal.aborted && !response.destroyed) throw snapshotAppError(error, signal);
+    if (!response.destroyed && (!signal.aborted || signal.reason?.name === "TimeoutError")) {
+      throw snapshotAppError(error, signal);
+    }
   } finally { cleanup(); }
 }
 
@@ -933,10 +983,10 @@ async function handleBoardParticipantCounts(request, response, ctx) {
   const { signal, cleanup } = requestAbortSignal(request, response);
   try {
     const repoRoot = await resolveRoadmapRepo(request);
-    const snapshot = await readThisSnapshot(repoRoot, { signal });
+    const snapshot = await readParticipantWorkspace(repoRoot, { signal });
     if (snapshot.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
-    const manifest = roadmapSnapshots.getManifest(snapshot.snapshot.id, snapshotKey(repoRoot, "this"));
-    const observation = manifest?.observation?.[includeCompleted ? "completed" : "unfinished"];
+    const observations = await buildObservationManifest(repoRoot, snapshot.value, null, signal);
+    const observation = observations[includeCompleted ? "completed" : "unfinished"];
     if (!observation || observation.status !== "ok") {
       if (!response.destroyed) sendJson(response, 200, { status: observation?.status || "identity-unavailable", counts: [], partial: Boolean(observation?.partial), ...(includeCompleted ? { includeCompleted: true } : {}) });
       return;
@@ -959,7 +1009,9 @@ async function handleBoardParticipantCounts(request, response, ctx) {
       });
     }
   } catch (error) {
-    if (!signal.aborted && !response.destroyed) throw snapshotAppError(error, signal);
+    if (!response.destroyed && (!signal.aborted || signal.reason?.name === "TimeoutError")) {
+      throw snapshotAppError(error, signal);
+    }
   } finally { cleanup(); }
 }
 async function handleGetItem(request, response, ctx) {

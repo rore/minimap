@@ -52,12 +52,12 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     return new Set(queue.map((job) => job.key)).size;
   }
 
-  function hasOlderJob(job) {
-    return [...jobs].some((other) => other !== job && other.key === job.key && other.epoch < job.epoch && !other.finished);
+  function hasRunningJobForKey(job) {
+    return [...jobs].some((other) => other !== job && other.key === job.key && other.running);
   }
 
   function nextQueuedJob() {
-    const eligible = queue.filter((job) => !job.finished && !job.terminalError && !hasOlderJob(job));
+    const eligible = queue.filter((job) => !job.finished && !job.terminalError && !hasRunningJobForKey(job));
     if (!eligible.length) return null;
     const priority = eligible.find((job) => job.priority);
     const regular = eligible.find((job) => !job.priority);
@@ -98,6 +98,8 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
 
   function retain(entry) {
     expireEntries();
+    const previous = cache.get(entry.key);
+    if (previous) removeEntry(previous);
     if (limits.maxEntries <= 0 || limits.maxBytes <= 0) return;
 
     const fullBytes = Buffer.byteLength(entry.valueJson) + Buffer.byteLength(entry.manifestJson) + Buffer.byteLength(entry.admissionJson);
@@ -105,8 +107,6 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     let bytes = keepValue ? fullBytes : Buffer.byteLength(entry.manifestJson);
     if (bytes > limits.maxBytes) return;
 
-    const previous = cache.get(entry.key);
-    if (previous) removeEntry(previous);
     while (cache.size >= limits.maxEntries || cacheBytes + bytes > limits.maxBytes) {
       const oldest = cache.values().next().value;
       if (!oldest) return;
@@ -159,7 +159,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
       admissionJson,
       bytes: 0,
     };
-    retain(entry);
+    if (job.retain) retain(entry);
     return { entry, valueJson };
   }
 
@@ -180,12 +180,15 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
   }
 
   function start(job) {
-    if (job.finished || job.terminalError || job.running || hasOlderJob(job)) return;
+    if (job.finished || job.terminalError || job.running || hasRunningJobForKey(job)) return;
     job.running = true;
     running += 1;
     lastAdmissionWasPriority = job.priority;
     Promise.resolve()
-      .then(() => job.load({ signal: job.controller.signal, generation: job.epoch }))
+      .then(() => {
+        if (job.controller.signal.aborted) throw abortError(job.controller.signal);
+        return job.load({ signal: job.controller.signal, generation: job.epoch });
+      })
       .then((loaded) => settleSuccess(job, loaded))
       .catch((error) => {
         job.completed = true;
@@ -223,13 +226,13 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     });
   }
 
-  function enqueue({ key, load, signal, priority }) {
+  function enqueue({ key, load, signal, priority, retain }) {
     const existing = currentJob(key);
     if (existing) return subscribe(existing, signal);
     if (signal?.aborted) return Promise.reject(abortError(signal));
 
     const job = {
-      key, load, priority: Boolean(priority), epoch, controller: new AbortController(),
+      key, load, priority: Boolean(priority), retain, epoch, controller: new AbortController(),
       subscribers: new Set(), running: false, finished: false, completed: false, terminalError: null, timer: null,
     };
     jobs.add(job);
@@ -244,11 +247,12 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     return promise;
   }
 
-  async function read({ key, cached = false, signal, load, admit, priority = false }) {
+  async function read({ key, cached = false, signal, load, admit, priority = false, retain = true }) {
     if (signal?.aborted) throw abortError(signal);
     expireEntries();
+    if (!retain && cache.has(key)) removeEntry(cache.get(key));
     const entry = cache.get(key);
-    if (cached && entry?.valueJson !== null && entry) {
+    if (retain && cached && entry?.valueJson !== null && entry) {
       let admitted = false;
       try {
         if (typeof admit === "function") {
@@ -267,7 +271,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
       }
       if (cache.get(key) === entry) removeEntry(entry);
     }
-    return enqueue({ key, load, signal, priority });
+    return enqueue({ key, load, signal, priority, retain });
   }
 
   function getManifest(id, key) {
@@ -277,14 +281,10 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     return JSON.parse(entry.manifestJson);
   }
 
-  function invalidateAll({ exceptSignal } = {}) {
+  function invalidateAll() {
     epoch += 1;
     for (const entry of cache.values()) entry.invalidated = true;
     for (const job of [...jobs]) {
-      if (exceptSignal && job.controller.signal === exceptSignal && job.running && !job.terminalError) {
-        job.epoch = epoch;
-        continue;
-      }
       abortJob(job, snapshotError("snapshot_invalidated", 409, "Snapshot changed during validation."));
     }
   }

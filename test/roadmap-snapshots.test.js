@@ -55,6 +55,22 @@ test("isolates scopes and validates cached admission before reuse", async () => 
   assert.equal(loadsB, 1);
 });
 
+test("non-retained reads stay inside the coordinator without reusing or caching results", async () => {
+  const { coordinator } = makeCoordinator();
+  let loads = 0;
+  const retained = await coordinator.read({ key: "repo:participants", load: async () => result({ run: ++loads }) });
+  assert.ok(coordinator.getManifest(retained.snapshot.id, "repo:participants"));
+  const read = () => coordinator.read({ key: "repo:participants", cached: true, retain: false,
+    load: async () => result({ run: ++loads }) });
+  const first = await read();
+  assert.equal(first.value.run, 2);
+  assert.equal(coordinator.getManifest(retained.snapshot.id, "repo:participants"), null);
+  assert.equal(coordinator.getManifest(first.snapshot.id, "repo:participants"), null);
+  const second = await read();
+  assert.equal(second.value.run, 3);
+  assert.equal(coordinator.getManifest(second.snapshot.id, "repo:participants"), null);
+});
+
 test("one subscriber can cancel without cancelling another; abandoned work is aborted", async () => {
   const { coordinator } = makeCoordinator();
   const first = new AbortController();
