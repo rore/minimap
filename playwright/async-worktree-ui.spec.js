@@ -3,6 +3,173 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { loadWorktreeAggregate } from "../package/minimap/src/worktree-aggregate.js";
+
+async function recoveryFixture() {
+  const created = await fixture(2);
+  const file = path.join(created.owned, "blue", "roadmap", "features", "async-02.md");
+  await fs.writeFile(file, (await fs.readFile(file, "utf8")).replace("status: queued", "status: blocked"));
+  const opened = await loadWorktreeAggregate(created.root, { openedOnly: true });
+  const full = await loadWorktreeAggregate(created.root);
+  expect(full.workspace).not.toBeNull();
+  const featureKey = full.features.find((feature) => feature.id === "async-02").key;
+  full.participantCounts = { status: "ok", counts: [{ featureKey, participantCount: 1, recentParticipantCount: 1, dormantParticipantCount: 0 }], partial: false };
+  return { ...created, opened, full };
+}
+
+const inconsistentSnapshot = { workspace: null, unavailable: { reason: "source-changed-during-read", message: "A checkout changed while the combined board loaded." } };
+
+test("snapshot recovery retains complete cards, badges and drafts through a quiet retry", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  const data = await recoveryFixture();
+  let reads = 0;
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/worktree-workspace**", async (route) => {
+    if (new URL(route.request().url()).searchParams.has("openedOnly")) return route.fulfill({ json: data.opened });
+    reads += 1;
+    if (reads === 2) return route.fulfill({ json: inconsistentSnapshot });
+    if (reads === 3) await pending;
+    return route.fulfill({ json: data.full });
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await page.locator("#refresh-button").click();
+    await expect.poll(() => reads).toBe(3);
+    await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Partial coverage");
+    await expect(page.locator("#status-banner")).not.toContainText("consistent");
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const layout of ["list", "columns"]) {
+        const button = page.locator(`#board-layout-${layout}`);
+        if (await button.isEnabled()) await button.click();
+        await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+        await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 checkouts" })).toHaveCount(2);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+        await page.screenshot({ path: testInfo.outputPath(`snapshot-retry-${layout}-${width}.png`), fullPage: true });
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator("#board-layout-list").click();
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await page.getByRole("button", { name: /Open async-02/i }).click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#tab-structured").click();
+    await page.locator("#metadata-toggle").click();
+    await page.locator("#field-title").fill("Unsaved retry draft");
+    release();
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+    await expect(page.locator("#field-title")).toHaveValue("Unsaved retry draft");
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator("#status-banner")).not.toContainText("consistent");
+    expect(reads).toBe(3);
+  } finally {
+    release();
+    await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+for (const kind of ["consistency", "other"]) test(`snapshot recovery bounds ${kind} failures and retains the complete snapshot`, async ({ page }) => {
+  test.setTimeout(60_000);
+  const data = await recoveryFixture();
+  let reads = 0;
+  let fail = false;
+  await page.route("**/api/worktree-workspace**", async (route) => {
+    if (new URL(route.request().url()).searchParams.has("openedOnly")) return route.fulfill({ json: data.opened });
+    reads += 1;
+    if (fail) return kind === "consistency"
+      ? route.fulfill({ json: inconsistentSnapshot })
+      : route.fulfill({ status: 503, json: { error: { message: "unrelated failure" } } });
+    return route.fulfill({ json: data.full });
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    fail = true;
+    await page.locator("#refresh-button").click();
+    await expect(page.locator("#status-banner")).toContainText(kind === "consistency" ? "Could not read a consistent worktree snapshot" : "unrelated failure");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 checkouts" })).toHaveCount(2);
+    await page.waitForTimeout(800);
+    expect(reads).toBe(kind === "consistency" ? 4 : 2);
+    fail = false;
+    await page.locator("#refresh-button").click();
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Last-known view");
+    await expect(page.locator("#status-banner")).not.toContainText("failure");
+    expect(reads).toBe(kind === "consistency" ? 5 : 3);
+  } finally { await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+});
+
+test("snapshot recovery leaves the provisional board honest until a consistent full response", async ({ page }) => {
+  test.setTimeout(60_000);
+  const data = await recoveryFixture();
+  let reads = 0;
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/worktree-workspace**", async (route) => {
+    if (new URL(route.request().url()).searchParams.has("openedOnly")) return route.fulfill({ json: data.opened });
+    reads += 1;
+    if (reads === 1) return route.fulfill({ json: inconsistentSnapshot });
+    await pending;
+    return route.fulfill({ json: data.full });
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
+    await expect.poll(() => reads).toBe(2);
+    await expect(page.locator("#board-source-status-summary")).toContainText("Opened checkout only");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(0);
+    await expect(page.locator("#status-banner")).not.toContainText("consistent");
+    release();
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+  } finally {
+    release();
+    await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("snapshot recovery ignores a late retry after switching checkout mode", async ({ page }) => {
+  test.setTimeout(60_000);
+  const data = await recoveryFixture();
+  let reads = 0;
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/worktree-workspace**", async (route) => {
+    if (new URL(route.request().url()).searchParams.has("openedOnly")) return route.fulfill({ json: data.opened });
+    reads += 1;
+    if (reads === 2) return route.fulfill({ json: inconsistentSnapshot });
+    if (reads === 3) await pending;
+    return route.fulfill({ json: data.full });
+  });
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await page.locator("#refresh-button").click();
+    await expect.poll(() => reads).toBe(3);
+    await page.evaluate((hash) => { location.hash = hash; }, `repo=${encodeURIComponent(data.root)}&sources=this`);
+    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+    release();
+    await expect(page.locator(".board-source-badge")).toHaveCount(0);
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(0);
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+    await page.waitForTimeout(800);
+    expect(reads).toBe(3);
+    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+  } finally {
+    release();
+    await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
 
 function git(root, ...args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", windowsHide: true }).trim();
@@ -414,14 +581,18 @@ test("same-scope refresh preserves cards until the replacement settles and retri
     return route.continue();
   });
   try {
+    const completed = page.waitForResponse(async (response) => new URL(response.url()).pathname === "/api/worktree-workspace"
+      && new URL(response.url()).searchParams.get("openedOnly") !== "1" && Boolean((await response.json()).workspace));
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
+    await completed;
+    await expect(page.locator("#workspace-summary")).toContainText("9 features");
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
     await page.locator("#refresh-button").click();
     await held.started;
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
-    await expect(page.locator("#board-source-status-summary")).toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
     held.release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
     await expect(page.locator("#workspace-summary")).toContainText("9 features");
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
     await page.locator("#refresh-button").click();
