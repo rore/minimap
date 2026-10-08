@@ -22,11 +22,11 @@
 
 ## Implementation
 
-Planning only. Independent delivery2c of consolidate-roadmap-refresh. Canonical feature remains manager-owned at C:/Users/I347041/.codex/worktrees/refresh-consolidation/minimap/roadmap/features/consolidate-roadmap-refresh.md (PR43). Do not duplicate or modify it here.
+Implemented and focused verification passed. Independent delivery2c of consolidate-roadmap-refresh. Canonical feature remains manager-owned at C:/Users/I347041/.codex/worktrees/refresh-consolidation/minimap/roadmap/features/consolidate-roadmap-refresh.md (PR43). Do not duplicate or modify it here.
 
 ## Recovery
 
-Branch feat/scoped-roadmap-reads froma142984. Next: technical review, tests first, scoped source edits. No product or environment edits yet.
+Branch feat/scoped-roadmap-reads from a142984; reviewed source 6d709dd. Next: publish for CI and include this accepted result in the combined human result review. No live environment changes.
 
 ## Evidence
 
@@ -42,4 +42,4 @@ listFileSessions accepts internal targetFiles and filters normalized index keys 
 
 ## Result review
 
-Pending clean-context review of source, tests and evidence. Human result approval remains required before merge.
+Agent technical review: clean-context non-implementer accepted source 6d709dd with no blocking findings. Reviewed revision: 6d709dd. Verification adequacy: adequate; three failing-before regressions, 45 passing focused checks and independent six-mirror parity inspection. Human result approval and broader integration/CI remain required before merge.
