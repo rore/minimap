@@ -56,6 +56,8 @@
 **State:** Ready to implement
 <!-- agent-workflow:end -->
 
+Source item (optional): exact authoritative feature/ticket ID or link (Minimap or another tracker).
+
 <!--
 Implementation reference, Evidence reference, and Result review reference
 live in the prose around this marker block (typically under `## Implementation`,
