@@ -198,6 +198,11 @@ let boardParticipantGeneration = 0;
 let boardParticipantController = null;
 let boardParticipantIncludeCompleted = null;
 let workspaceLoadGeneration = 0;
+let specLoadGeneration = 0;
+let specSessionsGeneration = 0;
+let specPollGeneration = 0;
+let boardDraftRevision = null;
+let scopeDraftRevision = null;
 let sourceInventoryRequest = null;
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
@@ -2142,6 +2147,7 @@ function startBoardEditMode() {
 
   state.boardEditMode = true;
   state.boardDraft = cloneBoardDraftFromWorkspace();
+  boardDraftRevision = state.workspace.boardRevision;
   state.boardDirty = false;
   renderBoardChrome();
   renderBoard();
@@ -2156,6 +2162,7 @@ function cancelBoardEditMode(force = false) {
 
   state.boardEditMode = false;
   state.boardDraft = null;
+  boardDraftRevision = null;
   state.boardDirty = false;
   renderBoardChrome();
   renderBoard();
@@ -2206,19 +2213,26 @@ async function saveBoardDraft() {
 
   boardSaveButton.disabled = true;
   setBanner("Saving board...");
+  const scope = currentReadScopeKey();
+  const submitted = JSON.stringify(state.boardDraft);
 
   try {
-    const workspace = await api.saveBoard(state.boardDraft, state.workspace?.boardRevision);
-
+    const workspace = await api.saveBoard(state.boardDraft, boardDraftRevision);
+    if (scope !== currentReadScopeKey()) return;
     state.workspace = workspace;
-    state.boardEditMode = false;
-    state.boardDraft = null;
-    state.boardDirty = false;
+    boardDraftRevision = workspace.boardRevision;
+    if (JSON.stringify(state.boardDraft) === submitted) {
+      state.boardEditMode = false;
+      state.boardDraft = null;
+      boardDraftRevision = null;
+      state.boardDirty = false;
+    }
     syncWorkspaceChrome();
     renderBoard();
     renderScope();
     setBanner("Board saved.", "success");
   } catch (error) {
+    if (scope !== currentReadScopeKey()) return;
     renderBoardChrome();
     setBanner(error.message, "error");
   }
@@ -3546,6 +3560,16 @@ function itemIntentIsCurrent(intent, { requireSelected = false } = {}) {
   );
 }
 
+function currentReadScopeKey() {
+  return JSON.stringify([state.repoPath, state.worktreeMode, state.appMode,
+    state.selectedSource?.sourceKey || null, sourceRef(state.selectedSource)]);
+}
+
+function specIntentIsCurrent(intent) {
+  return state.appMode === "spec" && intent.generation === specLoadGeneration
+    && intent.scope === currentReadScopeKey() && sameSpecUiPath(intent.filePath, state.spec.selectedPath);
+}
+
 function participantStatusText(result) {
   if (!result) return "";
   if (result.status === "loading") return "Refreshing…";
@@ -4189,7 +4213,12 @@ function updateSpecNavButtons() {
 
 
 async function loadSpecSessions(options = {}) {
-  const payload = await api.listSessions();
+  const generation = ++specSessionsGeneration;
+  const intent = { generation: specLoadGeneration, scope: currentReadScopeKey(), filePath: state.spec.selectedPath };
+  let payload;
+  try { payload = await api.listSessions(); }
+  catch (error) { if (generation === specSessionsGeneration && specIntentIsCurrent(intent)) throw error; return; }
+  if (generation !== specSessionsGeneration || !specIntentIsCurrent(intent)) return;
   state.spec.sessions = payload.sessions || [];
   if (state.spec.selectedPath && !state.spec.sessions.some((session) => sameSpecUiPath(session.targetFile, state.spec.selectedPath))) {
     state.spec.selectedPath = "";
@@ -4219,12 +4248,15 @@ async function loadSpecSession(filePath, options = {}) {
   captureSpecReplyDraft();
   state.spec.selectedPath = filePath;
   state.spec.loadError = null;
+  const intent = { generation: ++specLoadGeneration, scope: currentReadScopeKey(), filePath };
   let context;
   let content;
   try {
     context = await api.getSessionContext(filePath);
+    if (!specIntentIsCurrent(intent)) return;
     content = await api.getSessionContent(filePath);
   } catch (error) {
+    if (!specIntentIsCurrent(intent)) return;
     state.spec.context = null;
     state.spec.content = "";
     state.spec.lastSeenContentHash = "";
@@ -4245,6 +4277,7 @@ async function loadSpecSession(filePath, options = {}) {
     }
     return;
   }
+  if (!specIntentIsCurrent(intent)) return;
   state.spec.context = context;
   state.spec.content = content.content || "";
   state.spec.lastSeenContentHash = context?.session?.contentHash || "";
@@ -4304,8 +4337,12 @@ async function refreshSpecReviewState() {
   const activeReplyId = state.spec.replyComposerCommentId;
   const shouldRestoreReplyFocus = Boolean(activeReplyId && specMarginElement.contains(document.activeElement));
   captureSpecReplyDraft();
-
-  const context = await api.getSessionContext(state.spec.selectedPath);
+  const generation = ++specPollGeneration;
+  const intent = { generation: specLoadGeneration, scope: currentReadScopeKey(), filePath: state.spec.selectedPath };
+  let context;
+  try { context = await api.getSessionContext(intent.filePath); }
+  catch (error) { if (generation === specPollGeneration && specIntentIsCurrent(intent)) throw error; return; }
+  if (generation !== specPollGeneration || !specIntentIsCurrent(intent)) return;
   state.spec.context = context;
   // Compare BEFORE rendering so the new flag is in scope when the banner
   // predicate runs below. The hash watermark is only ever advanced by full
@@ -4348,8 +4385,9 @@ async function openCurrentItemAsSpecSession() {
   // item.filePath is repo-relative (path.relative(repoRoot, item.filePath) on
   // the server). Build the absolute path so the spec-session attach succeeds
   // regardless of the server's cwd.
-  const absolutePath = state.repoPath
-    ? joinRepoPath(state.repoPath, item.filePath)
+  const repoPath = state.selectedSource?.repoRoot || state.repoPath;
+  const absolutePath = repoPath
+    ? joinRepoPath(repoPath, item.filePath)
     : item.filePath;
   try {
     await switchAppMode("spec");
@@ -4360,7 +4398,9 @@ async function openCurrentItemAsSpecSession() {
 }
 
 async function attachSpecSession(filePath) {
+  const intent = { generation: specLoadGeneration, scope: currentReadScopeKey(), filePath: state.spec.selectedPath };
   const result = await api.attachSession(filePath);
+  if (!specIntentIsCurrent(intent)) return;
   state.spec.selectedPath = result.session.targetFile;
   await loadSpecSessions();
   syncRouteState({ replace: true });
@@ -4516,6 +4556,7 @@ async function setSpecSuggestionStatus(suggestionId, action) {
 }
 
 async function switchAppMode(nextMode) {
+  if (state.appMode !== nextMode) specLoadGeneration += 1;
   state.appMode = nextMode;
   applyAppMode();
   if (nextMode === "spec") {
@@ -4536,6 +4577,8 @@ async function switchAppMode(nextMode) {
 }
 
 function resetAncillaryEditModes() {
+  boardDraftRevision = null;
+  scopeDraftRevision = null;
   state.boardEditMode = false;
   state.boardDraft = null;
   state.boardDirty = false;
@@ -4620,6 +4663,7 @@ async function applyRouteStateFromLocation() {
     return;
   }
   const route = readRouteState();
+  if ((route.view === "spec" ? "spec" : "roadmap") !== state.appMode) specLoadGeneration += 1;
   if (route.itemId && route.sourceKey && route.sources === "across") {
     state.preferredVersions.set(route.itemId, { sourceKey: route.sourceKey, gitRef: route.sourceRef });
   }
@@ -4792,7 +4836,8 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   const sameScope = state.workspaceScope?.repoPath === repoPath && state.workspaceScope?.mode === worktreeMode
     && (!state.boundRequired || (state.workspaceScope.sourceKey === state.pinnedSource?.sourceKey
       && state.workspaceScope.sourceRef === sourceRef(state.pinnedSource)));
-  const preserveDirtyItem = Boolean(options.preserveDirtyItem && state.currentItem && hasUnsavedCurrentItemChanges());
+  // Preserve the option through settlement: a clean editor can become dirty while awaiting either read.
+  const preserveDirtyItem = Boolean(options.preserveDirtyItem && sameScope);
   const draftSource = preserveDirtyItem ? state.selectedSource : null;
   const originalSelection = state.selectedItemId;
   let presented = sameScope;
@@ -4827,7 +4872,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     const reconcile = worktreeMode === "across" && presented;
     const retainUnfinished = reconcile && isUnfinishedFocused();
     const keepEditor = reconcile && (state.currentItem || state.itemLoadController);
-    resetAncillaryEditModes();
+    if (!sameScope && !presented) resetAncillaryEditModes();
     state.setupState = null;
     state.workspaceStale = false;
     if (sourceWorkspace) rememberPinnedSource(sourceWorkspace.source);
@@ -4870,7 +4915,8 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     renderScope();
     clearTransientBanner();
 
-    const desiredItemId = reconcile ? state.selectedItemId || (state.itemLoadGeneration === initialItemGeneration ? preferredItemId : "") : preferredItemId;
+    const desiredItemId = reconcile || state.itemLoadGeneration !== initialItemGeneration
+      ? state.selectedItemId || (state.itemLoadGeneration === initialItemGeneration ? preferredItemId : "") : preferredItemId;
     const desiredSource = state.preferredVersions.get(desiredItemId);
     const deferSelection = aggregate?.provisional && desiredItemId
       && (!workspace.items[desiredItemId] || desiredSource && !aggregate.sources.some((source) => source.sourceKey === desiredSource.sourceKey));
@@ -4894,6 +4940,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       return;
     }
     const fallbackItemId = shouldUseEditorOverlay() ? "" : (getFirstVisibleBoardItemId(workspace) || getFirstBoardItemId(workspace));
+    const previousItem = state.currentItem;
     await syncVisibleSelection({
       preferredItemId: reconcile || worktreeMode === "across" ? desiredItemId : desiredItemId && workspace.items?.[desiredItemId] ? desiredItemId : fallbackItemId,
       syncRoute: aggregate?.provisional ? false : options.syncRoute,
@@ -4903,7 +4950,8 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       preserveBoardControls: reconcile,
       refreshPresence: false,
     });
-    if (stillCurrent() && aggregate && !aggregate.provisional && state.currentItem && !state.itemLoadController) void loadItemParticipants(state.selectedItemId);
+    // loadItem owns freshly loaded details; only retained editors need a separate refresh.
+    if (stillCurrent() && !aggregate?.provisional && state.currentItem && state.currentItem === previousItem && !state.itemLoadController) void loadItemParticipants(state.selectedItemId);
     if (stillCurrent()) void refreshBoardPresence();
   };
 
@@ -5212,6 +5260,9 @@ async function saveCurrentItem() {
 
   saveButton.disabled = true;
   setBanner(state.editorMode === "raw" ? "Saving raw item..." : "Saving item...");
+  const savedItemId = state.selectedItemId;
+  const savedScope = currentReadScopeKey();
+  const stillCurrent = () => state.selectedItemId === savedItemId && savedScope === currentReadScopeKey();
 
   try {
     const payload = state.editorMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
@@ -5221,15 +5272,12 @@ async function saveCurrentItem() {
     const currentBoardGroupIndex = getBoardGroupIndexForItem(state.selectedItemId);
     const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : state.selectedItemId;
 
-    const savedItemId = state.selectedItemId;
-    const savedSourceKey = state.selectedSource?.sourceKey;
     const savedMode = state.editorMode;
     const savedItem = await api.saveItem(actualItemId, { ...payload, expectedRevision: state.currentItem?.revision });
-    if (state.selectedItemId === savedItemId && state.selectedSource?.sourceKey === savedSourceKey) {
-      const currentPayload = savedMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
-      if (state.editorMode === savedMode && JSON.stringify(currentPayload) === JSON.stringify(payload)) renderItem(savedItem);
-      else state.currentItem.revision = savedItem.revision;
-    }
+    if (!stillCurrent()) return;
+    const currentPayload = savedMode === "raw" ? { rawText: rawTextElement.value } : collectPayload();
+    if (state.editorMode === savedMode && JSON.stringify(currentPayload) === JSON.stringify(payload)) renderItem(savedItem);
+    else state.currentItem = savedItem;
     if (state.worktreeMode === "across" && state.selectedSource) {
       rememberPreferredVersion(state.selectedItemId, state.selectedSource);
     }
@@ -5241,12 +5289,13 @@ async function saveCurrentItem() {
       }
     }
 
-    await loadWorkspace(state.selectedItemId);
-    setBanner("Saved.", "success");
+    if (!stillCurrent()) return;
+    await loadWorkspace(savedItemId, { preserveDirtyItem: true });
+    if (stillCurrent()) setBanner("Saved.", "success");
   } catch (error) {
-    setBanner(error.message, "error");
+    if (stillCurrent()) setBanner(error.message, "error");
   } finally {
-    saveButton.disabled = false;
+    if (stillCurrent()) renderEditorChrome();
   }
 }
 
@@ -5259,6 +5308,7 @@ function startScopeEditMode() {
   persistScopePreference();
   state.scopeEditMode = true;
   state.scopeDraft = state.workspace.scopeText || "";
+  scopeDraftRevision = state.workspace.scopeRevision;
   state.scopeDirty = false;
   renderScopeChrome();
   renderScope();
@@ -5275,6 +5325,7 @@ function cancelScopeEditMode(force = false) {
 
   state.scopeEditMode = false;
   state.scopeDraft = state.workspace?.scopeText || "";
+  scopeDraftRevision = null;
   state.scopeDirty = false;
   renderScopeChrome();
   renderScope();
@@ -5283,19 +5334,26 @@ function cancelScopeEditMode(force = false) {
 async function saveScopeDraft() {
   scopeSaveButton.disabled = true;
   setBanner("Saving scope...");
+  const scope = currentReadScopeKey();
+  const submitted = state.scopeDraft;
 
   try {
-    const workspace = await api.saveScope(state.scopeDraft, state.workspace?.scopeRevision);
-
+    const workspace = await api.saveScope(state.scopeDraft, scopeDraftRevision);
+    if (scope !== currentReadScopeKey()) return;
     state.workspace = workspace;
-    state.scopeEditMode = false;
-    state.scopeDraft = workspace.scopeText || "";
-    state.scopeDirty = false;
+    scopeDraftRevision = workspace.scopeRevision;
+    if (state.scopeDraft === submitted) {
+      state.scopeEditMode = false;
+      state.scopeDraft = workspace.scopeText || "";
+      state.scopeDirty = false;
+      scopeDraftRevision = null;
+    }
     syncWorkspaceChrome();
     renderBoard();
     renderScope();
     setBanner("Scope saved.", "success");
   } catch (error) {
+    if (scope !== currentReadScopeKey()) return;
     renderScopeChrome();
     setBanner(error.message, "error");
   }

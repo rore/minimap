@@ -17,12 +17,15 @@
 **Plan review:** Agent technical review: clean-context non-implementer accepted the revised staged plan and Delivery 1 at 89a935d; see Plan review. Later concrete delivery design gates remain applicable.
 **Approvals:** Approved by user 2026-10-08: "so open a feature with all the details so we don't lose this, then let's drive a rewrite to fix all those issues and do a proper implementation that handles all of this." Approval follows the presented review and staged consolidation plan; human result review remains required.
 **Exceptions:** —
+**Behavior changes:** [{"target":"repository-contract","path":"playwright/refresh-reconciliation.spec.js","classification":"coverage-only","before":"No dedicated clean-start refresh, save-settlement, selected-source Review, obsolete Spec response or exactly-once detail regression file.","after":"Additional deterministic browser regression coverage for the existing draft, source intent and request ownership obligations; all existing protected assertions remain unchanged.","reason":"Reproduced asynchronous races need failing-before and passing-after evidence without changing existing acceptance requirements."}]
 **State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation
 
-Planning: feature captured before implementation. Current blocker is technical plan review, not missing user consent. Manager-owned canonical item: consolidate-roadmap-refresh at roadmap/features/consolidate-roadmap-refresh.md. Shared authoritative checkout for this feature: refresh-consolidation; workers must not edit competing roadmap copies.
+Delivery 1 implementation (accepted gate 0e24b2d): package/minimap/ui/app.js now preserves current editor/source intent and drafts through delayed refresh/save settlement, binds Open spec to the loaded source, rejects obsolete Spec list/load/poll responses, and assigns one participant-detail refresh owner. Board and scope drafts capture their original write revision when editing begins; a successful save advances it for later edits, while a pending Refresh cannot authorize overwriting an external edit. Added playwright/refresh-reconciliation.spec.js; generated both runtime mirrors. Existing protected tests remain unchanged. Qualification uses disposable homes, loopback ports and generic temporary repositories; no installed dependencies or live applications change.
+
+Planning: feature captured before implementation and Delivery 1 technical gate accepted. Manager-owned canonical item: consolidate-roadmap-refresh at roadmap/features/consolidate-roadmap-refresh.md. Shared authoritative checkout for this feature: refresh-consolidation; workers must not edit competing roadmap copies.
 
 ## Checkpoint: architecture-review
 
@@ -30,11 +33,15 @@ Change read orchestration and UI reconciliation while retaining source-confineme
 
 ## Evidence
 
-Pre-implementation review evidence and measurement scope are recorded in the canonical feature. No product edits or qualification performed on this branch yet.
+Delivery 1 failing-before evidence (product app.js at 0e24b2d): tmp/stage1-before.json reproduces 14 roadmap/source/detail failures; tmp/stage1-spec-before.json reproduces six obsolete Spec response failures with corrected exact-path selectors. Fixture/setup failures from prior diagnostic attempts are excluded. Two added write-revision regressions failed with HTTP 200 instead of 409 against the intermediate draft-retention implementation (tmp/stage1-revision-before.json), then passed after retaining draft base revisions. Existing protected assertions were not modified. Baseline fixtures contain only generic alpha/beta data and use a disposable home/port/browser.
+
+Passing-after evidence: tmp/stage1-final.json records 22/22 focused browser cases passing in 65.5 seconds on Windows, Node v24.14.1 and the existing Playwright 1.58.2 installation, with one worker and disposable server home/port/browser. Qualification reuses existing dependencies through an ignored checkout-local junction; no installation occurred. Promise handling, HTML escaping and runtime mirror parity: 3/3 node tests passed. An initial scope second-save HTTP 500 did not recur in the focused rerun or final run; its payload/revision were correct and no backend change was made. The selected-source Spec test uses a 15-second assertion window for existing Git validation costs. Skill-document drift search found no documented old UI-only behavior requiring changes. Pre-implementation review and broader performance measurements remain in the canonical feature.
+
+Retained browser checks: seven existing cases passed in tmp/stage1-retained.json (consecutive saves, dirty source switch, same-path raw source replacement, scope navigation drafts and all three Spec file-change cases). Two board-load cases initially exceeded the diagnostic configuration's shortened 3.5-second assertion window; both passed unchanged with the repository's normal 5-second window in tmp/stage1-retained-normal-timeout.json. No existing protected assertion changed. Redline reports RED, 744 counted lines including both mirrors and the captured feature, no API/schema/security/runtime-config or boundary change (tmp/stage1-redline-verdict.json). Workflow check using the complete NUL-separated changed-path list is advisory, with no blocking predicates: architecture-review label/CODEOWNER satisfaction remains separate from technical plan acceptance, and an earlier planning commit has a Work Record/code ordering advisory. The umbrella result review and later deliveries remain outstanding.
 
 ## Recovery
 
-Branch feat/consolidate-roadmap-refresh based on a142984. Next: technical plan review, then assign the first correctness stage with exact paths and scope. Keep the umbrella feature in progress until every acceptance outcome is reconciled.
+Branch feat/consolidate-roadmap-refresh based on a142984. Delivery 1 is implemented; next is its clean-context result review, then the remaining separately gated deliveries. Keep the umbrella feature in progress until every acceptance outcome is reconciled.
 
 ## Regression coverage audit and delivery boundaries
 
