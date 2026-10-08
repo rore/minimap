@@ -1958,8 +1958,11 @@ export async function listFileSessions(options = {}) {
   const minimapHome = options.minimapHome || resolveMinimapHome(options.env || process.env, options.platform || process.platform);
   const index = await loadSessionIndex(minimapHome);
   const sessions = [];
+  const targets = options.targetFiles === undefined ? null
+    : new Set(options.targetFiles.map((file) => normalizeFileKey(file, options.platform || process.platform)));
 
   for (const [fileKey, sessionId] of Object.entries(index.files)) {
+    if (targets && !targets.has(fileKey)) continue;
     const paths = makeSessionPaths(minimapHome, sessionId);
     let session;
     try {
