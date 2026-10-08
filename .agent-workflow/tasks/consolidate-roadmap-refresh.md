@@ -14,10 +14,10 @@
 **Material assumptions:** Existing batched Pallium API suffices; if not, coordinate a concrete dependency before changing its semantics. Bounded in-process read reuse suffices; worker/service changes require measured justification and revised review. Cache freshness must include dirty files; HEAD-only validation is unacceptable. User approval authorizes source work, not live rollout.
 **Plan:** Invoke agent-workflow and classify before code edits. Capture feature and obtain clean-context review of this plan. Implement in four independently reviewed stages from the feature: correctness; shared server read orchestration; common participant refresh and source-aware summaries/projection; integrated qualification/documentation. Use existing async APIs and source guards, source-of-truth files under package/minimap, and sync-mirrors for derived runtimes. For each implementation stage, record specific decisions, changed paths, tests and remaining scope before advancing. Stop on uncovered safety/contract changes, failed assumptions or missing measurable acceptance; never weaken tests to fit implementation.
 **Verification plan:** Draft preservation under delayed workspace/item/save responses -> targeted browser races. Correct source actions and stale-response rejection -> generic sibling checkout and file-switch tests. Consistent participant semantics -> This/Across List/Columns provider fixtures and bounded request assertions. Shared reads/cancellation/invalidation -> deterministic concurrency, file/config/source-change and subscriber cancellation tests. Multi-project responsiveness -> isolated HTTP benchmark with scan work counts, event-loop/endpoint latency and documented targets. Actual UI usability -> inspected screenshots at desktop/narrow in loading/settled/stale states. Preserve source/write safety -> existing source-bound and atomic-session suites. Final test verification identifier test plus browser CI, mirrors and doc drift checks.
-**Plan review:** Pending clean-context non-implementer review of this record and canonical feature; no product edits until accepted.
+**Plan review:** Agent technical review: clean-context non-implementer accepted the revised staged plan and Delivery 1 at 89a935d; see Plan review. Later concrete delivery design gates remain applicable.
 **Approvals:** Approved by user 2026-10-08: "so open a feature with all the details so we don't lose this, then let's drive a rewrite to fix all those issues and do a proper implementation that handles all of this." Approval follows the presented review and staged consolidation plan; human result review remains required.
 **Exceptions:** —
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -72,3 +72,5 @@ Every scope has an invalidation generation. An in-flight scan captures it; publi
 
 Clean-context review of 7f7f702 required clearer independent delivery boundaries, explicit existing/new regression mapping and cache publication ordering. These are addressed above and in the feature; no product edits yet. High/Large classification and previously recorded user approval remain applicable. Delivery 2b concrete policy remains a technical design checkpoint, not permission for live changes.
 
+
+Technical acceptance: revised plan and Delivery 1 accepted at 89a935d by a clean-context non-implementer. Explicit acceptance covers response-time draft checks, identity-bound save settlement, selected-source Spec actions, stale Spec response rejection and one detail refresh owner. Existing user approval applies. Delivery 2b still requires its concrete cache policy review; this is not result acceptance.
