@@ -465,6 +465,7 @@ export async function lookupPalliumParticipants(config, reference, options = {})
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const controller = new AbortController();
   const externalSignal = options.signal;
+  if (externalSignal?.aborted) throw new DOMException("aborted", "AbortError");
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
