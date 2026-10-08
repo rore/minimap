@@ -84,7 +84,32 @@ Review baseline: source revision 58e9e6c; test-isolation prerequisite merged in 
 
 Confirmed draft race was reproduced with actual loading functions in an isolated harness. The incorrect sibling Spec action constructed the opened repository's path; source guards are expected to reject it, not evidence of wrong-file modification. Aggregation uses asynchronous Git/filesystem APIs; repeated work and synchronous parsing/joins are performance concerns, not proof of a global synchronous Git lock.
 
-## Notes
+## Final qualification — 2026-10-08
+
+Implemented in draft PR #43: common snapshot/observation refresh, draft and source-intent preservation, bounded shared scans, cached inventory, request-local Git evidence reuse, and compact retained snapshots with legacy compatibility. Qualification additionally fixed repeated enumeration after the ancestor limit, cache eviction between large projects, interrupted validation stuck at Updating, and fast full-scan failures suppressing the opened-checkout fallback.
+
+Final runtime `3f675f9`, Windows, Node 24.14.1, Git 2.56.0.windows.1. Generic isolated fixtures. First usable/full are single observations; warm p95 is the empirical nearest-rank value of five reads, including transfer and client JSON parsing.
+
+| Checkouts × items each | First usable ms | Full load ms | Warm p95 ms |
+| --- | ---: | ---: | ---: |
+| 1 × 100 | 561.53 | 811.83 | 8.69 |
+| 1 × 1,000 | 1,284.44 | 1,522.90 | 33.33 |
+| 4 × 100 | 656.88 | 3,748.83 | 61.81 |
+| 4 × 1,000 | 1,333.40 | 5,230.47 | 91.84 |
+| 16 × 100 | 673.50 | 10,722.30 | 153.37 |
+| 16 × 1,000 | 1,515.05 | 20,088.84 | **339.96** |
+
+Every warm read reused its snapshot with zero Git. Four largest-board callers share one scan. Two independent largest snapshots both remain cached under the unchanged 64MiB limit; their combined wire size is 43.7MB. All sufficiently sampled lightweight endpoint p95s meet 200ms; largest-case health and other-project reads are 57.34ms and 100.95ms. Insufficient small-cell samples are raw observations, not percentile claims.
+
+Baseline `a142984` full reads were 1,691/2,764/6,490/10,583/26,896/69,170ms in the same cells. Its largest run failed a concurrent other-project request; later phases are censored, and no successful multi-project comparison or speedup ratio is claimed. Other baseline repeated reads still performed full scans.
+
+Actual List/Columns desktop and narrow screenshots were inspected, including 390px expanded version controls. Ten 390px layout-to-paint samples gave p95 51.6ms against 100ms. Regressions cover mode parity, source confinement, mutation ordering, lifecycle/partial availability, admission/eviction, shared cancellation and delayed editor intent. Runtime CI passed 416 unit tests. The Work Record tracks final browser CI and review.
+
+A real held-provider HTTP regression independently verifies that five cached board/health probes complete before a blocked Pallium response is released, preserving snapshot identity with zero Git. Those paired probes measured 17.66–21.63ms in the small fixture; observations then returned the expected counts.
+
+**Outstanding acceptance:** the 16×1,000 warm response misses 200ms while transferring a conservative 21.85MB payload. Accepting that measured limit requires an explicit scope decision; none has been granted. Final CI, human result approval and merge remain pending. The original passive badge-loss symptom remains unconfirmed. No installed consumer, live server or global configuration changed.
+
+## Earlier qualification checkpoints (superseded by the result above)
 
 Latest qualification: the large repeated-read miss is cache eviction, not admission failure: the expanded 16-checkout/1,000-item snapshot consumes almost the entire 64MiB cache, and a second project evicts it. A reviewed compact representation removes repeated source context and group versions without dropping uncertain identities or increasing the limit; legacy callers retain the expanded contract. Final multi-project measurements remain required. Browser qualification also fixed fast full-scan failures suppressing the opened-checkout fallback; seven related async/inventory regressions now pass. The full CI rerun and result approval remain outstanding.
 
