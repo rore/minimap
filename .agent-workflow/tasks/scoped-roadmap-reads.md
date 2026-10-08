@@ -36,10 +36,16 @@ After the minimal fix, all 45 focused checks passed: scoped-roadmap-reads, palli
 
 Both runtime mirrors were generated with sync-mirrors. git diff --check passes. Agent-facing docs were searched for session listing/detail behavior: public HTTP and lifecycle semantics are unchanged, so no prose update is needed. No new dependencies, live apps, shared registry or installed consumer changes. Broader full integration/CI remains required before final delivery.
 
+Publication preparation: complete branch diff from a142984 classified RED by the actual Redline reporter, with 155 counted lines across ten files including mirrors and no boundary/API/schema/security/runtime-config changes (tmp/delivery2c-redline-verdict.json). The already-accepted result review fields below are on separate lines so the workflow checker can validate them. Existing 45-test evidence is retained; this preparation pass does not rerun tests or change product source. Architecture-review label/CODEOWNER satisfaction remains a shadow advisory pending PR review.
+
 ## Implementation
 
 listFileSessions accepts internal targetFiles and filters normalized index keys before recovery/detail reads; normal unfiltered sessions API remains unchanged. Board enrichment passes only workspace item paths. Participant detail loads one workspace and checks own-property membership. Detail helper rejects already-aborted callers before fetching, after existing disabled/identity precedence checks.
 
 ## Result review
 
-Agent technical review: clean-context non-implementer accepted source 6d709dd with no blocking findings. Reviewed revision: 6d709dd. Verification adequacy: adequate; three failing-before regressions, 45 passing focused checks and independent six-mirror parity inspection. Human result approval and broader integration/CI remain required before merge.
+Agent technical review: clean-context non-implementer accepted source 6d709dd with no blocking findings.
+Reviewed revision: 6d709dd.
+Verification adequacy: adequate; three failing-before regressions, 45 passing focused checks and independent six-mirror parity inspection.
+
+Human result approval and broader integration/CI remain required before merge.
