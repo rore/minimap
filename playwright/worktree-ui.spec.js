@@ -112,6 +112,10 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await page.screenshot({ path: testInfo.outputPath("expanded-versions-columns-390.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await page.locator("#board-layout-list").click();
+    await page.getByRole("button", { name: /Open large-02/ }).first().click();
+    await expect(page.locator("#editor-title")).toContainText("large-02");
+    if (!(await page.locator("#editor-source-label").evaluate((element) => element.open))) await page.locator("#editor-source-summary").click();
+    await expect(contentOnlyVersion).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("expanded-versions-list-390.png") });
     await page.locator("#board-source-toggle").click();
     const menuBounds = await page.locator("#board-source-menu").evaluate((menu) => ({
@@ -138,9 +142,14 @@ test("combined large board stays usable in List and Columns at desktop and narro
       const ordered = [...samples].sort((a, b) => a - b);
       return { fixture: "85 features across two checkouts at 390px", samplesMs: samples, p95Ms: ordered[Math.ceil(ordered.length * 0.95) - 1], targetMs: 100 };
     });
-    await testInfo.attach("layout-interaction-timing", { body: JSON.stringify(layoutTiming), contentType: "application/json" });
+    const timingPath = testInfo.outputPath("layout-interaction-timing.json");
+    await fs.writeFile(timingPath, JSON.stringify(layoutTiming, null, 2));
+    await testInfo.attach("layout-interaction-timing", { path: timingPath, contentType: "application/json" });
+    await page.getByRole("button", { name: /Open large-01/ }).first().click();
+    await expect(page.locator("#field-status")).toHaveValue("in-progress");
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#tab-raw").click();
+    await expect(page.locator("#raw-text")).toHaveValue(/id: large-01/);
     const raw = await page.locator("#raw-text").inputValue();
     const draft = `${raw}\n<!-- unsaved worktree draft -->\n`;
     await page.locator("#raw-text").fill(draft);
@@ -605,7 +614,7 @@ test("independent same-ID features do not acquire participant detail from each o
   }
 });
 
-test("Across participant badges survive view invalidation and stay scoped to their workspace snapshot", async ({ page }, testInfo) => {
+test("Across participant badges refresh independently and remain scoped through view changes", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   const { owned, root, sibling } = await fixture(64);
   const other = await fixture(2);
@@ -614,11 +623,12 @@ test("Across participant badges survive view invalidation and stay scoped to the
   const aggregateReads = [];
   const boardCountReads = [];
   const participantReads = [];
+  const observations = new Map();
   let injectCounts = true;
   let recentCount = 1;
   page.on("request", (request) => {
     if (/\/api\/worktree-workspace(?:\?|$)/.test(request.url())) aggregateReads.push(request.url());
-    if (/\/api\/(?:source\/)?board\/participant-counts(?:\?|$)/.test(request.url())) boardCountReads.push(request.url());
+    if (/\/api\/board\/observations(?:\?|$)/.test(request.url())) boardCountReads.push(request.url());
     if (/\/api\/(?:source\/)?items\/[^/]+\/participants(?:\?|$)/.test(request.url())) participantReads.push(request.url());
   });
   await page.route(/\/api\/worktree-workspace(?:\?|$)/, async (route) => {
@@ -639,12 +649,16 @@ test("Across participant badges survive view invalidation and stay scoped to the
         participantCount: counts.recentParticipantCount + counts.dormantParticipantCount,
         ...counts,
       }));
-      payload.participantCounts = {
-        status: "ok", counts: rows, partial: true,
-        asOf: "2026-09-24T08:30:00.000Z", recentSeconds: 86400,
-      };
+      observations.set(payload.snapshot.id, {
+        status: "ok", counts: rows, partial: true, includeCompleted: true,
+        asOf: new Date().toISOString(), recentSeconds: 86400,
+      });
     }
     await route.fulfill({ response, json: payload });
+  });
+  await page.route("**/api/board/observations**", (route) => {
+    const counts = observations.get(new URL(route.request().url()).searchParams.get("snapshot"));
+    return counts && injectCounts ? route.fulfill({ json: counts }) : route.continue();
   });
 
   try {
@@ -666,7 +680,7 @@ test("Across participant badges survive view invalidation and stay scoped to the
     await page.setViewportSize({ width: 1440, height: 900 });
     const initialReads = aggregateReads.length;
     const initialDetailReads = participantReads.length;
-    const initialBoardCountReads = boardCountReads.length;
+    expect(boardCountReads.length).toBeGreaterThan(0);
     expect(initialReads).toBeGreaterThan(0);
     await page.locator("#board-focus-in-play").click();
     await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "true");
@@ -690,6 +704,7 @@ test("Across participant badges survive view invalidation and stay scoped to the
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
         await page.setViewportSize({ width: 1440, height: 900 });
       }
+      const beforeVisibility = boardCountReads.length;
       await page.evaluate(() => {
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
         document.dispatchEvent(new Event("visibilitychange"));
@@ -701,16 +716,17 @@ test("Across participant badges survive view invalidation and stay scoped to the
       await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
       await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
       expect(aggregateReads).toHaveLength(initialReads);
-      expect(boardCountReads).toHaveLength(initialBoardCountReads);
+      await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeVisibility);
       expect(participantReads).toHaveLength(initialDetailReads);
 
+      const beforeSpec = boardCountReads.length;
       await page.locator("#spec-mode-button").click();
       await expect(page.locator("#spec-workbench")).toBeVisible();
       await page.locator("#roadmap-mode-button").click();
       await expect(page.locator("#spec-workbench")).toBeHidden();
       await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
       expect(aggregateReads).toHaveLength(initialReads);
-      expect(boardCountReads).toHaveLength(initialBoardCountReads);
+      await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeSpec);
       expect(participantReads).toHaveLength(initialDetailReads);
     }
 

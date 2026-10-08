@@ -4586,7 +4586,7 @@ async function switchAppMode(nextMode) {
   state.appMode = nextMode;
   applyAppMode();
   if (nextMode === "spec") {
-    workspaceLoadController?.abort();
+    pauseWorkspaceRead();
     invalidateBoardPresence({ keepCounts: true });
     try {
       await loadSpecSessions();
@@ -4710,7 +4710,7 @@ async function applyRouteStateFromLocation() {
   state.boundRequired = requestedWorktreeMode === "this" && route.bound;
   state.pinnedSource = state.boundRequired ? restorePinnedSource(state.repoPath) : null;
   if (route.view === "spec") {
-    workspaceLoadController?.abort();
+    pauseWorkspaceRead();
     invalidateBoardPresence({ keepCounts: !repoChanged && !worktreeModeChanged && !boundChanged });
     state.appMode = "spec";
     state.spec.selectedPath = route.specFile || state.spec.selectedPath;
@@ -6440,20 +6440,32 @@ window.addEventListener("hashchange", () => {
   void applyRouteStateFromLocation();
 });
 
+function pauseWorkspaceRead() {
+  if (!workspaceLoadController) return;
+  const controller = workspaceLoadController;
+  workspaceLoadController = null;
+  controller.abort();
+  state.workspaceStale = Boolean(state.workspace);
+  state.worktreeLoading = false;
+  state.worktreeRetrying = false;
+  lastWorkspaceAttemptAt = 0;
+  renderBoardSourceControl();
+}
+
 function refreshVisibleRoadmap() {
   if (document.visibilityState !== "visible" || state.appMode !== "roadmap") return;
   const validatedAt = Date.parse(workspaceSnapshot?.validatedAt || "") || lastWorkspaceAttemptAt;
   if (!workspaceLoadController && !state.boardEditMode && !state.scopeEditMode
-    && (!state.workspace || state.worktreeData?.provisional || workspaceSnapshot && (workspaceSnapshot.stale || Date.now() - validatedAt >= 30_000))
+    && (!state.workspace || state.workspaceStale || state.worktreeData?.provisional || workspaceSnapshot && (workspaceSnapshot.stale || Date.now() - validatedAt >= 30_000))
     && Date.now() - lastWorkspaceAttemptAt >= 1_000) {
-    void loadWorkspace(state.selectedItemId, { preserveDirtyItem: true, preserveBoardControls: true, background: true });
+    void loadWorkspace(state.selectedItemId, { fresh: state.workspaceStale, preserveDirtyItem: true, preserveBoardControls: true, background: true });
   }
   if (boardPresenceIsVisible()) void refreshBoardPresence();
 }
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    workspaceLoadController?.abort();
+    pauseWorkspaceRead();
     invalidateBoardPresence({ keepCounts: true });
   } else refreshVisibleRoadmap();
 });
