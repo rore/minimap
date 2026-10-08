@@ -33,9 +33,18 @@ test("coalesces identical scans and returns detached values", async () => {
   assert.equal(loads, 1);
   gate.resolve(result({ items: ["feature-a"] }, { refs: ["item:a"] }));
   const [a, b] = await Promise.all([first, second]);
+  const serialized = '{"items":["feature-a"]}';
+  assert.equal(a.valueJson, serialized);
+  assert.equal(b.valueJson, serialized);
   assert.notStrictEqual(a.value, b.value);
   a.value.items.push("local mutation");
   assert.deepEqual(b.value.items, ["feature-a"]);
+  assert.equal(a.valueJson, serialized);
+  b.value = { replacement: true };
+  assert.deepEqual(b.value, { replacement: true });
+  assert.equal(b.valueJson, serialized);
+  const cached = await coordinator.read({ key: "repo:this", cached: true, load, admit: async () => true });
+  assert.deepEqual(cached.value.items, ["feature-a"]);
 });
 
 test("isolates scopes and validates cached admission before reuse", async () => {

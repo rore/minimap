@@ -116,13 +116,13 @@ const contentTypes = new Map([
   [".svg", "image/svg+xml; charset=utf-8"],
 ]);
 
-function sendJson(response, statusCode, payload) {
+function sendJson(response, statusCode, payload, serialized = false) {
   if (response.invalidateRoadmapSnapshots) {
     roadmapSnapshots.invalidateAll();
     response.invalidateRoadmapSnapshots = false;
   }
   response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(payload));
+  response.end(serialized ? payload : JSON.stringify(payload));
 }
 
 function requestAbortSignal(request, response) {
@@ -859,6 +859,12 @@ async function handleWorktreeWorkspace(request, response) {
     });
     if (signal.aborted) return;
     if (loaded.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
+    if (compact && !participants) {
+      // The retained object is already serialized; only its freshness metadata changes.
+      if (!response.destroyed) sendJson(response, 200,
+        `${loaded.valueJson.slice(0, -1)},"snapshot":${JSON.stringify(loaded.snapshot)}}`, true);
+      return;
+    }
     if (!compact) loaded.value = expandWorktreePayload(loaded.value);
     loaded.value.snapshot = loaded.snapshot;
     if (participants) loaded.value.participantCounts = openedOnly

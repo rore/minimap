@@ -124,8 +124,18 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
   }
 
   function responseFor(entry, { stale = false, refreshing = false, valueJson = entry.valueJson } = {}) {
+    let materialized = false;
+    let value;
     return {
-      value: valueJson === null ? null : JSON.parse(valueJson),
+      valueJson,
+      get value() {
+        if (!materialized) {
+          value = valueJson === null ? null : JSON.parse(valueJson);
+          materialized = true;
+        }
+        return value;
+      },
+      set value(next) { value = next; materialized = true; },
       snapshot: { id: entry.id, validatedAt: entry.validatedAt, stale, refreshing },
       generation: entry.epoch,
     };
