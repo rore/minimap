@@ -16,7 +16,7 @@
 **Plan review:** Agent technical review: clean-context non-implementer accepted concrete plan b4e0ad9, including live identity batching, bounded compatibility fallback, indexed pairwise joins and deferral of process-wide evidence caching.
 **Approvals:** Approved by user 2026-10-08: "so open a feature with all the details so we don't lose this, then let's drive a rewrite to fix all those issues and do a proper implementation that handles all of this." This independently useful delivery 2a implements approved identity/read-cost findings. Technical plan acceptance and human result approval remain separate; no live changes are authorized.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 **Requirement baseline:** {"source":"work-record-initial","outcome":"Reduce repeated Git identity subprocesses and large aggregation joins while preserving exact source and feature identity semantics.","scope":"package/minimap/src/worktree-sources.js and worktree-aggregate.js; test/git-read-consolidation.test.js; generated runtime mirrors; this Work Record. Existing regression files remain unchanged.","constraints":"Keep identity checks live at every current call site. Preserve source/write guards, identity ambiguity, pairwise ancestry/squash evidence, source limits, Git/file budgets and public response shapes. No process-wide evidence or mutable snapshot cache, UI/API changes, new dependencies, governance changes or live environment changes. Generic disposable qualification only. Manager retains canonical roadmap ownership.","completion_criteria":"Ordinary valid source identity needs one Git subprocess instead of four and returns the same identity fields. Unsupported or ambiguous batch framing retains compatible legacy behavior without treating failed identity as success. Indexed joins preserve feature separation, source versions, board order, duplicate membership and missing-reference behavior. Focused count/output tests and existing source-bound/ancestry/squash checks pass; required mirrors, docs review and independent result review complete."}
 <!-- agent-workflow:end -->
 
@@ -24,7 +24,7 @@
 
 Independent delivery 2a of consolidate-roadmap-refresh, tracked in PR #43. The manager-owned item is C:/Users/I347041/.codex/worktrees/refresh-consolidation/minimap/roadmap/features/consolidate-roadmap-refresh.md and its umbrella Work Record. Those files were read before this plan; do not edit or duplicate them here. Delivery 1 follow-up is d04bc66; independent scoped-read delivery 2c is draft PR #44 with all CI checks green. Neither implies snapshot-cache or observation delivery acceptance.
 
-Managed checkout: C:/Users/I347041/.codex/worktrees/git-read-consolidation/minimap, branch feat/git-read-consolidation, based on a142984. This checkout contains only its own planning record changes. There are no source or test edits yet. State records the pending technical gate, not missing human source-work approval.
+Managed checkout: C:/Users/I347041/.codex/worktrees/git-read-consolidation/minimap, branch feat/git-read-consolidation, based on a142984. Technical plan b4e0ad9 was accepted by the manager's clean-context reviewer; acceptance and Ready to implement state were committed as dbffb5c before product edits. Canonical roadmap ownership remains with the manager.
 
 ## Concrete implementation decisions
 
@@ -53,4 +53,39 @@ Change the implementation of live source identity and indexing of aggregate read
 
 ## Recovery
 
-Technical gate accepted for b4e0ad9; existing human source-work approval applies. Next action: tests first, bounded implementation and focused verification, then independent result review of a concrete source revision. No cache, server/UI/API, canonical roadmap, live application or governance changes are authorized by this bounded delivery.
+Technical gate accepted for b4e0ad9; existing human source-work approval applies. Implementation, mirrors and 46 focused regressions passed. Next action: independent result review of the concrete implementation revision, then record acceptance and complete the workflow review gate before publication. Human result approval remains required before merge. Process-wide evidence caching remains explicitly unfinished and outside this delivery. No server/UI/API, canonical roadmap, live application or governance changes are authorized by this bounded delivery.
+
+## Implementation
+
+- Tests first: real-Git instrumentation reproduced four subprocesses for one ordinary identity; a targeted four-source aggregation baseline reproduced 32 identity subprocesses instead of the required eight. Compatibility and representative assembly assertions passed on unchanged code. Baseline details and the excluded transient partial result are recorded below.
+- Identity: one verified, absolute-path rev-parse batch supplies ordinary identity fields. Directory stat and HEAD-file reads remain live. Older/ambiguous framing has a bounded legacy fallback; normal failed Git reads remain unavailable without four retries. Existing source-bound call sites and final aggregate validation were not changed.
+- Assembly: ordered id/path candidate buckets retain the original every-source pairwise predicate. Per-source item maps and per-group key sets replace global scans without changing appearance order or missing-reference behavior.
+- Verification: six new regressions passed after implementation. Strengthened the same identity test with subdirectory and next-commit checks and made non-Git/unborn process counts exact; those additions are included in the retained-safety run. Both derived runtime trees were regenerated before packaged HTTP safety checks.
+- Evidence reuse: no process-wide cache or altered replace/shallow/prune semantics was added. Existing request-local evidence budgets and caches remain intact; a separate reviewed design is required for later reuse.
+
+## Evidence
+
+Qualification uses Node v24.14.1, Git 2.56.0.windows.1 and Windows, with generic disposable repositories and test-owned homes/ports. No everyday server, registry or application configuration was used. Reports are ignored diagnostic artifacts under this checkout's tmp directory.
+
+Before edits, node --test test/git-read-consolidation.test.js produced four passing preservation checks and two failures (tmp/git-read-before.txt). The ordinary identity failure was the intended 4 !== 1 cost regression. The first aggregate failure reported partial coverage before reaching its count assertion; its cause was not captured and it is excluded from cost evidence. Adding the existing coverage diagnostic and rerunning only that aggregate test on unchanged source produced complete source coverage and the intended 32 !== 8 identity-call failure (tmp/git-read-count-before.txt). No claim is made that batching fixes the unexplained earlier partial result.
+
+After edits, all six new cases passed in 26.70 seconds (tmp/git-read-after.txt). The four-source test measures 13 total Git calls, including eight live identity calls, on both its initial and repeated read. Repeated reads still recompute live state; this is not a warm-cache claim. The combined retained-safety run then passed all 46 tests in 264.21 seconds (tmp/git-read-retained.txt), including strengthened identity checks, worktree-sources, worktree-aggregate, worktree-squash-http, worktree-presence, source-bound, source-bound-context, source-bound-http-race and sync-mirrors. No full-suite run was used.
+
+Qualification ran on the implementation working tree based on dbffb5c278e82808b3ec732cb38f0a8a5c148bc6. Exact verified Git blobs: worktree-sources.js 879b592412dbf62169a19e3563ae4410a86308c2; worktree-aggregate.js a42bdb36d290cf8b17d91a688405b66478c73990; git-read-consolidation.test.js 017d740bdcaf0fc4545603f4f7996c60fc670a2d. Product and test contents remain unchanged in the implementation commit; final evidence prose does not require repeating the passing qualification.
+
+One post-change direct-module measurement used only disposable generic fixtures (tmp/git-read-measure.mjs, tmp/git-read-measure.txt and tmp/git-read-measure.json). It ran concurrently with the focused safety qualification, so latency is descriptive and not a controlled before/after comparison. Subprocess and read counts are instrumented in its own process.
+
+| Sources | Items per source | Git calls | Identity calls | File reads | Elapsed ms | Features / partial |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 100 | 3 | 2 | 104 | 576 | 100 / false |
+| 4 | 100 | 13 | 8 | 416 | 2975 | 100 / false |
+| 1 | 1000 | 3 | 2 | 1004 | 1071 | 1000 / false |
+| 4 | 1000 | 16 | 8 | 4016 | 5244 | 4000 / true |
+
+The four-source 1000-item fixture loaded all four sources and retained separate identities with partial coverage. The unchanged 500 ancestor-item cap explains this outcome by code inspection; the measurement did not capture the detailed uncertainty reason. It is not a regression or proof of an HTTP freshness/200-ms target. Request-wide cancellation, snapshot reuse, bounded service concurrency and safe evidence reuse remain later work.
+
+Skill-doc drift search covered source context, source identity, HEAD, cache and cached. The documented live Git rechecks and bounded squash evidence remain accurate; no prose behavior change was needed. Existing protected regression files and governance policy are unchanged. Complete-diff Redline from a142984 reports GRAY, 352 counted lines in seven product/test paths, four generated runtime watch paths, no boundary violations, API changes or protected behavior-contract changes (tmp/git-read-redline.json). The Work Record is excluded from its size count. git diff --check passed. The pre-transition local workflow check was clean. The Ready for review check reports exactly one blocking predicate, review.agent_result_review_present, because independent result review is pending (tmp/git-read-workflow-review.txt); no passing final workflow result is claimed.
+
+## Result review
+
+Pending independent clean-context non-implementer technical review of the concrete implementation revision and the verification evidence above. No acceptance is claimed. Human result approval remains a separate pre-merge requirement. The manager will reconcile the canonical umbrella feature with this bounded delivery; evidence caching and the wider refresh architecture remain unfinished.

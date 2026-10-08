@@ -7,11 +7,12 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const MAX_SOURCES = 16;
 
-async function git(repoRoot, args) {
-  return (await execFileAsync("git", args, {
+async function git(repoRoot, args, trim = true) {
+  const stdout = (await execFileAsync("git", args, {
     cwd: repoRoot, windowsHide: true, shell: false, timeout: 2000,
     maxBuffer: 1024 * 1024, encoding: "utf8",
-  })).stdout.trim();
+  })).stdout;
+  return trim ? stdout.trim() : stdout;
 }
 
 function canonical(value) {
@@ -20,15 +21,32 @@ function canonical(value) {
 }
 
 async function context(repoRoot) {
-  const root = canonical(await git(repoRoot, ["rev-parse", "--show-toplevel"]));
-  const gitDir = canonical(await git(repoRoot, ["rev-parse", "--absolute-git-dir"]));
-  const commonDirRaw = await git(repoRoot, ["rev-parse", "--git-common-dir"]);
-  const commonDir = canonical(path.resolve(root, commonDirRaw));
+  let output;
+  try {
+    output = await git(repoRoot, ["rev-parse", "--path-format=absolute", "--show-toplevel",
+      "--absolute-git-dir", "--git-common-dir", "--verify", "HEAD"], false);
+  } catch (error) {
+    // Older Git may reject the option. Other failures must not launch four retries.
+    if (!/unknown (?:option|switch)[\s\S]*path-format/i.test(error.stderr || "")) throw error;
+  }
+  const fields = output?.replace(/\r?\n$/, "").split(/\r?\n/);
+  let root, gitDir, commonDir, commit;
+  if (fields?.length === 4 && fields.slice(0, 3).every((field) => path.isAbsolute(field))
+    && /^[0-9a-f]{40,64}$/i.test(fields[3])) {
+    [root, gitDir, commonDir] = fields.slice(0, 3).map(canonical);
+    commit = fields[3];
+  } else {
+    // Preserve legacy/unusual path framing rather than guessing newline boundaries.
+    root = canonical(await git(repoRoot, ["rev-parse", "--show-toplevel"]));
+    gitDir = canonical(await git(repoRoot, ["rev-parse", "--absolute-git-dir"]));
+    commonDir = canonical(path.resolve(root, await git(repoRoot, ["rev-parse", "--git-common-dir"])));
+  }
   const [gitStat, commonStat, head] = await Promise.all([
     fs.stat(gitDir), fs.stat(commonDir), fs.readFile(path.join(gitDir, "HEAD"), "utf8"),
   ]);
   const branch = head.trim().match(/^ref:\s*(.+)$/);
-  const commit = await git(repoRoot, ["rev-parse", "HEAD"]);
+  commit ??= await git(repoRoot, ["rev-parse", "HEAD"]);
+  if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error("Invalid Git HEAD");
   const identity = (stat) => ({ birthtimeMs: stat.birthtimeMs, ino: stat.ino, dev: stat.dev });
   const key = createHash("sha256").update(`${commonDir}\0${gitDir}\0${gitStat.dev}:${gitStat.ino}`).digest("hex");
   return {
