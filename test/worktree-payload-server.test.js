@@ -39,12 +39,14 @@ function gitCount(child) {
   });
 }
 
-test("compact and legacy HTTP callers share retained scans, participants and source guards", { timeout: 60_000 }, async () => {
+test("compact and legacy HTTP callers share retained scans, participants and source guards", { timeout: 60_000 }, async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-compact-http-"));
   const home = path.join(dir, "home"), root = path.join(dir, "main"), sibling = path.join(dir, "sibling");
+  let providerGate;
   const provider = http.createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) chunks.push(chunk);
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (providerGate) { providerGate.enter(); await providerGate.pending; }
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
       contract: "relay-work-ref-counts/v1", as_of: "2026-10-01T00:00:00Z", recent_seconds: 86400,
       counts: payload.references.map((reference) => ({ ...reference, participant_count: 2,
@@ -81,8 +83,8 @@ test("compact and legacy HTTP callers share retained scans, participants and sou
     const health = await (await fetch(`http://127.0.0.1:${env.PORT}/health`)).json();
     assert.equal(health.pid, child.pid, "Only the disposable server may be stopped");
     const headers = { "X-Minimap-Repo-Encoded": encodeURIComponent(root) };
-    const read = async (query) => {
-      const response = await fetch(`http://127.0.0.1:${env.PORT}/api/worktree-workspace${query}`, { headers });
+    const read = async (query, signal) => {
+      const response = await fetch(`http://127.0.0.1:${env.PORT}/api/worktree-workspace${query}`, { headers, signal });
       const text = await response.text(); return { status: response.status, bytes: Buffer.byteLength(text), value: JSON.parse(text) };
     };
     const before = await gitCount(child);
@@ -106,6 +108,36 @@ test("compact and legacy HTTP callers share retained scans, participants and sou
       assert.equal(warm.value.participantCounts.counts[0].participantCount, 2);
     }
     assert.equal(await gitCount(child), warmBefore, "Both retained response styles launch zero Git processes");
+    let entered, release;
+    const providerEntered = new Promise((resolve) => { entered = resolve; });
+    providerGate = { enter: entered, pending: new Promise((resolve) => { release = resolve; }), release: () => release() };
+    let observationSettled = false;
+    const observation = fetch(`http://127.0.0.1:${env.PORT}/api/board/observations?snapshot=${encodeURIComponent(fresh.value.snapshot.id)}`, {
+      headers, signal: AbortSignal.timeout(5000),
+    }).then(async (response) => ({ status: response.status, value: await response.json() }))
+      .finally(() => { observationSettled = true; });
+    try {
+      await Promise.race([providerEntered, observation.then(() => { throw new Error("Observation did not enter the held provider"); })]);
+      const probes = [], heldBefore = await gitCount(child);
+      for (let index = 0; index < 5; index++) {
+        const started = performance.now();
+        const [board, responsiveHealth] = await Promise.all([
+          read("?compact=1&cached=1&participants=0", AbortSignal.timeout(1000)),
+          fetch(`http://127.0.0.1:${env.PORT}/health`, { signal: AbortSignal.timeout(1000) }).then(async (response) => ({
+            status: response.status, value: await response.json(),
+          })),
+        ]);
+        probes.push(Math.round((performance.now() - started) * 100) / 100);
+        assert.equal(board.status, 200); assert.equal(board.value.snapshot.id, fresh.value.snapshot.id);
+        assert.equal(responsiveHealth.status, 200); assert.equal(responsiveHealth.value.pid, child.pid);
+        assert.equal(observationSettled, false, "Board and health must finish before the provider is released");
+      }
+      assert.equal(await gitCount(child), heldBefore, "Held-provider probes launch zero Git processes");
+      t.diagnostic(JSON.stringify({ heldProviderBoardAndHealthMs: probes, samples: 5, timingTargetAsserted: false }));
+    } finally { providerGate.release(); providerGate = null; await observation.catch(() => {}); }
+    const observed = await observation;
+    assert.equal(observed.status, 200); assert.equal(observed.value.status, "ok");
+    assert.equal(observed.value.counts[0].participantCount, 2);
     const opened = await read("?compact=1&openedOnly=1");
     assert.equal(opened.status, 200); assert.equal(opened.value.provisional, true);
     assert.equal(opened.value.participantCounts.status, "loading");
@@ -125,6 +157,7 @@ test("compact and legacy HTTP callers share retained scans, participants and sou
     assert.notEqual(invalidated.value.snapshot.id, fresh.value.snapshot.id);
     assert.equal(invalidated.value.workspace.scopeText, "Updated generic scope.\n");
   } finally {
+    providerGate?.release();
     if (child) {
       await exec(process.execPath, [path.join(scripts, "stop-server.mjs")], { env, windowsHide: true, timeout: 15000 });
       if (child.exitCode === null) await new Promise((resolve, reject) => {
