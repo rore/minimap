@@ -1,0 +1,59 @@
+# Isolate legacy server tests from the developer registry
+
+<!-- agent-workflow:start -->
+**Outcome:** Legacy roadmap server tests cannot overwrite the caller's Minimap registry or affect an already running server.
+**Target:** Roadmap test process setup and cleanup.
+**Scope:** test/roadmap.test.js; focused test isolation regression; task-owned diagnostic artifacts.
+**Constraints:** No product runtime, lifecycle scripts, server identity contract, shared registry, live server, or consumer settings changes. Preserve existing test assertions and explicit per-test homes. Reproduce only with disposable homes and ports; use packaged lifecycle scripts for added cleanup.
+**Completion criteria:** Previously unscoped startup tests use a fresh test-owned home even when the caller sets MINIMAP_HOME. A subprocess regression leaves a disposable caller registry byte-identical and its running server healthy; fixture cleanup uses only its scoped packaged lifecycle. Focused tests, full unit verification and independent result review pass.
+**Requirement baseline:** {"source":"work-record-initial","outcome":"Legacy roadmap server tests cannot overwrite the caller's Minimap registry or affect an already running server.","scope":"test/roadmap.test.js; focused test isolation regression; task-owned diagnostic artifacts.","constraints":"No product runtime, lifecycle scripts, server identity contract, shared registry, live server, or consumer settings changes. Preserve existing test assertions and explicit per-test homes. Reproduce only with disposable homes and ports; use packaged lifecycle scripts for added cleanup.","completion_criteria":"Previously unscoped startup tests use a fresh test-owned home even when the caller sets MINIMAP_HOME. A subprocess regression leaves a disposable caller registry byte-identical and its running server healthy; fixture cleanup uses only its scoped packaged lifecycle. Focused tests, full unit verification and independent result review pass."}
+**Risk:** Elevated
+**Complexity:** Moderate
+**Reason:** Test startup currently affects a developer-owned server registry; isolation correctness requires live disposable-server evidence. Changes remain confined to gray test setup and regression coverage.
+**Discovery:** test/roadmap.test.js directly starts servers for endpoint saves and busy-port fallback without MINIMAP_HOME; startServerOnPort likewise inherits the caller's home. Their ports correspond exactly to the diagnostic startup sequence. The screenshot harness and squash HTTP fixture explicitly used disposable homes. Forced child cleanup on Windows leaves a stale registry. This explains registry contamination, not the death of the previous canonical server.
+**Material assumptions:** Node's test file runs in its own process, so replacing its inherited MINIMAP_HOME before tests safely isolates all unscoped child processes while preserving explicit per-test overrides. A subprocess regression must disprove any leak. No runtime changes are necessary.
+**Plan:** Invoke agent-workflow to create this record and classify risk before code edits. Review this concrete Elevated plan. Allocate a fresh suite home before roadmap tests and always provide it to inherited child processes; scoped packaged cleanup after the suite removes that disposable registry. Preserve explicit lifecycle and signal-handling tests. Add a subprocess regression running the known previously unscoped cases with a disposable caller home containing an already-running packaged server; compare registry bytes and packaged status before and after. Preserve sanitized local diagnostic excerpts. Stop if implementation requires product lifecycle or protected acceptance-contract changes.
+**Verification plan:** Caller registry unchanged and server remains healthy after legacy tests → disposable packaged server plus subprocess regression and byte comparison. All legacy startup paths inherit isolation and explicit homes remain respected → source audit and complete roadmap unit file. Existing suite obligations preserved → full node unit suite. No runtime/docs changes → final diff and drift applicability audit. Independent result reviewer assesses adequate evidence and risk.
+**Plan review:** Agent technical review: ## Plan review below; accepted 70f55f7 before implementation.
+**Approvals:** Not required at this risk level; bounded isolation fix authorized by task owner.
+**Exceptions:** —
+**State:** Ready for review
+<!-- agent-workflow:end -->
+
+## Implementation
+
+Planning checkpoint: isolated branch feat/test-server-isolation from d11bd657; no product or test edits yet. Current shared server will not be started, stopped or restarted.
+
+Implementation: roadmap.test.js now allocates a fresh worker-owned home before tests, registers scoped packaged cleanup, and preserves explicit per-test homes. The three formerly unscoped server cases use packaged cleanup and wait for the child to exit, avoiding Windows forced-termination registry leftovers. The busy-port fixture closes its own blocker even when cleanup reports an error. No existing assertions or signal-handler tests changed.
+
+Focused verification checkpoint: disposable caller server starts through packaged lifecycle on a dynamically selected port; the filtered child runner executes exactly three formerly unscoped cases. Caller registry remains byte-identical and packaged status still reports the caller server healthy; its cleanup uses only its own explicit home. Focused regression passes on Node 24.19.0. The first fixture attempt exposed inherited NODE_TEST_CONTEXT suppressing nested runner output; the fixture now removes that internal worker variable and explicitly uses TAP, asserting three passing tests so no empty run can count as success. This checkpoint preceded the full verification recorded below.
+
+Final verification: Node 24.19.0 full unit run with test-concurrency=2 passed: 370 total, 368 passed, two skipped, zero failures or cancellations, 288 seconds. A fresh focused caller-registry regression rerun on 694265a passed in four seconds, executing all three original startup paths and verifying untouched caller bytes/status. git diff --check passes. No product runtime or documented behavior changed, so mirror synchronization and skill-doc updates are not applicable; mirror parity passed in the required unit suite.
+
+## Evidence
+
+Diagnostic evidence is scoped to local task artifacts and sanitized before any public delivery. Public fixtures use generic paths and dynamically allocated disposable identity.
+
+Source excerpts: artifacts/test-isolation-diagnosis.txt. Full verification: artifacts/unit-tests.log. The reported registry startup sequence corresponds to legacy test ports; it does not establish canonical server death. Current shared server was never started, stopped, restarted, or modified by this task.
+
+Execution boundary: qualification remained in this isolated checkout and disposable homes. The subprocess caller's registry was byte-identical before and after exactly three legacy cases, and packaged status remained healthy. No installed tools, versions, launchers, PATH, persistent environment, global configuration, integrations, consumer files, or normal registry were changed. Existing bundled Node and Python were invoked by absolute path; environment variables were scoped to child processes. No user app or service was started, stopped or restarted. This standing boundary was also relayed to the non-implementer reviewer.
+
+## Recovery
+
+Implementation and verification complete at 694265a; independent result review accepted. Finish workflow validation and prepare the draft PR. No shared service or consumer change is required.
+
+## Plan review
+
+Clean-context non-implementer inspected 70f55f7, test startup helpers, the three legacy cases, and policy. Disposition: accept Elevated plan; no red checkpoint. Suite-home inheritance covers existing helpers and future unscoped children; explicit per-test overrides remain effective. Register scoped packaged cleanup immediately after creating the home. Ensure legacy server children exit before deleting it. Regression uses only three named legacy cases to avoid recursion, checks exact caller registry bytes and packaged status, and cleans up only its disposable sentinel.
+
+## Feedback filter
+
+Consumer repository test setup caused the confirmed isolation defect; no agent-workflow or provider defect is implicated. No upstream workflow report is appropriate.
+
+## Result review
+
+Agent technical review: clean-context non-implementer review of 694265a, test-only diff, packaged cleanup semantics, targeted subprocess fixture and final verification evidence.
+
+Reviewed revision: 694265a.
+
+Verification adequacy: adequate; accepted with no remaining code findings. Reviewer confirmed the final full-unit summary and focused disposable-registry regression. Scope remains test/roadmap.test.js and this Work Record; product behavior, protected assertions and signal-handler coverage remain unchanged. Elevated review requirements are satisfied; no red architecture checkpoint was triggered.
