@@ -87,3 +87,5 @@ Confirmed draft race was reproduced with actual loading functions in an isolated
 ## Notes
 
 2026-10-08: User authorized capturing the full review and driving implementation. Manager owns this canonical feature and acceptance in the isolated refresh-consolidation checkout until delivery. Qualification must use disposable homes, ports, profiles and generic repositories. No live environment changes.
+
+2026-10-08 progress: Delivery 1 source at 10646ec has 22 new browser regressions, nine retained browser cases and three lint/mirror checks passing. Independent result review is in progress and has identified a possible loaded-item/selected-source mismatch during a pending source switch; resolve it before acceptance. Delivery 2c at d60d393 is independently technically accepted with 45 focused checks passing; publication and CI are being prepared. Neither slice is merged. Identity/read-cost consolidation follows those corrections; mutable snapshot caching and consistent cross-mode observations remain outstanding. One developer owns implementation, one independent reviewer owns acceptance, and the manager owns integration and the shared refresh policy.
