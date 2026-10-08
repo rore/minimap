@@ -73,7 +73,11 @@ Follow-up passing evidence: the delayed-source and existing sibling Review cases
 
 Final integrated verification: source/test revision aad8e206d0d013153175818d16be7938a2b833fd passed 416 unit tests, 195 browser tests, mirror parity, agent-workflow and redline checks. Authoritative result: PR #43, CI run 37784284957; later edits only reconcile this result record and README/feature prose. The runtime package tree remains 5f4e94236c32ddb2aadb8fb1612459d2cf76a3b4. Agent technical review and verification are adequate for result review; merge still requires human result approval and an explicit decision on the documented 339.96ms worst-case warm response. The earlier pending-CI notes below are historical checkpoints, not remaining test failures.
 
-Agent technical review: clean-context non-implementer /root/squash_identity_fix/isolation_review, incorporating unchanged acceptance at 94be067 and compact/fast-path review. Reviewed revision: source 3f675f9, browser timing correction 9712d99. Verification adequacy: six-cell performance evidence, actual rendered screenshots, unit/source-safety and focused browser checks support the implementation. Final branch CI and human result review remain gates; the 339.96ms largest warm p95 requires an explicit exception to the 200ms target. No correctness blocker remains in the inspected source.
+Agent technical review: clean-context non-implementer /root/squash_identity_fix/isolation_review, incorporating unchanged acceptance at 94be067 and compact/fast-path review.
+
+Reviewed revision: source 3f675f9, browser timing correction 9712d99; later held-provider coverage independently inspected by the manager.
+
+Verification adequacy: six-cell performance evidence, actual rendered screenshots, unit/source-safety and full integrated CI support the implementation. No correctness blocker remains in the inspected source. The 339.96ms largest warm p95 still requires an explicit human exception to the 200ms target; human result approval remains separate.
 
 Slow-provider coverage is a separate real-HTTP check, not inferred from provider-disabled timings. The existing new compact HTTP fixture holds an actual loopback Pallium count request while five paired cached board/health probes complete in 20.22/21.42/17.66/20.26/21.63ms, with unchanged snapshot/PID and zero Git. Observations remain pending until release, then return the expected counts. The manager reviewed this coverage-only test extension; 1/1 passes in tmp/compact-http-held-provider.txt. It does not add a CI latency threshold or change product behavior.
 
