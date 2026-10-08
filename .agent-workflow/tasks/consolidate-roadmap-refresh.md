@@ -35,3 +35,40 @@ Pre-implementation review evidence and measurement scope are recorded in the can
 ## Recovery
 
 Branch feat/consolidate-roadmap-refresh based on a142984. Next: technical plan review, then assign the first correctness stage with exact paths and scope. Keep the umbrella feature in progress until every acceptance outcome is reconciled.
+
+## Regression coverage audit and delivery boundaries
+
+Audit performed on a142984 before implementation. Existing tests remain acceptance obligations, not evidence that newly identified races are already covered.
+
+| Outcome | Retained coverage | Required additions |
+| --- | --- | --- |
+| Drafts and asynchronous intent | async-worktree-ui: dirty source switch, consecutive saves, explicit close; worktree-ui: raw source replacement and scope drafts | Clean-start Refresh then type during workspace and item responses; edits during save response; board/scope drafts begun while refresh pending |
+| Source confinement and correct file target | source-bound-context, source-bound-http-race, source-bound; worktree-ui bound routes | Sibling selected version Open spec targets its source; stale Spec file/mode response cannot apply |
+| Participant modes and lifecycle | board-participant-e2e, in-play, board-presence-performance, pallium-participants | Same freshness in This/Across, visibility return, stale/error retention, single detail request owner, pre-aborted detail |
+| Feature identity and provenance | worktree-aggregate, worktree-squash-http, worktree-presence | Cached results retain ambiguity/source identity and normalized IDs; unfinished candidates survive completed overflow |
+| Provisional and failed snapshots | async-worktree-ui recovery, late mode/repo responses, opened-only interaction | Independent participant refresh does not delay board; failed refresh preserves prior snapshot and honest coverage |
+| Shared cache and invalidation | No equivalent existing contract | One scan for concurrent identical requests; scope isolation; dirty/add/delete/config/source invalidation; TTL/eviction; detached/removed worktrees |
+| Publication ordering and cancellation | Existing UI stale-response guards only | Old delayed scan cannot publish after invalidation/write/newer validation; one subscriber abort preserves another; abandoned scan stops; overall deadline |
+| Spec summaries and navigation | roadmap-ui hash-return badges; worktree-ui unchanged Spec return | Same source-aware badge behavior in both modes; toolbar/hash mutation reconciliation; unrelated session histories not read |
+| Projection and rendering | ui-worktrees and desktop/narrow worktree-ui | One projection per reconciliation, no getter mutation, preserved focus/scroll/selection and consistent totals |
+| Shared server performance | board-presence-performance checks batched provider calls | Reproducible multi-project HTTP load and 1/4/16-source fixtures; deterministic work counts/caps in normal CI |
+| Safety and packaging | sessions-atomic, source-bound suites, sync-mirrors, portability, runtime lifecycle tests | Retain assertions and no live environment qualification; new read caches must never bypass mutation guards |
+
+Delivery 1 (this initial implementation slice): app.js asynchronous draft safety, selected-source Open spec, Spec response generations and exactly-once participant detail refresh; one dedicated browser regression file plus applicable existing suites, mirrors and any affected docs. It is independently useful before caching or polling changes. Add coverage-only behavior entries for new regression contracts. User-approved strengthened refresh behavior must be recorded separately where existing polling assertions later change.
+
+Delivery 2a: shared source identity/immutable Git evidence reuse and indexed aggregation, with deterministic identity/budget tests. Delivery 2b: bounded mutable snapshot orchestration, shared subscribers, cancellation/deadlines and HTTP freshness contract; only publish with its complete client-compatible endpoint behavior and invalidation tests. Delivery 2c: targeted participant/spec read costs, scoped tests and contract documentation. Review each concrete design before its product edits.
+
+Delivery 3: common participant refresh and source-aware summaries across modes, with API/client compatibility, participant and transition regressions, projection reuse, mirrors and matching documentation. It depends on the snapshot identity/read contract from Delivery 2b. Delivery 4 performs integrated qualification; it must not be used to defer required tests/docs/mirrors from earlier deliveries.
+
+Each independently useful delivery may use its own PR and Work Record referencing this feature; do not arbitrarily split source and tests to avoid limits. Count source, tests and generated mirrors in size estimates; if a coherent delivery exceeds policy, surface the constraint instead of weakening scope or changing policy.
+
+## Cache publication and freshness design gate
+
+Before Delivery 2b implementation, record and review explicit freshness durations, memory/entry limits, scan concurrency/budget and Manual Refresh behavior. Last-known read results may be served with age/stale metadata while revalidation runs. Manual Refresh must request new validation (and may share validation already in progress), never claim a cached response freshly validated without evidence.
+
+Every scope has an invalidation generation. An in-flight scan captures it; publish only if that generation is still current and no newer validation has published. Successful writes and explicit invalidation advance it. Add a deterministic delayed-old-scan test proving invalidated data cannot repopulate the cache after a write or newer scan. File/config fingerprints and bounded revalidation include uncommitted changes; write-time source/revision guards always read current evidence.
+
+## Plan review
+
+Clean-context review of 7f7f702 required clearer independent delivery boundaries, explicit existing/new regression mapping and cache publication ordering. These are addressed above and in the feature; no product edits yet. High/Large classification and previously recorded user approval remain applicable. Delivery 2b concrete policy remains a technical design checkpoint, not permission for live changes.
+

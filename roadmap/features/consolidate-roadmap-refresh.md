@@ -49,7 +49,7 @@ Maintain two independently refreshed read models:
 
 Use common request ownership, freshness and reconciliation rules across modes; keep source-specific presentation where it is meaningful. The UI must not start an expensive full scan just to refresh badges or change a filter.
 
-Caches are bounded and local to the existing process. Keys include repository/source/roadmap scope and relevant revisions; they must not leak one project's data into another. HEAD alone cannot validate mutable roadmap files. Avoid caching mutable workspace objects that aggregation later edits. Keep live source confinement and optimistic revision checks at writes regardless of read caching.
+Caches are bounded and local to the existing process. Keys include repository/source/roadmap scope and relevant revisions; they must not leak one project's data into another. HEAD alone cannot validate mutable roadmap files. Avoid caching mutable workspace objects that aggregation later edits. Publish a scan only if its scope generation is still current: invalidation, a successful write or newer validation must prevent an older in-flight result from repopulating the cache. Record explicit freshness bounds and Manual Refresh semantics before cache implementation, with a delayed-scan regression proving publication ordering. Keep live source confinement and optimistic revision checks at writes regardless of read caching.
 
 Prefer existing helpers, in-memory maps, batched Git operations and bounded asynchronous work. Add a worker pool or new dependency only after measurements establish a need and technical review accepts it.
 
@@ -58,7 +58,7 @@ Prefer existing helpers, in-memory maps, batched Git operations and bounded asyn
 1. Correct asynchronous draft preservation, selected-source file actions, stale Spec responses and duplicate detail refresh ownership.
 2. Consolidate server read orchestration: reuse scans, bounded cache/invalidation, cancellation, budgets, identity batching/evidence reuse, scoped item/spec queries.
 3. Wire consistent participant freshness and source-aware Spec summaries into both modes; unify transition reconciliation and reuse projections.
-4. Complete integrated performance, failure, safety and visual acceptance; reconcile all documented contracts and delivery evidence.
+4. Complete integrated performance, failure, safety and visual acceptance. Every earlier delivery includes its own required tests, relevant contract/docs updates and generated mirrors; this stage reconciles combined acceptance and delivery evidence.
 
 Keep each independently reviewable delivery explicit in Notes with its PR, tested revision and remaining scope. The umbrella stays in progress until the full acceptance matrix is satisfied. Do not split changes merely to bypass workflow limits or weaken tests to fit implementation.
 
