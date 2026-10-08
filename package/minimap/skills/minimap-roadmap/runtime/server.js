@@ -237,7 +237,7 @@ async function resolveRoadmapRepo(request) {
 async function buildSpecSessionsByItemId(repoRoot, workspace) {
   let sessions;
   try {
-    sessions = await listFileSessions();
+    sessions = await listFileSessions({ targetFiles: Object.values(workspace.items ?? {}).map((item) => item.filePath).filter(Boolean) });
   } catch {
     return {};
   }
@@ -588,9 +588,9 @@ async function handleItemParticipants(request, response, ctx) {
 
   const repoRoot = await resolveRoadmapRepo(request);
   const id = decodeURIComponent(ctx.params[0]);
-  const item = await readItemById(repoRoot, id);
   const workspace = await loadWorkspace(repoRoot);
-  const reference = await resolveRoadmapItemReference(repoRoot, workspace.roadmapPath, item.id);
+  if (!Object.hasOwn(workspace.items, id)) throw new AppError(`Item "${id}" was not found.`, 404, "not_found");
+  const reference = await resolveRoadmapItemReference(repoRoot, workspace.roadmapPath, id);
   const controller = new AbortController();
   const abort = () => controller.abort();
   request.once("aborted", abort);

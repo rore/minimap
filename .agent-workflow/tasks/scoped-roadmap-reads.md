@@ -16,7 +16,7 @@
 **Plan review:** Agent technical review: clean-context non-implementer accepted fae6c9f, with own-property item checks, normalized pre-read filtering and existing disabled/unsupported precedence preserved.
 **Approvals:** Approved by user 2026-10-08: "so open a feature with all the details so we don't lose this, then let's drive a rewrite to fix all those issues and do a proper implementation that handles all of this." This independent scoped-read delivery implements findings captured in the approved canonical feature; human result review remains required.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 **Requirement baseline:** {"source":"work-record-initial","outcome":"Reduce scoped roadmap read costs without changing public participant or session semantics.","scope":"package/minimap/server.js; package/minimap/src/sessions.js and pallium.js; focused new Node regression test; generated runtime mirrors; this Work Record.","constraints":"Keep session persistence/mutation/recovery behavior and public unfiltered session listing unchanged. Preserve source/write guards and provider validation. No live environment changes, installs, schema changes or new dependencies. Qualification uses disposable data only.","completion_criteria":"Participant detail reads the item index once and preserves missing-item errors; scoped Spec listing does not read unrelated session detail files and preserves normalization and omitted-filter behavior; pre-aborted participant detail makes zero provider calls; targeted and safety checks pass with independent review."}
 <!-- agent-workflow:end -->
 
@@ -27,3 +27,19 @@ Planning only. Independent delivery2c of consolidate-roadmap-refresh. Canonical 
 ## Recovery
 
 Branch feat/scoped-roadmap-reads froma142984. Next: technical review, tests first, scoped source edits. No product or environment edits yet.
+
+## Evidence
+
+Three generic regressions were run against unchanged source: filtered listing returned two instead of one; pre-aborted detail reached the fetch spy; the real HTTP participant route read the target feature twice instead of once. An initial HTTP fixture had the starter config pointing to docs/roadmap rather than its actual roadmap directory; that setup failure was corrected before establishing the duplicate-read evidence.
+
+After the minimal fix, all 45 focused checks passed: scoped-roadmap-reads, pallium-participants, sessions-atomic, source-bound, source-bound-context and source-bound-http-race. The real handler now reads the item once and preserves404/not_found for missing-item, constructor and toString. Scoped listing validates Windows normalization, empty selection, unchanged unfiltered listing and no unrelated detail reads. Disabled/identity-unavailable/unsupported precedence remains unchanged before abort handling.
+
+Both runtime mirrors were generated with sync-mirrors. git diff --check passes. Agent-facing docs were searched for session listing/detail behavior: public HTTP and lifecycle semantics are unchanged, so no prose update is needed. No new dependencies, live apps, shared registry or installed consumer changes. Broader full integration/CI remains required before final delivery.
+
+## Implementation
+
+listFileSessions accepts internal targetFiles and filters normalized index keys before recovery/detail reads; normal unfiltered sessions API remains unchanged. Board enrichment passes only workspace item paths. Participant detail loads one workspace and checks own-property membership. Detail helper rejects already-aborted callers before fetching, after existing disabled/identity precedence checks.
+
+## Result review
+
+Pending clean-context review of source, tests and evidence. Human result approval remains required before merge.
