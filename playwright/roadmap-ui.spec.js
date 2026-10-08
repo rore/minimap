@@ -1301,7 +1301,7 @@ test("keeps the view chooser compact when switching to the milestone lens", asyn
   await refreshWorkspaceSnapshot(page);
 
   await page.goto(repoUrl());
-  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.locator("#refresh-button").click();
   await page.locator('#board-view-toggle').click();
   await page.locator('[data-lens-key="milestone"]').click();
 

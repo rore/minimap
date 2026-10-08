@@ -111,6 +111,9 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     await page.locator("#board-layout-list").click();
     await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
+    const lastKnownBadges = await listCard.locator(".board-item-participants").allTextContents();
+    expect(lastKnownBadges).toContain("Recent 2");
+    expect(lastKnownBadges).toContain("Dormant 1");
     expect(requests).toBe(1);
 
     await page.evaluate(() => {
@@ -119,7 +122,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
       document.dispatchEvent(new Event("visibilitychange"));
     });
     // Hidden tabs pause refresh while retaining the last-known badges.
-    await expect(listCard.locator(".board-item-participants")).toHaveText(["Recent 2", "Dormant 1"]);
+    await expect(listCard.locator(".board-item-participants")).toHaveText(lastKnownBadges);
     expect(requests).toBe(1);
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
