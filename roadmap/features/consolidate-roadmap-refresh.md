@@ -107,7 +107,9 @@ Actual List/Columns desktop and narrow screenshots were inspected, including 390
 
 A real held-provider HTTP regression independently verifies that five cached board/health probes complete before a blocked Pallium response is released, preserving snapshot identity with zero Git. Those paired probes measured 17.66–21.63ms in the small fixture; observations then returned the expected counts.
 
-**Outstanding acceptance:** the 16×1,000 warm response misses 200ms while transferring a conservative 21.85MB payload. Accepting that measured limit requires an explicit scope decision; none has been granted. Final CI, human result approval and merge remain pending. The original passive badge-loss symptom remains unconfirmed. No installed consumer, live server or global configuration changed.
+Full integrated CI at aad8e20 passed 416 unit tests, 195 browser tests, mirror parity and workflow/redline checks. Technical review found no remaining correctness blocker.
+
+**Outstanding acceptance:** the 16×1,000 warm response misses 200ms while transferring a conservative 21.85MB payload. Accepting that measured limit requires an explicit scope decision; none has been granted. Human result approval and merge remain pending. The original passive badge-loss symptom remains unconfirmed. No installed consumer, live server or global configuration changed.
 
 ## Earlier qualification checkpoints (superseded by the result above)
 
