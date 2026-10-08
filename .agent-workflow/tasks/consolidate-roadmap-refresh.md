@@ -71,17 +71,21 @@ Follow-up passing evidence: the delayed-source and existing sibling Review cases
 
 ## Result review
 
+Human result approval: Approved by user 2026-10-08: "approved", responding to the final PR #43 result and the explicit question "Approve merging with that documented worst-case latency exception?" This accepts the 339.96ms measured 16×1,000 warm-response exception to the 200ms target and authorizes merge. It does not waive source safety or authorize live installation changes. Final pre-approval head df0a414 passed all CI/workflow checks; the remaining commit records approval and roadmap completion only.
+
 Final integrated verification: source/test revision aad8e206d0d013153175818d16be7938a2b833fd passed 416 unit tests, 195 browser tests, mirror parity, agent-workflow and redline checks. Authoritative result: PR #43, CI run 37784284957; later edits only reconcile this result record and README/feature prose. The runtime package tree remains 5f4e94236c32ddb2aadb8fb1612459d2cf76a3b4. Agent technical review and verification are adequate for result review; merge still requires human result approval and an explicit decision on the documented 339.96ms worst-case warm response. The earlier pending-CI notes below are historical checkpoints, not remaining test failures.
 
 Agent technical review: clean-context non-implementer /root/squash_identity_fix/isolation_review, incorporating unchanged acceptance at 94be067 and compact/fast-path review.
 
 Reviewed revision: source 3f675f9, browser timing correction 9712d99; later held-provider coverage independently inspected by the manager.
 
-Verification adequacy: six-cell performance evidence, actual rendered screenshots, unit/source-safety and full integrated CI support the implementation. No correctness blocker remains in the inspected source. The 339.96ms largest warm p95 still requires an explicit human exception to the 200ms target; human result approval remains separate.
+Verification adequacy: six-cell performance evidence, actual rendered screenshots, unit/source-safety and full integrated CI support the implementation. No correctness blocker remains in the inspected source. Human result approval above accepts the documented 339.96ms largest warm p95 exception; no other acceptance criterion is waived.
 
 Slow-provider coverage is a separate real-HTTP check, not inferred from provider-disabled timings. The existing new compact HTTP fixture holds an actual loopback Pallium count request while five paired cached board/health probes complete in 20.22/21.42/17.66/20.26/21.63ms, with unchanged snapshot/PID and zero Git. Observations remain pending until release, then return the expected counts. The manager reviewed this coverage-only test extension; 1/1 passes in tmp/compact-http-held-provider.txt. It does not add a CI latency threshold or change product behavior.
 
 ## Recovery
+
+Completion: the user approved the final result and latency exception on 2026-10-08. Canonical feature consolidate-roadmap-refresh is done and placed in Done. Merge PR #43 after its approval-record-only commit passes checks; verify delivery in GitHub. All implementation, measurement and review work is complete. Earlier delivery checkpoints below describe superseded intermediate states. No installation or live restart is part of this delivery.
 
 Delivery 1 result review: Agent technical review: clean-context non-implementer accepted d04bc66306fa4d2967f77f85b9a0daf199c64fb1 after the pending/failed source-selection correction. Reviewed revision: d04bc66306fa4d2967f77f85b9a0daf199c64fb1. Verification adequacy: adequate for this bounded delivery; new delayed/failed source cases and retained successful source target, draft/safety cases and mirror evidence inspected. The isolated unreproduced scope-save 500 remains documented. Human result approval and the umbrella's remaining deliveries are outstanding.
 

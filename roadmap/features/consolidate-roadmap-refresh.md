@@ -1,7 +1,7 @@
 ---
 id: consolidate-roadmap-refresh
 title: Consolidate roadmap refresh, worktree loading and participant freshness
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -109,7 +109,7 @@ A real held-provider HTTP regression independently verifies that five cached boa
 
 Full integrated CI at aad8e20 passed 416 unit tests, 195 browser tests, mirror parity and workflow/redline checks. Technical review found no remaining correctness blocker.
 
-**Outstanding acceptance:** the 16×1,000 warm response misses 200ms while transferring a conservative 21.85MB payload. Accepting that measured limit requires an explicit scope decision; none has been granted. Human result approval and merge remain pending. The original passive badge-loss symptom remains unconfirmed. No installed consumer, live server or global configuration changed.
+**Accepted result:** on 2026-10-08 the user replied "approved" to the final result and merge request, explicitly including the documented 339.96ms worst-case warm response exception to the 200ms target. All implementation and verification scope is complete; PR #43 delivers it. The original passive badge-loss symptom remains unconfirmed. No installed consumer, live server or global configuration changed.
 
 ## Earlier qualification checkpoints (superseded by the result above)
 
