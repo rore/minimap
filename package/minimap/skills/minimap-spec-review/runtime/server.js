@@ -40,6 +40,7 @@ import {
 import { readServerRegistry, writeServerRegistry, deleteServerRegistry, readRuntimeIdentity } from "./src/server-registry.js";
 import { matchRoute } from "./src/router.js";
 import { createRoadmapSnapshotCoordinator } from "./src/roadmap-snapshots.js";
+import { compactWorktreePayload, expandWorktreePayload } from "./ui/worktree-payload.js";
 import { createLifecycleLog, lifecycleError } from "./src/server-lifecycle-log.js";
 import {
   isTrustedLocalRequest,
@@ -798,16 +799,19 @@ async function handleWorktreeWorkspace(request, response) {
   const openedOnlyValues = new URL(request.url, "http://localhost").searchParams.getAll("openedOnly");
   const cachedValues = new URL(request.url, "http://localhost").searchParams.getAll("cached");
   const participantValues = new URL(request.url, "http://localhost").searchParams.getAll("participants");
+  const compactValues = new URL(request.url, "http://localhost").searchParams.getAll("compact");
   if (openedOnlyValues.length > 1 || (openedOnlyValues.length && openedOnlyValues[0] !== "1")) {
     throw new AppError("Invalid openedOnly query parameter.", 400, "bad_request");
   }
   if (cachedValues.length > 1 || cachedValues.some((value) => value !== "1")
-    || participantValues.length > 1 || participantValues.some((value) => value !== "0")) {
+    || participantValues.length > 1 || participantValues.some((value) => value !== "0")
+    || compactValues.length > 1 || compactValues.some((value) => value !== "1")) {
     throw new AppError("Invalid worktree snapshot query parameter.", 400, "bad_request");
   }
   const openedOnly = openedOnlyValues.length === 1;
   const cached = cachedValues.length === 1;
   const participants = participantValues.length === 0;
+  const compact = compactValues.length === 1;
   const mode = openedOnly ? "opened" : "across";
   const { signal, cleanup } = requestAbortSignal(request, response);
   try {
@@ -840,7 +844,7 @@ async function handleWorktreeWorkspace(request, response) {
           sources.set(source.sourceKey, admission);
         }
         const manifest = await buildObservationManifest(repoRoot, aggregate.workspace, openedOnly ? null : aggregate, scanSignal);
-        return { value: aggregate, manifest: { openedRepo: canonicalPath(repoRoot), mode: openedOnly ? "this" : "across", observation: manifest },
+        return { value: compactWorktreePayload(aggregate), manifest: { openedRepo: canonicalPath(repoRoot), mode: openedOnly ? "this" : "across", observation: manifest },
           admission: sourceChecks.length === (aggregate.sources || []).length && sourceChecks.length
             ? [...sources.values()] : [null] };
       },
@@ -855,6 +859,7 @@ async function handleWorktreeWorkspace(request, response) {
     });
     if (signal.aborted) return;
     if (loaded.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
+    if (!compact) loaded.value = expandWorktreePayload(loaded.value);
     loaded.value.snapshot = loaded.snapshot;
     if (participants) loaded.value.participantCounts = openedOnly
       ? { status: "loading", counts: [], partial: true, includeCompleted: true }

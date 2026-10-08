@@ -4,6 +4,7 @@
 // `node --test` with an injected fetch. All HTTP traffic for the UI flows
 // through here; call sites use the named methods rather than building URLs
 // or calling fetch directly.
+import { expandWorktreePayload } from "./worktree-payload.js";
 
 const ROADMAP_PREFIXES = [
   "/api/workspace",
@@ -77,12 +78,13 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource, onMutation } =
   return {
     // Roadmap
     loadWorkspace: ({ cached = false, ...options } = {}) => request(`/api/workspace${cached ? "?cached=1" : ""}`, options),
-    loadWorktreeWorkspace: ({ openedOnly = false, cached = false, participants = true, ...options } = {}) => {
+    loadWorktreeWorkspace: ({ openedOnly = false, cached = false, participants = true, compact = false, ...options } = {}) => {
       const query = new URLSearchParams();
       if (openedOnly) query.set("openedOnly", "1");
       if (cached) query.set("cached", "1");
       if (!participants) query.set("participants", "0");
-      return request(`/api/worktree-workspace${query.size ? `?${query}` : ""}`, options, { unbound: true });
+      if (compact) query.set("compact", "1");
+      return request(`/api/worktree-workspace${query.size ? `?${query}` : ""}`, options, { unbound: true }).then(expandWorktreePayload);
     },
     discoverWorktreeSources: () => request("/api/worktree-sources", {}, { unbound: true }),
     loadSourceWorkspace: (identity, options = {}) => request("/api/worktree-source-workspace", {

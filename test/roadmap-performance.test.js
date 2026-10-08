@@ -13,6 +13,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // MINIMAP_PERFORMANCE_ITEMS=100 and MINIMAP_PERFORMANCE_SAMPLES=1.
 // MINIMAP_PERFORMANCE_WARM_SAMPLES=5 repeats cheap cached reads after each
 // full scan without multiplying cold scans or concurrent project waves.
+// MINIMAP_PERFORMANCE_DIAGNOSTICS=1 additionally observes server JSON sizes
+// and admission hashes; leave it off for ordinary latency comparisons.
 // Baseline: MINIMAP_PERFORMANCE_RUNTIME_ROOT=<owned archive root> and
 // MINIMAP_PERFORMANCE_LEGACY=1 use only supported legacy fresh-read routes.
 // Timings include HTTP transfer/JSON parsing, not browser rendering. The first
@@ -36,10 +38,25 @@ import path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
 if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send) {
   const counters = { gitExecFile: 0, gitSpawn: 0, gitExecFileSync: 0,
     fileReadAsync: 0, fileReadCallback: 0, fileReadSync: 0 };
   const gitCommands = {};
+  const serializations = [];
+  const stringify = JSON.stringify;
+  if (process.env.MINIMAP_PERFORMANCE_DIAGNOSTICS === "1") JSON.stringify = function (value, ...args) {
+    const result = stringify(value, ...args);
+    let kind = null;
+    if (value?.features && value?.coverage && value?.sources) kind = value.snapshot ? "aggregate-response" : "aggregate-value";
+    else if (value?.openedRepo && value?.observation) kind = "snapshot-manifest";
+    else if (value?.evidence || Array.isArray(value) && value[0]?.evidence) kind = "snapshot-admission";
+    else if (value?.bindingRoot && Object.hasOwn(value, "gitRoot")) kind = "admission-evidence";
+    if (kind && serializations.length < 512) serializations.push({ kind, bytes: Buffer.byteLength(result),
+      features: value.features?.length, sources: value.sources?.length,
+      evidenceHash: kind === "admission-evidence" ? createHash("sha256").update(result).digest("hex") : undefined });
+    return result;
+  };
   const countGit = (kind, file, args) => {
     if (path.basename(String(file)).toLowerCase().replace(/\.exe$/, "") !== "git") return;
     counters[kind]++;
@@ -75,7 +92,7 @@ if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send)
     if (message?.type !== "minimap-performance-snapshot") return;
     const count = Number(histogram.count);
     const ms = (value) => count ? Math.round(value / 10000) / 100 : null;
-    process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid,
+    process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid, serializations: serializations.splice(0),
       counters: { ...counters }, gitCommands: { ...gitCommands },
       eventLoopDelay: { samples: count, resolutionMs: 10, p50Ms: ms(histogram.percentile(50)),
         p95Ms: ms(histogram.percentile(95)), maxMs: ms(histogram.max), meanMs: ms(histogram.mean) } });
@@ -221,6 +238,7 @@ async function qualify(sources, items, samples, signal) {
         counters: Object.fromEntries(Object.keys(after.counters).map((key) => [key, after.counters[key] - before.counters[key]])),
         gitCommands: Object.fromEntries(Object.keys(after.gitCommands).map((key) => [key, after.gitCommands[key] - (before.gitCommands[key] || 0)])),
         eventLoopDelay: after.eventLoopDelay });
+      serverScenarios.at(-1).serializations = after.serializations;
     }
   };
   let httpRequests = 0;
@@ -232,16 +250,20 @@ async function qualify(sources, items, samples, signal) {
         headers: root ? { "X-Minimap-Repo-Encoded": encodeURIComponent(root) } : {},
         signal: AbortSignal.any([signal, AbortSignal.timeout(legacy ? 120000 : 35000)]),
       });
-      const body = await response.json();
+      const responseText = await response.text();
+      const responseBytes = Buffer.byteLength(responseText);
+      const body = JSON.parse(responseText);
       return { status: response.status, ms: Math.round((performance.now() - begin) * 100) / 100,
+        responseBytes,
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
+        versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
         pid: body.pid, runtime: body.runtime, code: body.code, error: response.ok ? undefined : body.error };
     } catch (error) {
       return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100, error: error.message };
     }
   };
-  const full = legacy ? "/api/worktree-workspace" : "/api/worktree-workspace?participants=0";
+  const full = legacy ? "/api/worktree-workspace" : "/api/worktree-workspace?participants=0&compact=1";
   const openedRoute = legacy ? `${full}?openedOnly=1` : `${full}&openedOnly=1`;
   const repeatedRoute = legacy ? full : `${full}&cached=1`;
   const otherRoute = legacy ? "/api/workspace" : "/api/workspace?cached=1";
@@ -249,7 +271,7 @@ async function qualify(sources, items, samples, signal) {
     `${scenario} failed: ${JSON.stringify(records.filter((record) => record.status !== 200))}`);
   const resultReport = () => ({ sources, itemsPerSource: items, samples, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
     summary: Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
-      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan"].includes(key) ? 200 : null)])),
+      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
     measurementLabels: { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
       warmOtherProjectDuringScan: legacy ? "Fresh This read of other project during scan" : "Warm cached This read of other project during scan" },
     measurements, serverScenarios,
@@ -301,6 +323,13 @@ async function qualify(sources, items, samples, signal) {
         if (!legacy) {
           assert.ok(fullResult.snapshot?.id);
           assert.equal(fullResult.loaded, sources);
+          assert.equal(fullResult.versions, sources * items, "Every source version must survive projection");
+          assert.equal(fullResult.features, items > 500 && sources > 1 ? sources * items : items);
+          if (items > 500 && sources > 1) {
+            assert.equal(fullResult.partial, true);
+            assert.equal(fullResult.identityUncertain.length, sources * (sources - 1) / 2);
+            assert.ok(fullResult.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+          }
         }
         return fullResult;
       });
@@ -330,6 +359,19 @@ async function qualify(sources, items, samples, signal) {
       const projects = await observe("two-independent-projects", n, () => Promise.all([read(full, a), read(full, b)]));
       measurements.independentProjects.push(...projects);
       requireSuccessful(projects, "Two independent projects");
+      if (!legacy) {
+        const retained = await observe("two-independent-retained-projects", n,
+          () => Promise.all([read(repeatedRoute, a), read(repeatedRoute, b)]));
+        measurements.retainedIndependentProjects ||= [];
+        measurements.retainedIndependentProjects.push(...retained.map((record, index) => ({
+          ...record, snapshotReused: record.snapshot?.id === projects[index].snapshot?.id,
+        })));
+        requireSuccessful(retained, "Both independent snapshots retained together");
+        assert.ok(retained.every((record, index) => record.snapshot?.id === projects[index].snapshot?.id));
+        const counts = serverScenarios.at(-1).counters;
+        assert.equal(counts.gitExecFile + counts.gitSpawn + counts.gitExecFileSync, 0,
+          "Both independent retained snapshots must launch zero Git processes");
+      }
     }
     return resultReport();
   } catch (error) {
