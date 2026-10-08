@@ -203,6 +203,7 @@ let specSessionsGeneration = 0;
 let specPollGeneration = 0;
 let boardDraftRevision = null;
 let scopeDraftRevision = null;
+let loadedItemSource = null;
 let sourceInventoryRequest = null;
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
@@ -1832,7 +1833,7 @@ function renderEditorChrome() {
     // loaded — it opens a spec session on the item file regardless of whether
     // the user is in read, edit, or raw mode.
     openInSpecButton.hidden = setupMode || !hasItem;
-    openInSpecButton.disabled = !hasItem;
+    openInSpecButton.disabled = !hasItem || loadedItemSource !== state.selectedSource;
   }
 
   if (setupMode) {
@@ -4382,6 +4383,10 @@ async function openCurrentItemAsSpecSession() {
     setBanner("No item is loaded.", "error");
     return;
   }
+  if (loadedItemSource !== state.selectedSource) {
+    setBanner("Load the selected checkout before opening this item in Review.", "error");
+    return;
+  }
   // item.filePath is repo-relative (path.relative(repoRoot, item.filePath) on
   // the server). Build the absolute path so the spec-session attach succeeds
   // regardless of the server's cwd.
@@ -5062,6 +5067,8 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
+  renderEditorSourceSelect();
+  renderEditorChrome();
 
   try {
     const item = await api.readItem(version?.itemId || itemId, { signal: intent.controller.signal });
@@ -5069,6 +5076,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     if (options.preserveDirtyItem && (state.currentItem !== previousItem || state.selectedItemId !== previousItemId || hasUnsavedCurrentItemChanges())) return;
     state.confirmedEditSource = null;
     state.selectedItemId = itemId;
+    loadedItemSource = state.selectedSource;
     renderItem(item);
     applyEditorMode();
     syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });

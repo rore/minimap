@@ -193,6 +193,37 @@ for (const kind of ["board", "scope"]) {
   });
 }
 
+for (const result of ["delayed", "failed"]) {
+  test(`Review cannot pair the loaded item with a ${result} source selection`, async ({ page }) => {
+    test.setTimeout(60_000);
+    const data = await fixture(true);
+    await openAcross(page, data);
+    const gate = await responseGate(page, /\/api\/source\/items\/alpha$/, (request) => request.method() === "GET",
+      result === "failed" ? () => JSON.stringify({ error: { code: "unavailable", message: "Sibling load failed" } }) : (body) => body,
+      result === "failed" ? 503 : undefined);
+    await page.locator("#editor-source-summary").click();
+    await page.locator("[data-editor-source]").filter({ hasText: "feature/blue" }).click();
+    await gate.started;
+    await expect(page.locator("#item-preview")).toContainText("alpha body.");
+    if (result === "delayed") await expect(page.locator("#open-in-spec-button")).toBeDisabled();
+    await settle(page, gate);
+    if (result === "failed") {
+      await expect(page.locator("#status-banner")).toContainText("Sibling load failed");
+      await expect(page.locator("#item-preview")).toContainText("alpha body.");
+      await expect(page.locator("#open-in-spec-button")).toBeDisabled();
+      await page.locator("#editor-source-summary").click();
+      await page.locator("[data-editor-source]").filter({ hasText: "main" }).click();
+    } else {
+      await expect(page.locator("#item-preview")).toContainText("Selected sibling body.");
+    }
+    await expect(page.locator("#open-in-spec-button")).toBeEnabled();
+    await page.locator("#open-in-spec-button").click();
+    await expect(page.locator("#spec-file-content")).toContainText(result === "failed" ? "alpha body." : "Selected sibling body.", { timeout: 15_000 });
+    expect(new URLSearchParams(await page.evaluate(() => location.hash.slice(1))).get("file")?.replaceAll("\\", "/").toLowerCase())
+      .toBe((result === "failed" ? data.alpha : data.siblingAlpha).replaceAll("\\", "/").toLowerCase());
+  });
+}
+
 test("Review targets the selected sibling version's actual file", async ({ page }) => {
   test.setTimeout(60_000);
   const data = await fixture(true);
