@@ -115,15 +115,64 @@ test("invalidated scan cannot publish and same-scope validation waits for it to 
   assert.equal(coordinator.getManifest(current.snapshot.id, "repo:this").refs[0], "version-2");
 });
 
-test("recovery invalidation rebases only the recovering scan", async () => {
+test("recovery invalidation rejects pre-recovery data and requires a complete new read", async () => {
   const { coordinator } = makeCoordinator();
-  const current = await coordinator.read({ key: "repo:this", load: async ({ signal }) => {
+  let version = 1;
+  const obsolete = coordinator.read({ key: "repo:this", load: async ({ signal }) => {
+    const captured = version;
+    version = 2;
+    // An obsolete caller cannot exempt its own pre-recovery read from invalidation.
     coordinator.invalidateAll({ exceptSignal: signal });
-    return result({ afterRecovery: true });
+    return result({ version: captured });
   } });
+  await assert.rejects(obsolete, (error) => error.code === "snapshot_invalidated");
+  const current = await coordinator.read({ key: "repo:this", load: async () => result({ version }) });
+  assert.equal(current.value.version, 2);
   assert.equal(current.generation, coordinator.generation());
   assert.ok(coordinator.getManifest(current.snapshot.id, "repo:this"));
 });
+
+test("cancellation before the loader microtask starts performs no scan", async () => {
+  const { coordinator } = makeCoordinator();
+  const controller = new AbortController();
+  let loads = 0;
+  const read = coordinator.read({ key: "repo:this", signal: controller.signal,
+    load: async () => { loads++; return result({ obsolete: true }); } });
+  controller.abort();
+  await assert.rejects(read);
+  await new Promise(setImmediate);
+  assert.equal(loads, 0);
+});
+
+for (const cause of ["subscriber cancellation", "deadline"]) {
+  test(`same-key replacement waits for cleanup after ${cause}`, async () => {
+    const { coordinator } = makeCoordinator({ maxConcurrent: 2, jobTimeoutMs: cause === "deadline" ? 40 : 500 });
+    const controller = new AbortController();
+    const old = deferred();
+    let loads = 0, scanSignal;
+    const load = async ({ signal }) => {
+      loads++;
+      if (loads === 1) { scanSignal = signal; return old.promise; }
+      return result({ version: loads });
+    };
+    const first = coordinator.read({ key: "repo:this", signal: controller.signal, load });
+    const rejected = assert.rejects(first, (error) => cause !== "deadline" || error.code === "snapshot_unavailable");
+    await new Promise(setImmediate);
+    assert.equal(loads, 1);
+    if (cause === "subscriber cancellation") controller.abort();
+    await rejected;
+    assert.equal(scanSignal.aborted, true);
+    const next = coordinator.read({ key: "repo:this", load });
+    try {
+      await new Promise(setImmediate);
+      assert.equal(loads, 1);
+    } finally {
+      old.resolve(result({ version: 1 }));
+      const current = await next;
+      assert.equal(current.value.version, 2);
+    }
+  });
+}
 
 test("rejects work beyond the queued-scope bound and leaves existing work intact", async () => {
   const { coordinator } = makeCoordinator({ maxConcurrent: 1, maxQueued: 1, jobTimeoutMs: 300 });
@@ -166,4 +215,51 @@ test("oversized snapshots can retain only a bounded observation manifest", async
   }, admit: async () => true });
   assert.equal(loads, 1);
   assert.notEqual(next.snapshot.id, first.snapshot.id);
+});
+
+test("byte pressure evicts the least recently used entry before the entry-count limit", async () => {
+  const { coordinator } = makeCoordinator({ maxEntries: 16, maxBytes: 150 });
+  const load = (key) => async () => result({ body: "x".repeat(20) }, { refs: [key] });
+  const a = await coordinator.read({ key: "a", load: load("a") });
+  const b = await coordinator.read({ key: "b", load: load("b") });
+  assert.ok(coordinator.getManifest(a.snapshot.id, "a"));
+  assert.ok(coordinator.getManifest(b.snapshot.id, "b"));
+  await coordinator.read({ key: "a", cached: true, load: load("a"), admit: async () => true });
+  const c = await coordinator.read({ key: "c", load: load("c") });
+  assert.equal(coordinator.getManifest(b.snapshot.id, "b"), null);
+  assert.ok(coordinator.getManifest(a.snapshot.id, "a"));
+  assert.ok(coordinator.getManifest(c.snapshot.id, "c"));
+});
+
+test("an oversized manifest is not retained and cannot leave an older snapshot reusable", async () => {
+  const { coordinator } = makeCoordinator({ maxBytes: 100 });
+  const old = await coordinator.read({ key: "repo:this", load: async () => result({ version: 1 }) });
+  assert.ok(coordinator.getManifest(old.snapshot.id, "repo:this"));
+  const large = await coordinator.read({ key: "repo:this",
+    load: async () => result({ version: 2 }, { refs: ["x".repeat(200)] }) });
+  assert.equal(large.value.version, 2);
+  assert.equal(coordinator.getManifest(large.snapshot.id, "repo:this"), null);
+  assert.equal(coordinator.getManifest(old.snapshot.id, "repo:this"), null);
+  let loads = 0;
+  const next = await coordinator.read({ key: "repo:this", cached: true, admit: async () => true,
+    load: async () => { loads++; return result({ version: 3 }); } });
+  assert.equal(loads, 1);
+  assert.equal(next.value.version, 3);
+});
+
+test("opened-only priority admits the oldest regular job after one priority job", async () => {
+  const { coordinator } = makeCoordinator({ maxConcurrent: 1 });
+  const held = deferred();
+  const order = [];
+  const first = coordinator.read({ key: "running", load: async () => { order.push("running"); return held.promise; } });
+  await new Promise(setImmediate);
+  const reads = [first];
+  for (const key of ["regular", "priority-1", "priority-2", "priority-3"]) {
+    reads.push(coordinator.read({ key, priority: key.startsWith("priority"),
+      load: async () => { order.push(key); return result({ key }); } }));
+  }
+  assert.deepEqual(order, ["running"]);
+  held.resolve(result({ key: "running" }));
+  await Promise.all(reads);
+  assert.deepEqual(order, ["running", "priority-1", "regular", "priority-2", "priority-3"]);
 });
