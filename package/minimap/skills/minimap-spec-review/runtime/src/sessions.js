@@ -807,7 +807,8 @@ async function withSessionMutation(filePath, options, work) {
   const home = options.minimapHome || resolveMinimapHome(options.env || process.env, options.platform || process.platform);
   const paths = makeSessionPaths(home, session.id);
   return withSessionMutationLock(paths, async () => {
-    await recoverSuggestionTransactionUnlocked(paths);
+    const recovered = await recoverSuggestionTransactionUnlocked(paths);
+    if (recovered) await options.onMutation?.();
     return work();
   });
 }
@@ -1131,7 +1132,8 @@ async function withSessionLifecycle(filePath, options, create, work) {
   const paths = makeSessionPaths(home, sessionId);
   if (create) { await assertSourceWriteGuard(); await fs.mkdir(paths.sessionDir, { recursive: true }); }
   return withSessionMutationLock(paths, async () => {
-    await recoverSuggestionTransactionUnlocked(paths);
+    const recovered = await recoverSuggestionTransactionUnlocked(paths);
+    if (recovered) await options.onMutation?.();
     return work();
   });
 }

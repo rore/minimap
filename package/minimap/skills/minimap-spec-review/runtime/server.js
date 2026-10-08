@@ -603,7 +603,7 @@ async function handleShutdown(request, response) {
 async function handleSpecAttach(request, response) {
   const body = await withJsonBody(request);
   const file = requireFileFromBody(body, "Spec-session attach requires a file path.");
-  const result = await attachFileSession(file, { cwd: cwdFallback });
+  const result = await attachFileSession(file, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
@@ -643,7 +643,7 @@ async function handleGetSpecContent(request, response, ctx) {
 
 async function handleRemoveSpecSession(request, response, ctx) {
   const file = requireQueryParam(ctx.url, "path");
-  const result = await removeFileSession(file, { cwd: cwdFallback });
+  const result = await removeFileSession(file, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
@@ -654,28 +654,28 @@ async function handleMoveSpecSession(request, response) {
     throw new AppError("Spec-session move requires from and to file paths.", 400, "bad_request");
   }
 
-  const result = await moveFileSession(body.from, body.to, { cwd: cwdFallback });
+  const result = await moveFileSession(body.from, body.to, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
 async function handleAddComment(request, response) {
   const body = await withJsonBody(request);
   const file = requireFileFromBody(body, "Comment creation requires a file path.");
-  const result = await addFileSessionComment(file, body, { cwd: cwdFallback });
+  const result = await addFileSessionComment(file, body, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
 async function handleCommentReply(request, response, ctx) {
   const body = await withJsonBody(request);
   const file = requireFileFromBody(body, "Comment reply requires a file path.");
-  const result = await addFileSessionCommentReply(file, decodeURIComponent(ctx.params[0]), body, { cwd: cwdFallback });
+  const result = await addFileSessionCommentReply(file, decodeURIComponent(ctx.params[0]), body, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
 async function handleSuggestionReply(request, response, ctx) {
   const body = await withJsonBody(request);
   const file = requireFileFromBody(body, "Suggestion reply requires a file path.");
-  const result = await addFileSessionSuggestionReply(file, decodeURIComponent(ctx.params[0]), body, { cwd: cwdFallback });
+  const result = await addFileSessionSuggestionReply(file, decodeURIComponent(ctx.params[0]), body, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
@@ -683,14 +683,14 @@ async function handleCommentStatus(request, response, ctx) {
   const body = await withJsonBody(request);
   const file = requireFileFromBody(body, "Comment status update requires a file path.");
   const status = ctx.params[1] === "resolve" ? "resolved" : "open";
-  const result = await updateFileSessionCommentStatus(file, decodeURIComponent(ctx.params[0]), status, body, { cwd: cwdFallback });
+  const result = await updateFileSessionCommentStatus(file, decodeURIComponent(ctx.params[0]), status, body, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
 async function handleAddSuggestion(request, response) {
   const body = await withJsonBody(request);
   const file = requireFileFromBody(body, "Suggestion creation requires a file path.");
-  const result = await addFileSessionSuggestion(file, body, { cwd: cwdFallback });
+  const result = await addFileSessionSuggestion(file, body, sessionReadOptions());
   sendJson(response, 200, result);
 }
 
@@ -703,7 +703,7 @@ async function handleSuggestionStatus(request, response, ctx) {
     reopen: "pending",
   };
   const status = statusByAction[ctx.params[1]];
-  const result = await updateFileSessionSuggestionStatus(file, decodeURIComponent(ctx.params[0]), status, body, { cwd: cwdFallback });
+  const result = await updateFileSessionSuggestionStatus(file, decodeURIComponent(ctx.params[0]), status, body, sessionReadOptions());
   sendJson(response, 200, result);
 }
 

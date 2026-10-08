@@ -252,6 +252,16 @@ test("getFileSession reports a read-side recovery mutation to its caller", async
   assert.ok(session.id);
 });
 
+test("a rejected comment mutation still reports its read-side recovery", async (t) => {
+  const { targetPath, suggestion, opts } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  let recoveries = 0;
+  await assert.rejects(addFileSessionComment(targetPath, { by: "", text: "comment" }, {
+    ...opts, onMutation: () => { recoveries += 1; },
+  }), /Comment actor is required\./);
+  assert.equal(recoveries, 1);
+});
+
 test("rollback interruption recovers metadata and preserves the original document", async (t) => {
   const { targetPath, originalText, suggestion, opts } = await transactionFixture(t);
   await applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts);
