@@ -1697,7 +1697,7 @@ function renderBoardParticipantStatus() {
   boardParticipantStatusElement.hidden = !message || state.appMode !== "roadmap" || !state.workspace;
   boardParticipantStatusElement.textContent = message;
   boardParticipantStatusElement.title = message;
-  boardParticipantStatusElement.classList.toggle("is-incomplete", incomplete);
+  boardParticipantStatusElement.classList.toggle("is-incomplete", incomplete || boardParticipantPartial || !["loading", "disabled", "idle", "ok"].includes(status));
 }
 
 function renderSearchControls() {

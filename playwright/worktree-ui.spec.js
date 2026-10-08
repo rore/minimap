@@ -127,6 +127,18 @@ test("combined large board stays usable in List and Columns at desktop and narro
       return card.getBoundingClientRect().right > parent.getBoundingClientRect().right + 2;
     }).length);
     expect(overflowing).toBe(0);
+    const layoutTiming = await page.evaluate(async () => {
+      const samples = [];
+      for (let index = 0; index < 10; index += 1) {
+        const started = performance.now();
+        document.querySelector(index % 2 ? "#board-layout-list" : "#board-layout-columns").click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        samples.push(performance.now() - started);
+      }
+      const ordered = [...samples].sort((a, b) => a - b);
+      return { fixture: "85 features across two checkouts at 390px", samplesMs: samples, p95Ms: ordered[Math.ceil(ordered.length * 0.95) - 1], targetMs: 100 };
+    });
+    await testInfo.attach("layout-interaction-timing", { body: JSON.stringify(layoutTiming), contentType: "application/json" });
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#tab-raw").click();
     const raw = await page.locator("#raw-text").inputValue();
@@ -415,7 +427,7 @@ for (const [trigger, discoveryFails] of [["Refresh", false], ["Refresh", true], 
   });
 }
 
-test("bound HTTP routes reject missing, stale, and escaping source context without modifying files", async ({ request }) => {
+test("bound HTTP routes reject missing, stale, and escaping source context without modifying files", async ({ request, baseURL }) => {
   const { owned, root } = await fixture(2);
   try {
     const repoHeaders = { "X-Minimap-Repo": root };
@@ -468,7 +480,7 @@ test("bound HTTP routes reject missing, stale, and escaping source context witho
     await fs.rm(configPath);
     const delayedBody = JSON.stringify({ scopeText: "must not be saved", expectedRevision: (await workspace.json()).scopeRevision });
     const delayedStatus = await new Promise((resolve, reject) => {
-      const outbound = http.request("http://127.0.0.1:4315/api/source/scope", {
+      const outbound = http.request(new URL("/api/source/scope", baseURL), {
         method: "POST", headers: { ...headers, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(delayedBody) },
       }, (incoming) => {
         incoming.resume();
