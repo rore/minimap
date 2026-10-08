@@ -232,6 +232,16 @@ test("apply interruption recovers metadata when the document still matches", asy
   assert.equal(events.filter((line) => JSON.parse(line).type === "suggestion_applied").length, 1);
 });
 
+test("read-side session recovery reports the durable mutation to its caller", async (t) => {
+  const { targetPath, suggestion, opts, minimapHome } = await transactionFixture(t);
+  await failSessionPromotion(() => applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts));
+  let recoveries = 0;
+  const sessions = await listFileSessions({ minimapHome, targetFiles: [targetPath], onMutation: () => { recoveries += 1; } });
+  assert.equal(recoveries, 1);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].counts.pendingSuggestions, 0);
+});
+
 test("rollback interruption recovers metadata and preserves the original document", async (t) => {
   const { targetPath, originalText, suggestion, opts } = await transactionFixture(t);
   await applyFileSessionSuggestion(targetPath, suggestion.id, { by: "tester" }, opts);
