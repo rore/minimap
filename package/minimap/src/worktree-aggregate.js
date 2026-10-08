@@ -308,10 +308,14 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
     }
   }
   const features = [];
+  const featureCandidates = new Map();
+  const featuresBySource = [];
   const displayRevisions = new Map();
   const groupMap = new Map();
   const appearanceOrder = [];
   for (const [sourceIndex, source] of loaded.entries()) {
+    const sourceFeatures = new Map();
+    featuresBySource.push(sourceFeatures);
     const sourceContext = { sourceKey: source.sourceKey, repoRoot: source.repoRoot,
       label: source.label, git: source.git, roadmapBinding: source.roadmapBinding };
     const memberships = new Map();
@@ -335,11 +339,15 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
     }
     for (const [id, summary] of Object.entries(source.workspace.items)) {
       const filePath = relative(source.repoRoot, summary.filePath);
-      const match = features.find((feature) => feature.id === id && feature.filePath === filePath
-        && feature.sourceIndexes.every((other) => lineage.get(`${Math.min(other, sourceIndex)}:${Math.max(other, sourceIndex)}`)?.get(filePath) === id));
+      const candidateKey = JSON.stringify([id, filePath]);
+      let candidates = featureCandidates.get(candidateKey);
+      if (!candidates) featureCandidates.set(candidateKey, candidates = []);
+      const match = candidates.find((feature) => feature.sourceIndexes.every((other) =>
+        lineage.get(`${Math.min(other, sourceIndex)}:${Math.max(other, sourceIndex)}`)?.get(filePath) === id));
       const feature = match || { key: hash(`${source.sourceKey}\0${id}\0${filePath}`), id, filePath,
         versions: [], groups: [], conflicts: [], sourceIndexes: [] };
-      if (!match) features.push(feature);
+      if (!match) { features.push(feature); candidates.push(feature); }
+      sourceFeatures.set(id, feature);
       feature.sourceIndexes.push(sourceIndex);
       for (const groupName of memberships.get(id) || ["Not on a board"]) {
         const groupKind = memberships.has(id) ? "board" : "unlisted";
@@ -357,12 +365,14 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
     feature.conflicts = await conflicts(feature.versions, displayRevisions, signal);
     delete feature.sourceIndexes;
   }
+  const groupItemKeys = new Map([...groupMap.keys()].map((key) => [key, new Set()]));
   for (const appearance of appearanceOrder) {
     const group = groupMap.get(appearance.groupKey);
-    if (appearance.missing) { group.items.push(appearance.missing); continue; }
-    const feature = features.find((entry) => entry.id === appearance.id
-      && entry.versions.some((version) => version.sourceKey === loaded[appearance.sourceIndex].sourceKey));
-    if (group.items.some((item) => item.key === feature.key)) continue;
+    const itemKeys = groupItemKeys.get(appearance.groupKey);
+    if (appearance.missing) { group.items.push(appearance.missing); itemKeys.add(appearance.missing.key); continue; }
+    const feature = featuresBySource[appearance.sourceIndex].get(appearance.id);
+    if (itemKeys.has(feature.key)) continue;
+    itemKeys.add(feature.key);
     const versions = feature.versions.filter((version) => `${version.groupKind === "board" ? "board:" + version.group : "unlisted"}` === appearance.groupKey);
     group.items.push({ key: feature.key, id: feature.id, versions, conflicts: await conflicts(versions, displayRevisions, signal) });
   }
