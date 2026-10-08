@@ -7,10 +7,10 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const MAX_SOURCES = 16;
 
-async function git(repoRoot, args) {
+async function git(repoRoot, args, signal) {
   return (await execFileAsync("git", args, {
     cwd: repoRoot, windowsHide: true, shell: false, timeout: 2000,
-    maxBuffer: 1024 * 1024, encoding: "utf8",
+    maxBuffer: 1024 * 1024, encoding: "utf8", signal,
   })).stdout.trim();
 }
 
@@ -19,16 +19,16 @@ function canonical(value) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-async function context(repoRoot) {
-  const root = canonical(await git(repoRoot, ["rev-parse", "--show-toplevel"]));
-  const gitDir = canonical(await git(repoRoot, ["rev-parse", "--absolute-git-dir"]));
-  const commonDirRaw = await git(repoRoot, ["rev-parse", "--git-common-dir"]);
+async function context(repoRoot, signal) {
+  const root = canonical(await git(repoRoot, ["rev-parse", "--show-toplevel"], signal));
+  const gitDir = canonical(await git(repoRoot, ["rev-parse", "--absolute-git-dir"], signal));
+  const commonDirRaw = await git(repoRoot, ["rev-parse", "--git-common-dir"], signal);
   const commonDir = canonical(path.resolve(root, commonDirRaw));
   const [gitStat, commonStat, head] = await Promise.all([
-    fs.stat(gitDir), fs.stat(commonDir), fs.readFile(path.join(gitDir, "HEAD"), "utf8"),
+    fs.stat(gitDir), fs.stat(commonDir), fs.readFile(path.join(gitDir, "HEAD"), { encoding: "utf8", signal }),
   ]);
   const branch = head.trim().match(/^ref:\s*(.+)$/);
-  const commit = await git(repoRoot, ["rev-parse", "HEAD"]);
+  const commit = await git(repoRoot, ["rev-parse", "HEAD"], signal);
   const identity = (stat) => ({ birthtimeMs: stat.birthtimeMs, ino: stat.ino, dev: stat.dev });
   const key = createHash("sha256").update(`${commonDir}\0${gitDir}\0${gitStat.dev}:${gitStat.ino}`).digest("hex");
   return {
@@ -39,8 +39,11 @@ async function context(repoRoot) {
   };
 }
 
-export async function readWorktreeIdentity(repoRoot) {
-  try { return await context(repoRoot); } catch { return null; }
+export async function readWorktreeIdentity(repoRoot, { signal } = {}) {
+  try { return await context(repoRoot, signal); } catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
+    return null;
+  }
 }
 
 function parsePorcelain(output) {
@@ -59,23 +62,27 @@ function parsePorcelain(output) {
   return entries;
 }
 
-export async function discoverWorktreeSources(openRepoRoot) {
+export async function discoverWorktreeSources(openRepoRoot, { signal } = {}) {
   const result = { sources: [], excluded: [], partial: false, unavailable: null };
-  const opened = await readWorktreeIdentity(openRepoRoot);
+  const opened = await readWorktreeIdentity(openRepoRoot, { signal });
   if (!opened) { result.unavailable = { reason: "not-git-or-unavailable" }; return result; }
   result.sources.push(opened);
   let records;
-  try { records = parsePorcelain(await git(opened.repoRoot, ["worktree", "list", "--porcelain", "-z"])); }
-  catch (error) { result.partial = true; result.unavailable = { reason: "git-worktree-list-failed", message: error.message }; return result; }
+  try { records = parsePorcelain(await git(opened.repoRoot, ["worktree", "list", "--porcelain", "-z"], signal)); }
+  catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
+    result.partial = true; result.unavailable = { reason: "git-worktree-list-failed", message: error.message }; return result;
+  }
   const candidates = records.filter((record) => canonical(record.worktree) !== opened.repoRoot);
   let inspected = 0;
   for (const record of candidates) {
+    if (signal?.aborted) throw signal.reason;
     if (inspected >= MAX_SOURCES - 1) {
       result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "source-limit" }); continue;
     }
     inspected += 1;
     if (record.prunable) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "prunable" }); continue; }
-    const candidate = await readWorktreeIdentity(record.worktree);
+    const candidate = await readWorktreeIdentity(record.worktree, { signal });
     if (!candidate) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "missing-or-unavailable" }); continue; }
     if (candidate.git.commonDir !== opened.git.commonDir) { result.excluded.push({ repoRoot: record.worktree, reason: "different-common-git-dir" }); continue; }
     result.sources.push(candidate);

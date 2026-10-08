@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,8 +15,8 @@ import {
   saveScopeText,
 } from "./src/roadmap.js";
 import { loadWorktreeAggregate } from "./src/worktree-aggregate.js";
-import { discoverWorktreeSources } from "./src/worktree-sources.js";
-import { selectWorktreeParticipantCandidates } from "./src/worktree-presence.js";
+import { discoverWorktreeSources, readWorktreeIdentity } from "./src/worktree-sources.js";
+import { selectBoardParticipantCandidates, selectWorktreeParticipantCandidates } from "./src/worktree-presence.js";
 import { requirePathInSource, requireRoadmapInSource, verifySourceContext } from "./src/source-bound.js";
 import { withSourceWriteGuard } from "./src/source-write-guard.js";
 import {
@@ -38,6 +39,7 @@ import {
 } from "./src/sessions.js";
 import { readServerRegistry, writeServerRegistry, deleteServerRegistry, readRuntimeIdentity } from "./src/server-registry.js";
 import { matchRoute } from "./src/router.js";
+import { createRoadmapSnapshotCoordinator } from "./src/roadmap-snapshots.js";
 import { createLifecycleLog, lifecycleError } from "./src/server-lifecycle-log.js";
 import {
   isTrustedLocalRequest,
@@ -73,6 +75,7 @@ const palliumConfig = parsePalliumConfig(
   process.env.MINIMAP_PALLIUM_ENDPOINT,
   process.env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT,
 );
+const roadmapSnapshots = createRoadmapSnapshotCoordinator();
 
 const runtimeIdentity = await readRuntimeIdentity(__filename);
 const serverVersion = runtimeIdentity.version;
@@ -113,10 +116,139 @@ const contentTypes = new Map([
 ]);
 
 function sendJson(response, statusCode, payload) {
+  if (response.invalidateRoadmapSnapshots) {
+    roadmapSnapshots.invalidateAll();
+    response.invalidateRoadmapSnapshots = false;
+  }
   response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload));
 }
 
+function requestAbortSignal(request, response) {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!response.writableEnded) controller.abort(new DOMException("Request disconnected.", "AbortError"));
+  };
+  request.once("aborted", abort);
+  response.once("close", abort);
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
+  return { signal, cleanup: () => { request.off("aborted", abort); response.off("close", abort); } };
+}
+
+function snapshotAppError(error, signal) {
+  if (error instanceof AppError) return error;
+  if (error?.status === 503 || error?.status === 409) {
+    return new AppError(error.message, error.status, error.code || "snapshot_unavailable");
+  }
+  if (signal?.reason?.name === "TimeoutError" || (signal?.aborted && error?.name === "AbortError")) {
+    return new AppError("Snapshot request exceeded its 30-second budget.", 503, "snapshot_unavailable");
+  }
+  return error;
+}
+
+function canonicalPath(value) {
+  const root = path.resolve(value);
+  return process.platform === "win32" ? root.toLowerCase() : root;
+}
+
+function samePath(left, right) {
+  return canonicalPath(left) === canonicalPath(right);
+}
+
+function snapshotKey(repoRoot, mode) {
+  const root = canonicalPath(repoRoot);
+  return `${process.platform === "win32" ? root.toLowerCase() : root}\0${mode}`;
+}
+
+async function captureAdmissionEvidence(repoRoot, git, resolvedPath, signal) {
+  const statValue = async (file) => {
+    if (signal?.aborted) throw signal.reason;
+    try {
+      const stat = await fs.stat(file, { signal });
+      return [stat.dev, stat.ino, stat.birthtimeMs, stat.size, stat.mtimeMs, stat.ctimeMs];
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
+  };
+  const root = await fs.realpath(repoRoot);
+  const gitEntry = path.join(root, ".git");
+  let gitEntryStat = null, gitEntryText = null;
+  try {
+    const entry = await fs.lstat(gitEntry, { signal });
+    gitEntryStat = [entry.dev, entry.ino, entry.birthtimeMs, entry.size, entry.mtimeMs, entry.ctimeMs];
+    if (entry.isFile()) {
+      gitEntryText = await fs.readFile(gitEntry, { encoding: "utf8", signal });
+      const target = gitEntryText.match(/^gitdir:\s*(.+)\s*$/im)?.[1];
+      if (!target || !git || !samePath(path.resolve(root, target), git.gitDir)) return null;
+    } else if (!git || !samePath(await fs.realpath(gitEntry), git.gitDir)) return null;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    if (git) return null;
+  }
+
+  let gitEvidence = null;
+  if (git) {
+    const gitDir = git.gitDir, commonDir = git.commonDir;
+    const head = await fs.readFile(path.join(gitDir, "HEAD"), { encoding: "utf8", signal });
+    const commonDirPath = path.join(gitDir, "commondir");
+    let commonDirText = null;
+    try {
+      commonDirText = await fs.readFile(commonDirPath, { encoding: "utf8", signal });
+      if (!samePath(path.resolve(gitDir, commonDirText.trim()), commonDir)) return null;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      if (!samePath(gitDir, commonDir)) return null;
+    }
+    gitEvidence = { gitDir: canonicalPath(gitDir), commonDir: canonicalPath(commonDir),
+      gitDirStat: await statValue(gitDir), commonDirStat: await statValue(commonDir), head,
+      gitEntryStat, gitEntryText, commonDirText };
+  }
+
+  const configPath = path.join(root, "roadmap.config.json");
+  let config = null;
+  try { config = createHash("sha256").update(await fs.readFile(configPath, { signal })).digest("hex"); }
+  catch (error) { if (error?.code !== "ENOENT") throw error; }
+  const bindingRoot = await fs.realpath(resolvedPath);
+  return { root: canonicalPath(root), rootStat: await statValue(root), git: gitEvidence,
+    config, configStat: await statValue(configPath), bindingRoot: canonicalPath(bindingRoot),
+    bindingStat: await statValue(bindingRoot) };
+}
+
+async function captureSourceAdmission(repoRoot, roadmapBinding, identity, signal) {
+  const currentBinding = await requireRoadmapInSource(repoRoot, { signal });
+  if (currentBinding.roadmapPath !== roadmapBinding.roadmapPath
+    || !samePath(currentBinding.resolvedPath, roadmapBinding.resolvedPath)) return null;
+  const git = identity?.git || null;
+  const evidence = await captureAdmissionEvidence(repoRoot, git, currentBinding.resolvedPath, signal);
+  if (!evidence) return null;
+  if (git) {
+    const expectedHead = git.branchRef ? `ref: ${git.branchRef}` : git.headCommit;
+    if (evidence.git.head.trim() !== expectedHead) return null;
+  }
+  return { repoRoot: canonicalPath(repoRoot), sourceKey: identity?.sourceKey || null, git,
+    roadmapPath: currentBinding.roadmapPath, resolvedPath: canonicalPath(currentBinding.resolvedPath), evidence };
+}
+
+function sameWorkspaceRevision(left, right) {
+  if (!left || !right || left.configRevision !== right.configRevision
+    || left.boardRevision !== right.boardRevision || left.scopeRevision !== right.scopeRevision
+    || !samePath(left.resolvedPath, right.resolvedPath)) return false;
+  const leftItems = Object.values(left.items || {}), rightItems = Object.values(right.items || {});
+  if (leftItems.length !== rightItems.length) return false;
+  const byId = new Map(rightItems.map((item) => [item.id, item]));
+  return leftItems.every((item) => {
+    const other = byId.get(item.id);
+    return other && item.revision === other.revision && samePath(item.filePath, other.filePath);
+  });
+}
+
+async function admitSource(expected, signal) {
+  const binding = await requireRoadmapInSource(expected.repoRoot, { signal });
+  if (binding.roadmapPath !== expected.roadmapPath || !samePath(binding.resolvedPath, expected.resolvedPath)) return false;
+  const evidence = await captureAdmissionEvidence(expected.repoRoot, expected.git, binding.resolvedPath, signal);
+  return Boolean(evidence && JSON.stringify(expected.evidence) === JSON.stringify(evidence));
+}
 function sendText(response, statusCode, payload, contentType) {
   response.writeHead(statusCode, { "Content-Type": contentType });
   response.end(payload);
@@ -234,11 +366,27 @@ async function resolveRoadmapRepo(request) {
 // "this item has 3 open comments" badges without a second request. Sessions
 // whose targetFile lies outside the active repo are intentionally ignored —
 // we only surface links the user can act on from this workspace view.
-async function buildSpecSessionsByItemId(repoRoot, workspace) {
+function compactSpecSession(session) {
+  return session.availability?.status === "unavailable"
+    ? { sessionId: session.id, targetFile: session.targetFile, unavailable: true }
+    : { sessionId: session.id, targetFile: session.targetFile,
+      openComments: session.counts.openComments, pendingSuggestions: session.counts.pendingSuggestions };
+}
+
+async function readSpecSessions(targetFiles, { signal, onMutation } = {}) {
+  let sessions;
+  try { sessions = await listFileSessions({ targetFiles, signal, onMutation }); }
+  catch (error) { if (signal?.aborted) throw signal.reason || error; return new Map(); }
+  return new Map(sessions.filter((session) => typeof session?.targetFile === "string")
+    .map((session) => [path.resolve(session.targetFile).replace(/\\/g, "/"), compactSpecSession(session)]));
+}
+
+async function buildSpecSessionsByItemId(repoRoot, workspace, options = {}) {
   let sessions;
   try {
-    sessions = await listFileSessions({ targetFiles: Object.values(workspace.items ?? {}).map((item) => item.filePath).filter(Boolean) });
-  } catch {
+    sessions = await listFileSessions({ targetFiles: Object.values(workspace.items ?? {}).map((item) => item.filePath).filter(Boolean), ...options });
+  } catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason || error;
     return {};
   }
 
@@ -259,16 +407,113 @@ async function buildSpecSessionsByItemId(repoRoot, workspace) {
     const absolute = path.resolve(item.filePath).replace(/\\/g, "/");
     const session = sessionsByPath.get(absolute);
     if (!session) continue;
-    linked[item.id] = session.availability?.status === "unavailable"
-      ? { sessionId: session.id, targetFile: session.targetFile, unavailable: true }
-      : {
-          sessionId: session.id,
-          targetFile: session.targetFile,
-          openComments: session.counts.openComments,
-          pendingSuggestions: session.counts.pendingSuggestions,
-        };
+    linked[item.id] = compactSpecSession(session);
   }
   return linked;
+}
+
+async function attachAggregateSpecSessions(aggregate, options = {}) {
+  const versions = (aggregate.features || []).flatMap((feature) => feature.versions || []);
+  const sessions = await readSpecSessions(versions.map((version) => version.summary.filePath).filter(Boolean), options);
+  for (const version of versions) {
+    const file = version.summary.filePath;
+    if (!file) continue;
+    const session = sessions.get(path.resolve(file).replace(/\\/g, "/"));
+    if (session) version.summary.specSession = session;
+  }
+}
+
+async function buildObservationManifest(repoRoot, workspace, aggregate, signal) {
+  const modes = {};
+  for (const includeCompleted of [false, true]) {
+    if (signal?.aborted) throw signal.reason;
+    const key = includeCompleted ? "completed" : "unfinished";
+    const board = aggregate ? null : selectBoardParticipantCandidates(workspace, { includeCompleted });
+    const selected = aggregate
+      ? selectWorktreeParticipantCandidates(aggregate, { includeCompleted })
+      : { features: board.ids.map((id) => ({ key: id, id })), partial: board.partial, ambiguous: [] };
+    const partial = selected.partial || selected.ambiguous.length > 0;
+    if (!workspace) { modes[key] = { status: "identity-unavailable", counts: [], partial: true }; continue; }
+    if (!palliumConfig.configured) { modes[key] = { status: "disabled", counts: [], partial }; continue; }
+    const ids = selected.features.map((feature) => feature.id);
+    const references = ids.length
+      ? await resolveRoadmapItemReferences(repoRoot, workspace.roadmapPath, ids, { signal })
+      : [];
+    if (references === null) { modes[key] = { status: "identity-unavailable", counts: [], partial: true }; continue; }
+    modes[key] = { status: "ok", partial, counts: selected.features.map((feature, index) => ({
+      ...(aggregate ? { featureKey: feature.key } : { itemId: feature.id }), reference: references[index],
+    })) };
+  }
+  return modes;
+}
+
+async function handleBoardObservations(request, response, ctx) {
+  const snapshots = ctx.url.searchParams.getAll("snapshot");
+  const includeCompletedValues = ctx.url.searchParams.getAll("includeCompleted");
+  if (snapshots.length !== 1 || !snapshots[0]
+    || includeCompletedValues.length > 1 || includeCompletedValues.some((value) => !["0", "1"].includes(value))) {
+    throw new AppError("Invalid snapshot observation query.", 400, "bad_request");
+  }
+  const { signal, cleanup } = requestAbortSignal(request, response);
+  const generation = roadmapSnapshots.generation();
+  try {
+    const repoRoot = await resolveRoadmapRepo(request);
+    const manifestModes = ["this", "opened", "across"];
+    const manifestMode = manifestModes.find((mode) => roadmapSnapshots.getManifest(snapshots[0], snapshotKey(repoRoot, mode)));
+    const manifest = manifestMode && roadmapSnapshots.getManifest(snapshots[0], snapshotKey(repoRoot, manifestMode));
+    const sameRepo = manifest && samePath(manifest.openedRepo, repoRoot);
+    if (!manifest || !sameRepo || !["this", "across"].includes(manifest.mode)) {
+      throw new AppError("Snapshot is no longer available for this checkout.", 409, "snapshot_expired");
+    }
+    const mode = manifest.observation[includeCompletedValues[0] === "1" ? "completed" : "unfinished"];
+    let result;
+    if (!mode || mode.status !== "ok") result = { status: mode?.status || "identity-unavailable", counts: [], partial: Boolean(mode?.partial), includeCompleted: includeCompletedValues[0] === "1" };
+    else if (!mode.counts.length) result = { status: "ok", counts: [], partial: mode.partial,
+      includeCompleted: includeCompletedValues[0] === "1" };
+    else {
+      const provider = await lookupPalliumParticipantCounts(palliumConfig, mode.counts.map((entry) => entry.reference), { signal });
+      result = { status: provider.status,
+        counts: provider.status === "ok" ? provider.counts.map((row, index) => ({
+          [manifest.mode === "across" ? "featureKey" : "itemId"]: mode.counts[index][manifest.mode === "across" ? "featureKey" : "itemId"],
+          participantCount: row.participant_count, recentParticipantCount: row.recent_participant_count,
+          dormantParticipantCount: row.dormant_participant_count,
+        })) : [], partial: mode.partial,
+        ...(provider.status === "ok" ? { asOf: provider.asOf, recentSeconds: provider.recentSeconds } : {}),
+        includeCompleted: includeCompletedValues[0] === "1" };
+    }
+    if (signal.aborted) return;
+    if (generation !== roadmapSnapshots.generation()
+      || !roadmapSnapshots.getManifest(snapshots[0], snapshotKey(repoRoot, manifestMode))) {
+      throw new AppError("Snapshot changed while observations were loading.", 409, "snapshot_invalidated");
+    }
+    sendJson(response, 200, result);
+  } catch (error) { if (!response.destroyed) throw snapshotAppError(error, signal); }
+  finally { cleanup(); }
+}
+
+async function readThisSnapshot(repoRoot, { signal, cached = false } = {}) {
+  return roadmapSnapshots.read({ key: snapshotKey(repoRoot, "this"), cached, signal,
+    load: async ({ signal: scanSignal }) => {
+      const identity = await readWorktreeIdentity(repoRoot, { signal: scanSignal });
+      const workspace = await loadWorkspace(repoRoot, { signal: scanSignal });
+      workspace.specSessionsByItemId = await buildSpecSessionsByItemId(repoRoot, workspace, {
+        signal: scanSignal, onMutation: () => roadmapSnapshots.invalidateAll({ exceptSignal: scanSignal }),
+      });
+      const observation = await buildObservationManifest(repoRoot, workspace, null, scanSignal);
+      const finalWorkspace = await loadWorkspace(repoRoot, { signal: scanSignal });
+      if (!sameWorkspaceRevision(workspace, finalWorkspace)) throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
+      const admission = await captureSourceAdmission(repoRoot, workspace, identity, scanSignal);
+      if (!admission || (identity && (identity.sourceKey !== admission.sourceKey
+        || JSON.stringify(identity.git) !== JSON.stringify(admission.git)))) {
+        throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+      }
+      return { value: workspace, manifest: { openedRepo: canonicalPath(repoRoot), mode: "this", observation }, admission };
+    },
+    admit: async (admission, { signal: admitSignal }) => {
+      if (!admission) return false;
+      return admitSource(admission, admitSignal);
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -427,10 +672,19 @@ async function handleSuggestionPreviewApply(request, response, ctx) {
 }
 
 async function handleWorkspace(request, response) {
-  const repoRoot = await resolveRoadmapRepo(request);
-  const workspace = await loadWorkspace(repoRoot);
-  workspace.specSessionsByItemId = await buildSpecSessionsByItemId(repoRoot, workspace);
-  sendJson(response, 200, workspace);
+  const values = new URL(request.url, "http://localhost").searchParams.getAll("cached");
+  if (values.length > 1 || values.some((value) => value !== "1")) throw new AppError("cached must be 1 and appear at most once.", 400, "bad_request");
+  const { signal, cleanup } = requestAbortSignal(request, response);
+  try {
+    const repoRoot = await resolveRoadmapRepo(request);
+    const loaded = await readThisSnapshot(repoRoot, { signal, cached: values.length === 1 });
+    if (signal.aborted) return;
+    if (loaded.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
+    loaded.value.snapshot = loaded.snapshot;
+    sendJson(response, 200, loaded.value);
+  } catch (error) {
+    if (!response.destroyed) throw snapshotAppError(error, signal);
+  } finally { cleanup(); }
 }
 
 async function handleWorktreeSources(request, response) {
@@ -457,14 +711,17 @@ async function handleWorktreeSourceWorkspace(request, response) {
     throw new AppError("Invalid source context.", 400, "bad_request");
   }
 
+  const { signal, cleanup } = requestAbortSignal(request, response);
+  try {
   const repoRoot = await resolveRoadmapRepo(request);
-  await verifySourceContext(repoRoot, expected);
-  const roadmap = await requireRoadmapInSource(repoRoot);
-  const workspace = await loadWorkspace(repoRoot);
-  workspace.specSessionsByItemId = await buildSpecSessionsByItemId(repoRoot, workspace);
+  await verifySourceContext(repoRoot, expected, { signal });
+  const roadmap = await requireRoadmapInSource(repoRoot, { signal });
+  const snapshot = await readThisSnapshot(repoRoot, { signal });
+  const workspace = snapshot.value;
+  workspace.snapshot = snapshot.snapshot;
 
-  const source = await verifySourceContext(repoRoot, expected);
-  const currentRoadmap = await requireRoadmapInSource(repoRoot);
+  const source = await verifySourceContext(repoRoot, expected, { signal });
+  const currentRoadmap = await requireRoadmapInSource(repoRoot, { signal });
   const samePath = (left, right) => typeof left === "string" && typeof right === "string"
     && path.isAbsolute(left) && path.isAbsolute(right)
     && (process.platform === "win32"
@@ -476,54 +733,106 @@ async function handleWorktreeSourceWorkspace(request, response) {
       || !samePath(expected.roadmapBinding.resolvedPath, roadmap.resolvedPath)))) {
     throw new AppError("Roadmap location changed. Reload this source before continuing.", 409, "source_changed");
   }
+  if (snapshot.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
   sendJson(response, 200, { source: { ...source, roadmapBinding: {
     roadmapPath: roadmap.roadmapPath, resolvedPath: roadmap.resolvedPath,
   } }, workspace });
+  } catch (error) { if (!response.destroyed) throw snapshotAppError(error, signal); }
+  finally { cleanup(); }
 }
 
 async function handleWorktreeWorkspace(request, response) {
-  const repoRoot = await resolveRoadmapRepo(request);
   const openedOnlyValues = new URL(request.url, "http://localhost").searchParams.getAll("openedOnly");
+  const cachedValues = new URL(request.url, "http://localhost").searchParams.getAll("cached");
+  const participantValues = new URL(request.url, "http://localhost").searchParams.getAll("participants");
   if (openedOnlyValues.length > 1 || (openedOnlyValues.length && openedOnlyValues[0] !== "1")) {
     throw new AppError("Invalid openedOnly query parameter.", 400, "bad_request");
   }
+  if (cachedValues.length > 1 || cachedValues.some((value) => value !== "1")
+    || participantValues.length > 1 || participantValues.some((value) => value !== "0")) {
+    throw new AppError("Invalid worktree snapshot query parameter.", 400, "bad_request");
+  }
   const openedOnly = openedOnlyValues.length === 1;
-  const aggregate = await loadWorktreeAggregate(repoRoot, { openedOnly });
-  aggregate.participantCounts = openedOnly
-    ? { status: "loading", counts: [], partial: true, includeCompleted: true }
-    : await lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate);
-  if (!response.destroyed) sendJson(response, 200, aggregate);
+  const cached = cachedValues.length === 1;
+  const participants = participantValues.length === 0;
+  const mode = openedOnly ? "opened" : "across";
+  const { signal, cleanup } = requestAbortSignal(request, response);
+  try {
+    const repoRoot = await resolveRoadmapRepo(request);
+    const key = snapshotKey(repoRoot, mode);
+    const loaded = await roadmapSnapshots.read({ key, cached, signal, priority: openedOnly,
+      load: async ({ signal: scanSignal }) => {
+        const aggregate = await loadWorktreeAggregate(repoRoot, { openedOnly, signal: scanSignal });
+        await attachAggregateSpecSessions(aggregate, { signal: scanSignal,
+          onMutation: () => roadmapSnapshots.invalidateAll({ exceptSignal: scanSignal }) });
+        const sources = new Map();
+        const sourceChecks = aggregate.snapshotChecks || [];
+        for (const check of sourceChecks) {
+          const source = (aggregate.sources || []).find((entry) => entry.sourceKey === check.sourceKey);
+          if (!source) continue;
+          const binding = source.roadmapBinding || check.workspace;
+          const finalWorkspace = await loadWorkspace(source.repoRoot, { signal: scanSignal });
+          if (!sameWorkspaceRevision(check.workspace, finalWorkspace)) {
+            throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
+          }
+          const admission = await captureSourceAdmission(source.repoRoot, binding, source, scanSignal);
+          if (!admission || source.sourceKey !== admission.sourceKey
+            || JSON.stringify(source.git) !== JSON.stringify(admission?.git)) {
+            throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+          }
+          sources.set(source.sourceKey, admission);
+        }
+        const manifest = await buildObservationManifest(repoRoot, aggregate.workspace, openedOnly ? null : aggregate, scanSignal);
+        return { value: aggregate, manifest: { openedRepo: canonicalPath(repoRoot), mode: openedOnly ? "this" : "across", observation: manifest },
+          admission: sourceChecks.length === (aggregate.sources || []).length && sourceChecks.length
+            ? [...sources.values()] : [null] };
+      },
+      admit: async (admissions, { signal: admitSignal }) => {
+        if (!Array.isArray(admissions) || !admissions.length) return false;
+        for (const expected of admissions) {
+          if (!expected) return false;
+          if (!await admitSource(expected, admitSignal)) return false;
+        }
+        return true;
+      },
+    });
+    if (signal.aborted) return;
+    if (loaded.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
+    loaded.value.snapshot = loaded.snapshot;
+    if (participants) loaded.value.participantCounts = openedOnly
+      ? { status: "loading", counts: [], partial: true, includeCompleted: true }
+      : await lookupWorktreeParticipantCounts(request, response, repoRoot, loaded.value, mode);
+    if (loaded.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
+    if (!response.destroyed) sendJson(response, 200, loaded.value);
+  } catch (error) {
+    if (!response.destroyed) throw snapshotAppError(error, signal);
+  } finally { cleanup(); }
 }
 
-async function lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate) {
+async function lookupWorktreeParticipantCounts(request, response, repoRoot, aggregate, mode) {
   if (!palliumConfig.configured) {
     return { status: "disabled", counts: [], partial: Boolean(aggregate.partial), includeCompleted: true };
   }
   if (!aggregate.workspace) {
     return { status: "identity-unavailable", counts: [], partial: true, includeCompleted: true };
   }
-  const candidates = selectWorktreeParticipantCandidates(aggregate, { includeCompleted: true });
-  const partial = candidates.partial || candidates.ambiguous.length > 0;
-  if (!candidates.features.length) {
-    return { status: "ok", counts: [], partial, includeCompleted: true };
-  }
-  const references = await resolveRoadmapItemReferences(repoRoot, aggregate.workspace.roadmapPath, candidates.features.map((feature) => feature.id));
-  if (!references) {
-    return { status: "identity-unavailable", counts: [], partial: true, includeCompleted: true };
-  }
+  const manifest = roadmapSnapshots.getManifest(aggregate.snapshot?.id, snapshotKey(repoRoot, mode));
+  const observation = manifest?.observation?.completed;
+  if (!observation) return { status: "identity-unavailable", counts: [], partial: true, includeCompleted: true };
+  if (observation.status !== "ok") return { status: observation.status, counts: [], partial: observation.partial, includeCompleted: true };
   const controller = new AbortController();
   const abort = () => controller.abort();
   request.once("aborted", abort);
   response.once("close", abort);
   try {
-    const result = await lookupPalliumParticipantCounts(palliumConfig, references, { signal: controller.signal });
+    const result = await lookupPalliumParticipantCounts(palliumConfig, observation.counts.map((entry) => entry.reference), { signal: controller.signal });
     return {
       status: result.status,
       counts: result.status === "ok" ? result.counts.map((row, index) => ({
-        featureKey: candidates.features[index].key, participantCount: row.participant_count,
+        featureKey: observation.counts[index].featureKey, participantCount: row.participant_count,
         recentParticipantCount: row.recent_participant_count, dormantParticipantCount: row.dormant_participant_count,
       })) : [],
-      partial,
+      partial: observation.partial,
       ...(result.status === "ok" ? { asOf: result.asOf, recentSeconds: result.recentSeconds } : {}),
       includeCompleted: true,
     };
@@ -586,25 +895,20 @@ async function handleItemParticipants(request, response, ctx) {
     return;
   }
 
-  const repoRoot = await resolveRoadmapRepo(request);
-  const id = decodeURIComponent(ctx.params[0]);
-  const workspace = await loadWorkspace(repoRoot);
-  if (!Object.hasOwn(workspace.items, id)) throw new AppError(`Item "${id}" was not found.`, 404, "not_found");
-  const reference = await resolveRoadmapItemReference(repoRoot, workspace.roadmapPath, id);
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  request.once("aborted", abort);
-  response.once("close", abort);
-
+  const { signal, cleanup } = requestAbortSignal(request, response);
   try {
-    const result = await lookupPalliumParticipants(palliumConfig, reference, { signal: controller.signal });
+    const repoRoot = await resolveRoadmapRepo(request);
+    const id = decodeURIComponent(ctx.params[0]);
+    const snapshot = await readThisSnapshot(repoRoot, { signal });
+    const workspace = snapshot.value;
+    if (!Object.hasOwn(workspace.items, id)) throw new AppError(`Item "${id}" was not found.`, 404, "not_found");
+    const reference = await resolveRoadmapItemReference(repoRoot, workspace.roadmapPath, id, { signal });
+    const result = await lookupPalliumParticipants(palliumConfig, reference, { signal });
+    if (snapshot.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
     if (!response.destroyed) sendJson(response, 200, result);
   } catch (error) {
-    if (!controller.signal.aborted) throw error;
-  } finally {
-    request.off("aborted", abort);
-    response.off("close", abort);
-  }
+    if (!signal.aborted && !response.destroyed) throw snapshotAppError(error, signal);
+  } finally { cleanup(); }
 }
 
 async function handleBoardParticipantCounts(request, response, ctx) {
@@ -617,60 +921,37 @@ async function handleBoardParticipantCounts(request, response, ctx) {
     sendJson(response, 200, { status: "disabled", counts: [], partial: false });
     return;
   }
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  request.once("aborted", abort);
-  response.once("close", abort);
+  const { signal, cleanup } = requestAbortSignal(request, response);
   try {
     const repoRoot = await resolveRoadmapRepo(request);
-    const workspace = await loadWorkspace(repoRoot);
-    const boardIds = [];
-    const seen = new Set();
-    for (const group of workspace.boardGroups || []) {
-      for (const item of group.items || []) {
-        const fullItem = workspace.items?.[item?.id];
-        const status = String(fullItem?.status || "").trim().toLowerCase();
-        if (
-          item?.missing || !fullItem || seen.has(item.id)
-          || (!includeCompleted && ["done", "shipped", "superseded", "cancelled", "canceled"].includes(status))
-        ) continue;
-        seen.add(item.id);
-        boardIds.push(item.id);
-      }
-    }
-    const partial = boardIds.length > 200;
-    const itemIds = boardIds.slice(0, 200);
-    if (!itemIds.length) {
-      if (!response.destroyed) sendJson(response, 200, {
-        status: "ok", counts: [], partial, ...(includeCompleted ? { includeCompleted: true } : {}),
-      });
+    const snapshot = await readThisSnapshot(repoRoot, { signal });
+    if (snapshot.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
+    const manifest = roadmapSnapshots.getManifest(snapshot.snapshot.id, snapshotKey(repoRoot, "this"));
+    const observation = manifest?.observation?.[includeCompleted ? "completed" : "unfinished"];
+    if (!observation || observation.status !== "ok") {
+      if (!response.destroyed) sendJson(response, 200, { status: observation?.status || "identity-unavailable", counts: [], partial: Boolean(observation?.partial), ...(includeCompleted ? { includeCompleted: true } : {}) });
       return;
     }
-    const references = await resolveRoadmapItemReferences(repoRoot, workspace.roadmapPath, itemIds);
-    if (references === null) {
-      if (!response.destroyed) sendJson(response, 200, { status: "identity-unavailable", counts: [], partial });
-      return;
-    }
-    const result = await lookupPalliumParticipantCounts(palliumConfig, references, { signal: controller.signal });
+    const result = observation.counts.length
+      ? await lookupPalliumParticipantCounts(palliumConfig, observation.counts.map((entry) => entry.reference), { signal })
+      : { status: "ok", counts: [] };
     if (!response.destroyed) {
+      if (snapshot.generation !== roadmapSnapshots.generation()) throw new AppError("Snapshot changed while the request was in progress.", 409, "snapshot_invalidated");
       const counts = result.status === "ok"
         ? result.counts.map((row, index) => ({
-          itemId: itemIds[index], participantCount: row.participant_count,
+          itemId: observation.counts[index].itemId, participantCount: row.participant_count,
           recentParticipantCount: row.recent_participant_count, dormantParticipantCount: row.dormant_participant_count,
         }))
         : [];
       sendJson(response, 200, {
-        status: result.status, counts, partial,
+        status: result.status, counts, partial: observation.partial,
         ...(result.status === "ok" ? { asOf: result.asOf, recentSeconds: result.recentSeconds } : {}),
         ...(result.status === "ok" && includeCompleted ? { includeCompleted: true } : {}),
       });
     }
   } catch (error) {
-    if (!controller.signal.aborted) throw error;
-  } finally {
-    request.off("aborted", abort);
-    response.off("close", abort);
-  }
+    if (!signal.aborted && !response.destroyed) throw snapshotAppError(error, signal);
+  } finally { cleanup(); }
 }
 async function handleGetItem(request, response, ctx) {
   const repoRoot = await resolveRoadmapRepo(request);
@@ -725,6 +1006,7 @@ const routes = [
   { method: "POST",   pattern: /^\/api\/lenses\/([^/]+)\/order$/, handler: handleLensOrder },
   { method: "POST",   pattern: /^\/api\/scope$/, handler: handleScope },
   { method: "GET",    pattern: /^\/api\/board\/participant-counts$/, handler: handleBoardParticipantCounts },
+  { method: "GET",    pattern: /^\/api\/board\/observations$/, handler: handleBoardObservations },
   { method: "GET",    pattern: /^\/api\/items\/([^/]+)\/participants$/, handler: handleItemParticipants },
   { method: "GET",    pattern: /^\/api\/items\/([^/]+)$/, handler: handleGetItem },
   { method: "POST",   pattern: /^\/api\/items\/([^/]+)$/, handler: handleSaveItem },
@@ -757,10 +1039,23 @@ async function handleApi(request, response, requestUrl) {
     request.boundUrl = routedUrl;
     await validateBoundRequest(request);
   }
-  if (bound) await withSourceWriteGuard(() => validateBoundRequest(request),
-    () => match.handler(request, response, { url: routedUrl, params: match.params }),
-    (candidate) => requirePathInSource(request.boundRepoRoot, candidate));
-  else await match.handler(request, response, { url: routedUrl, params: match.params });
+  const invalidatesSnapshot = ["POST", "DELETE"].includes(request.method)
+    && routedUrl.pathname !== "/api/shutdown"
+    && !/^\/api\/spec-sessions\/by-file\/suggestions\/[^/]+\/preview$/.test(routedUrl.pathname);
+  if (invalidatesSnapshot) response.invalidateRoadmapSnapshots = true;
+  try {
+    if (bound) await withSourceWriteGuard(() => validateBoundRequest(request),
+      () => match.handler(request, response, { url: routedUrl, params: match.params }),
+      (candidate) => requirePathInSource(request.boundRepoRoot, candidate));
+    else await match.handler(request, response, { url: routedUrl, params: match.params });
+    if (response.invalidateRoadmapSnapshots) {
+      roadmapSnapshots.invalidateAll();
+      response.invalidateRoadmapSnapshots = false;
+    }
+  } catch (error) {
+    response.invalidateRoadmapSnapshots = false;
+    throw error;
+  }
   return true;
 }
 

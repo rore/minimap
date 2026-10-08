@@ -17,7 +17,7 @@
 **Plan review:** Agent technical review: clean-context non-implementer accepted the revised staged plan and Delivery 1 at 89a935d; see Plan review. Later concrete delivery design gates remain applicable.
 **Approvals:** Approved by user 2026-10-08: "so open a feature with all the details so we don't lose this, then let's drive a rewrite to fix all those issues and do a proper implementation that handles all of this." Approval follows the presented review and staged consolidation plan; human result review remains required.
 **Exceptions:** —
-**Behavior changes:** [{"target":"repository-contract","path":"playwright/refresh-reconciliation.spec.js","classification":"coverage-only","before":"No dedicated clean-start refresh, save-settlement, selected-source Review, obsolete Spec response or exactly-once detail regression file.","after":"Additional deterministic browser regression coverage for the existing draft, source intent and request ownership obligations; all existing protected assertions remain unchanged.","reason":"Reproduced asynchronous races need failing-before and passing-after evidence without changing existing acceptance requirements."}]
+**Behavior changes:** [{"target":"repository-contract","path":"playwright/refresh-reconciliation.spec.js","classification":"coverage-only","before":"No dedicated clean-start refresh, save-settlement, selected-source Review, obsolete Spec response or exactly-once detail regression file.","after":"Additional deterministic browser regression coverage for existing draft, source intent and request ownership obligations, including filtered-out dirty derived appearances; existing protected assertions remain unchanged.","reason":"Reproduced asynchronous races need failing-before and passing-after evidence without changing existing acceptance requirements."},{"target":"repository-contract","path":"playwright/snapshot-refresh.spec.js","classification":"coverage-only","before":"No common snapshot and observation refresh regression across modes and layouts.","after":"Additional coverage for independent badge refresh, visibility cancellation, cached versus manual validation, retained failed observations, source-specific Spec summaries and narrow rendered layouts.","reason":"Validate the approved refresh contract without weakening existing acceptance tests."}]
 **State:** Ready to implement
 <!-- agent-workflow:end -->
 
@@ -76,6 +76,12 @@ Delivery 3: common participant refresh and source-aware summaries across modes, 
 Each independently useful delivery may use its own PR and Work Record referencing this feature; do not arbitrarily split source and tests to avoid limits. Count source, tests and generated mirrors in size estimates; if a coherent delivery exceeds policy, surface the constraint instead of weakening scope or changing policy.
 
 ## Cache publication and freshness design gate
+
+Technical gate accepted: clean-context non-implementer accepted the concrete Delivery 2b contract at a4bb67576e2039875c7334c55de919d1d432de1e. Manager owns UI/API integration; backend implementer owns the shared coordinator, HTTP integration and focused backend tests in this checkout. Git batching remains separately owned in git-read-consolidation. Include observation opened-repo routing and invalidation from suggestion/recovery writes in result evidence. No new user approval is needed for this accepted source work.
+
+Efficiency clarification: an automatic cached hit validated within 30 seconds needs no follow-up fresh scan. A stale cached hit follows with fresh validation; Manual Refresh always requests fresh validation. This makes the freshness window useful across staggered clients. Cache admission failure is never reported as a fresh hit.
+
+UI/API contract regressions: new test/ui-snapshot-api.test.js reproduces three missing-contract failures before implementation: cached opt-in/cancellation absent, observations method absent, and guarded This cached request absent. Existing API tests remain unchanged. Additional browser coverage will exercise behavior, not just request shapes.
 
 Manager proposal for Delivery 2b, pending technical review (not implementation acceptance):
 

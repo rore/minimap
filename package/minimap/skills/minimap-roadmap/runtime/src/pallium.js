@@ -211,13 +211,14 @@ export function isTrustedLocalRequest(request) {
 
 export const isTrustedParticipantRequest = isTrustedLocalRequest;
 
-async function runGit(args, cwd) {
+async function runGit(args, cwd, signal) {
   const result = await execFileAsync("git", args, {
     cwd,
     timeout: 2000,
     maxBuffer: 64 * 1024,
     windowsHide: true,
     shell: false,
+    signal,
   });
   return String(result.stdout || "").replace(/[\r\n]+$/, "");
 }
@@ -237,8 +238,8 @@ export async function resolveRoadmapItemReferences(repoRoot, roadmapPath, itemId
   const realpath = options.realpath || fs.realpath;
   try {
     const [gitRootText, remoteUrl] = await Promise.all([
-      git(["rev-parse", "--show-toplevel"], repoRoot),
-      git(["remote", "get-url", "origin"], repoRoot),
+      git(["rev-parse", "--show-toplevel"], repoRoot, options.signal),
+      git(["remote", "get-url", "origin"], repoRoot, options.signal),
     ]);
     const gitRoot = await realpath(path.resolve(gitRootText));
     const repositoryRef = canonicalGitRemote(remoteUrl);
@@ -259,7 +260,8 @@ export async function resolveRoadmapItemReferences(repoRoot, roadmapPath, itemId
       references.push({ contract: REFERENCE_CONTRACT, scope_ref: scopeRef, local_ref: localRef });
     }
     return references;
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason || error;
     return null;
   }
 }

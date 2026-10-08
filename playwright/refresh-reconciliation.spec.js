@@ -224,6 +224,44 @@ for (const result of ["delayed", "failed"]) {
   });
 }
 
+test("filtering out a dirty derived appearance retains its draft and source picker", async ({ page }) => {
+  const data = await fixture(true);
+  await openAcross(page, data);
+  await page.locator("#board-view-toggle").click();
+  await page.locator('[data-lens-key="status"]').click();
+  await expect(page.locator("#editor-title")).toContainText("alpha");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#tab-raw").click();
+  const draft = `${await page.locator("#raw-text").inputValue()}\nRetained derived draft.\n`;
+  await page.locator("#raw-text").fill(draft);
+  await page.locator("#board-search").fill("no matching feature");
+  await expect(page.locator("#raw-text")).toHaveValue(draft);
+  await expect(page.locator("#editor-source-summary")).toBeVisible();
+  await page.locator("#editor-source-summary").click();
+  await expect(page.locator("[data-editor-source]")).toHaveCount(2);
+  await expect(page.locator('[data-editor-source][aria-pressed="true"]')).toContainText("main");
+});
+
+test("accepted discard navigates a dirty editor to another item through the hash", async ({ page }) => {
+  const data = await fixture();
+  await openEditor(page, data, "raw");
+  const draft = `${await page.locator("#raw-text").inputValue()}\nDiscarded hash draft.\n`;
+  await page.locator("#raw-text").fill(draft);
+  await expect(page.locator("#raw-text")).toHaveValue(draft);
+  let asked = false;
+  page.once("dialog", async (dialog) => { asked = true; await dialog.accept(); });
+  await page.evaluate(() => {
+    const route = new URLSearchParams(location.hash.slice(1));
+    route.set("item", "beta");
+    location.hash = route.toString();
+  });
+  await expect(page.locator("#editor-title")).toContainText("beta");
+  expect(asked).toBe(true);
+  await expect(page.locator("#raw-text")).toHaveValue(/beta body\./);
+  await expect(page.locator("#raw-text")).not.toHaveValue(/Discarded hash draft/);
+  expect(await fs.readFile(data.alpha, "utf8")).not.toContain("Discarded hash draft");
+});
+
 test("Review targets the selected sibling version's actual file", async ({ page }) => {
   test.setTimeout(60_000);
   const data = await fixture(true);
