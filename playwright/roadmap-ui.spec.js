@@ -1731,6 +1731,8 @@ test("list view opens cards and supports moving and ordering with its in-card dr
     await expect(page.locator("#status-banner")).toContainText("Lane updated.");
     expect(await fs.readFile(path.join(featureDir, "drag-source.md"), "utf8")).not.toMatch(/^lane:/m);
 
+    // Let the intentional post-drag guard expire before testing a separate card click.
+    await page.waitForTimeout(350);
     await card.click();
     await expect(page.locator("#editor-title")).toHaveText("Drag source");
   } finally {
