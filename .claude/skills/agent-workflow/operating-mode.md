@@ -6,7 +6,7 @@ For an in-scope change task when `agent-workflow.yaml` exists.
 
 | Term | Meaning |
 |---|---|
-| **Work Record** | One file per task, marker-bounded, holding structured state. Location configured by `agent-workflow.yaml`'s `workRecord.local.taskPath` (e.g. `.agent-workflow/tasks/{slug}.md`). |
+| **Work Record** | Marker-bounded task record. |
 | **Slug** | Persisted task identifier, or the branch-derived fallback. |
 | **Compact shape** | Fast-path Work Record for `(Routine, Simple)` tasks. SPEC §7. |
 | **Expanded shape** | Full §9.4 Work Record. Required for any classification other than `(Routine, Simple)`. |
@@ -28,6 +28,18 @@ For an in-scope change task when `agent-workflow.yaml` exists.
 ```
 
 At pickup, pause, resume, handoff, and completion, if an applicable canonical roadmap item exists, carry its exact reference and reconcile or report task progress under that roadmap's rules; respect its designated owner/checkout and preserve broader unfinished scope.
+
+## Source-item lifecycle
+
+Applicable authoritative item: keep exact ID/link in Work Record prose outside markers; follow tracker rules.
+
+|When|Action|
+|---|---|
+|Pickup/resume/leaving|Optional Pallium association: follow installed `pallium-memory` attach/detach guidance; never duplicate/remove hook-owned branch/Work Record refs.|
+|PR creation|Link PR from source item under tracker rules.|
+|Verified merge|Record delivered contribution/remaining scope; don't infer whole-feature completion from one PR.|
+|Owner-managed tracker/checkout|Hand owner item/PR/contribution/remaining scope; keep update pending in Work Record until confirmed.|
+|Missing tracker/Pallium/tools/identity|Don't block work or invent refs.|
 
 ## Step 1 — Read the config
 
@@ -141,5 +153,3 @@ Before ending a session, even if the task is not done:
 ## CI predicates surfaced at PR time
 
 `workrecord.exists`, `workrecord.markers_present`, `risk.declared`, `complexity.declared`, `workrecord.shape_matches_classification`, `workrecord.routine_fields_present` (compact) / `workrecord.expanded_fields_present` (expanded), `workrecord.state_valid`.
-
-A failing predicate names the cause in its detail. Fix the marker block, push again — the sticky verdict comment refreshes on the next CI run. The harness does not judge whether the prose is right, only whether the structure is well-formed.

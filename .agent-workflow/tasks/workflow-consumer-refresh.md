@@ -10,7 +10,7 @@ Refresh Minimap's repo-managed agent-workflow copies to approved upstream revisi
 Minimap consumer package copies at `.agents/skills/agent-workflow/` and `.claude/skills/agent-workflow/`, plus the active root vendored reporter at `scripts/agent-redline-report.py`.
 
 **Scope:**
-Apply the 18-file `dist/agent-workflow/` delta from approved base 468f1d5fa5cf856bfd45ebb4ff041bbacc714b02 to pin c9040a7682d9cf0d7b4a8e5e955c00be86294c3f in both package roots, and update the root reporter mirror because runtime and CI execute it. Do not add absent `scripts/agent-workflow-tune.py`.
+Apply the 18-file dist/agent-workflow/ delta from approved base 468f1d5fa5cf856bfd45ebb4ff041bbacc714b02 to pin c9040a7682d9cf0d7b4a8e5e955c00be86294c3f in both package roots, and update the root reporter mirror because runtime and CI execute it. Do not add absent scripts/agent-workflow-tune.py.
 
 **Constraints:**
 Keep main checkout and existing untracked artifacts untouched. No global skills, actual hooks or settings, root configuration, CI workflow, server restart, product roadmap alignment, other consumer repos, or historical Work Record migration. Do not change upstream checkout. Save rollback copies before overwriting.
@@ -68,7 +68,7 @@ Approved by user 2026-10-08: "approved"
 
 ## Implementation
 
-Destination plan reviewed by manager. User authorization was relayed as the exact response “approved”. Isolated worktree: `C:/Dev/rore/minimap/artifacts/workflow-consumer-refresh-20261008`; branch `feat/workflow-consumer-refresh`; base `d1ed842262cb042b4f174e38460ee14f1d63f612`.
+Destination plan reviewed by manager. User authorization was relayed as the exact response “approved”. Implementation: copied the 18 changed pinned package files into both consumer roots and updated the active root reporter mirror. Saved original bytes and a new-file rollback list under the task backup folder. Starting destination verification. Isolated worktree: `C:/Dev/rore/minimap/artifacts/workflow-consumer-refresh-20261008`; branch `feat/workflow-consumer-refresh`; base `d1ed842262cb042b4f174e38460ee14f1d63f612`.
 
 ## Evidence
 
