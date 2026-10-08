@@ -11,6 +11,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // MINIMAP_RUN_PERFORMANCE=1 node --test test/roadmap-performance.test.js
 // Smoke: additionally select MINIMAP_PERFORMANCE_SOURCES=1,
 // MINIMAP_PERFORMANCE_ITEMS=100 and MINIMAP_PERFORMANCE_SAMPLES=1.
+// MINIMAP_PERFORMANCE_WARM_SAMPLES=5 repeats cheap cached reads after each
+// full scan without multiplying cold scans or concurrent project waves.
 // Baseline: MINIMAP_PERFORMANCE_RUNTIME_ROOT=<owned archive root> and
 // MINIMAP_PERFORMANCE_LEGACY=1 use only supported legacy fresh-read routes.
 // Timings include HTTP transfer/JSON parsing, not browser rendering. The first
@@ -23,6 +25,7 @@ const runtimeRoot = process.env.MINIMAP_PERFORMANCE_RUNTIME_ROOT
 const scripts = path.join(runtimeRoot, "package/minimap/skills/minimap-roadmap/scripts");
 const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
+const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
 // Generated only inside the disposable fixture. IPC is available solely to the
 // owning test parent; no production diagnostic route or installed preload.
 export const performancePreload = String.raw`
@@ -242,6 +245,17 @@ async function qualify(sources, items, samples, signal) {
   const openedRoute = legacy ? `${full}?openedOnly=1` : `${full}&openedOnly=1`;
   const repeatedRoute = legacy ? full : `${full}&cached=1`;
   const otherRoute = legacy ? "/api/workspace" : "/api/workspace?cached=1";
+  const requireSuccessful = (records, scenario) => assert.ok(records.every((record) => record.status === 200),
+    `${scenario} failed: ${JSON.stringify(records.filter((record) => record.status !== 200))}`);
+  const resultReport = () => ({ sources, itemsPerSource: items, samples, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
+    summary: Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
+      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan"].includes(key) ? 200 : null)])),
+    measurementLabels: { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
+      warmOtherProjectDuringScan: legacy ? "Fresh This read of other project during scan" : "Warm cached This read of other project during scan" },
+    measurements, serverScenarios,
+    serverGitCalls: serverScenarios.reduce((sum, row) => sum + row.counters.gitExecFile + row.counters.gitSpawn + row.counters.gitExecFileSync, 0),
+    serverFileReadCalls: serverScenarios.reduce((sum, row) => sum + row.counters.fileReadAsync + row.counters.fileReadCallback + row.counters.fileReadSync, 0),
+    limits: "HTTP first usable excludes browser paint. Existing identity caps may retain separate features and partial coverage. OS caches are not flushed. Preload instrumentation adds overhead. File counts measure wrapped readFile/readFileSync calls, not all filesystem syscalls; Git counts measure wrapped execFile/spawn/execFileSync launches. Event-loop delay is measured inside the actual server process, with its histogram reset between named scenarios; mixed scan/probe scenarios are not attributed to individual requests." });
   try {
     const a = await fixture(owned, "project-a", sources, items);
     const b = await fixture(owned, "project-b", sources, items);
@@ -281,32 +295,45 @@ async function qualify(sources, items, samples, signal) {
         measurements.firstUsable.push(usable);
         const fullResult = await across;
         measurements.fullSnapshot.push({ ...fullResult, coldSnapshot: n === 0 });
-        await opened; await probes;
+        const openedResult = await opened; await probes;
+        requireSuccessful([openedResult, fullResult, ...measurements.healthDuringScan,
+          ...measurements.warmOtherProjectDuringScan], "Opened/full scan and concurrent probes");
+        if (!legacy) {
+          assert.ok(fullResult.snapshot?.id);
+          assert.equal(fullResult.loaded, sources);
+        }
         return fullResult;
       });
-      const warm = await observe(legacy ? "repeated-fresh-across" : "warm-across", n, () => read(repeatedRoute, a));
-      measurements.warmAcross.push({ ...warm,
-        readPolicy: legacy ? "fresh after initial read; cache unavailable" : "cached requested",
-        snapshotReused: legacy ? null : Boolean(fullResult.snapshot?.id && warm.snapshot?.id === fullResult.snapshot.id) });
+      for (let warmIndex = 0; warmIndex < warmSamples; warmIndex++) {
+        const warm = await observe(legacy ? "repeated-fresh-across" : "warm-across", n * warmSamples + warmIndex, () => read(repeatedRoute, a));
+        measurements.warmAcross.push({ ...warm,
+          readPolicy: legacy ? "fresh after initial read; cache unavailable" : "cached requested",
+          snapshotReused: legacy ? null : Boolean(fullResult.snapshot?.id && warm.snapshot?.id === fullResult.snapshot.id) });
+        requireSuccessful([warm], "Repeated Across read");
+        if (!legacy) {
+          assert.equal(warm.snapshot?.id, fullResult.snapshot.id, "Warm request must reuse the retained snapshot");
+          const counts = serverScenarios.at(-1).counters;
+          assert.equal(counts.gitExecFile + counts.gitSpawn + counts.gitExecFileSync, 0, "Warm read must launch zero Git processes");
+        }
+      }
     }
     for (let n = 0; n < samples; n++) {
       signal.throwIfAborted();
       const tabs = await observe("four-same-project-tabs", n,
         () => Promise.all(Array.from({ length: 4 }, () => read(full, a))));
       measurements.sameProjectTabs.push(...tabs);
+      requireSuccessful(tabs, "Four same-project tabs");
+      if (!legacy) assert.equal(new Set(tabs.map((record) => record.snapshot?.id)).size, 1,
+        "Same-project tabs must coalesce into one published snapshot");
       // Record shared snapshot IDs as evidence; deterministic coalescing tests
       // separately validate exact scan counts and cancellation ownership.
       const projects = await observe("two-independent-projects", n, () => Promise.all([read(full, a), read(full, b)]));
       measurements.independentProjects.push(...projects);
+      requireSuccessful(projects, "Two independent projects");
     }
-    const summary = Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
-      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan"].includes(key) ? 200 : null)]));
-    const measurementLabels = { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
-      warmOtherProjectDuringScan: legacy ? "Fresh This read of other project during scan" : "Warm cached This read of other project during scan" };
-    return { sources, itemsPerSource: items, samples, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests, summary, measurementLabels, measurements, serverScenarios,
-      serverGitCalls: serverScenarios.reduce((sum, row) => sum + row.counters.gitExecFile + row.counters.gitSpawn + row.counters.gitExecFileSync, 0),
-      serverFileReadCalls: serverScenarios.reduce((sum, row) => sum + row.counters.fileReadAsync + row.counters.fileReadCallback + row.counters.fileReadSync, 0),
-      limits: "HTTP first usable excludes browser paint. Existing identity caps may retain separate features and partial coverage. OS caches are not flushed. Preload instrumentation adds overhead. File counts measure wrapped readFile/readFileSync calls, not all filesystem syscalls; Git counts measure wrapped execFile/spawn/execFileSync launches. Event-loop delay is measured inside the actual server process, with its histogram reset between named scenarios; mixed scan/probe scenarios are not attributed to individual requests." };
+    return resultReport();
+  } catch (error) {
+    return { ...resultReport(), functionalFailure: error.message };
   } finally {
     await stopAndRemove(child, env, owned);
   }
@@ -317,6 +344,8 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
   const items = selection("MINIMAP_PERFORMANCE_ITEMS", [100, 1000]);
   const samples = Number(process.env.MINIMAP_PERFORMANCE_SAMPLES || 1);
   assert.ok(Number.isInteger(samples) && samples >= 1 && samples <= 20, "Samples must be 1..20");
+  assert.ok(Number.isInteger(warmSamples) && warmSamples >= 1 && warmSamples <= 20, "Warm samples must be 1..20");
+  assert.ok(!legacy || warmSamples === 1, "Extra warm samples require the snapshot runtime");
   const runtimeProvenance = runtimeRoot === projectRoot ? { source: "working-checkout", revision: git(projectRoot, "rev-parse", "HEAD"),
     workingTreeDirty: Boolean(git(projectRoot, "status", "--porcelain")) }
     : JSON.parse(await fs.readFile(path.join(runtimeRoot, "performance-provenance.json"), "utf8"));
@@ -324,15 +353,17 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
   const report = { startedAt: new Date().toISOString(), node: process.version, platform: process.platform,
     git: git(projectRoot, "--version"), revision: git(projectRoot, "rev-parse", "HEAD"),
     workingTreeDirty: Boolean(git(projectRoot, "status", "--porcelain")), runtimeRoot, runtimeProvenance,
-    mode: legacy ? "legacy-fresh" : "snapshot", sources, items, samples, results: [] };
+    mode: legacy ? "legacy-fresh" : "snapshot", sources, items, samples, warmSamples, results: [] };
   await fs.mkdir(path.join(projectRoot, "tmp"), { recursive: true });
   const evidence = path.join(projectRoot, "tmp", `roadmap-performance-${Date.now()}.json`);
-  for (const sourceCount of sources) for (const itemCount of items) {
+  matrix: for (const sourceCount of sources) for (const itemCount of items) {
+    let failed = true;
     await t.test(`${sourceCount} sources x ${itemCount} items`, { timeout: 15 * 60 * 1000 }, async (cell) => {
       const result = await qualify(sourceCount, itemCount, samples, cell.signal);
       report.results.push(result);
       await fs.writeFile(evidence, `${JSON.stringify(report, null, 2)}\n`);
       t.diagnostic(JSON.stringify({ sources: sourceCount, items: itemCount, summary: result.summary, evidence }));
+      assert.equal(result.functionalFailure, undefined, `Functional qualification failed; inspect ${evidence}`);
       // Failure statuses are recorded before failing qualification; latency
       // target misses remain explicit results for the owning acceptance review.
       for (const [name, records] of Object.entries(result.measurements)) {
@@ -345,6 +376,8 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
           assert.equal(record.loaded, sourceCount);
         }
       }
+      failed = false;
     });
+    if (failed) break matrix;
   }
 });

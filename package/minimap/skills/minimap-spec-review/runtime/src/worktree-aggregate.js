@@ -158,11 +158,21 @@ async function sharedPaths(left, right, roadmapPath, cache, signal) {
           return { oid: match[1], file: match[2] };
         });
       const objects = records.filter((entry) => !/[\r\n]/.test(entry.file) && entry.file.endsWith(".md"));
-      const parsed = objects.length ? await ancestorBlobs(left.repoRoot, objects, signal) : { ids: new Map(), invalid: false };
+      let parsed;
+      try {
+        parsed = objects.length ? await ancestorBlobs(left.repoRoot, objects, signal) : { ids: new Map(), invalid: false };
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason || error;
+        if (error.message !== "ancestor item limit") throw error;
+        // This fixed tree exceeds the cap for every pair in this request.
+        cache.trees.set(treeKey, { ids: new Map(), uncertainty: "ancestor-item-limit" });
+        throw error;
+      }
       tree = { ids: parsed.ids, uncertainty: parsed.invalid || records.length !== objects.length && records.some((entry) => /[\r\n]/.test(entry.file))
         ? "ancestor-item-or-path-invalid" : null };
       cache.trees.set(treeKey, tree);
     }
+    if (tree.uncertainty === "ancestor-item-limit") return { paths: new Map(), uncertainty: tree.uncertainty };
     const deleted = new Set();
     for (const source of [left, right]) {
       const key = `${base}:${source.git.headCommit}`;
