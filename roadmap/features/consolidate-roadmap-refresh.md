@@ -76,6 +76,7 @@ Keep each independently reviewable delivery explicit in Notes with its PR, teste
 - Before declaring performance done, publish measured budgets and results. Warm snapshot responses and lightweight endpoints should target p95 below 200 ms, and visible interactions below 100 ms in the isolated reference fixture. These are targets to validate, not current guarantees; document any miss and resolve it before acceptance or seek an explicit scope decision.
 - Actual screenshots and interaction checks cover List/Columns at desktop and narrow widths, loading/stale/partial states, source choice, participant changes and draft retention. Inspect rendered output, not HTML alone.
 - Focused regressions, required unit/browser checks, mirror sync, documentation drift review, clean-context result review and applicable human result approval pass.
+- Audit the existing regression suites against every acceptance outcome and retain a coverage map in the Work Record. Add missing tests before the corresponding fixes where practical; demonstrate that confirmed-bug regressions fail against the old behavior and pass after the fix. Include positive and failure/race paths, not only mocked rendering. Preserve existing assertions; do not loosen timeouts or skip checks to hide regressions. Keep deterministic work-count/concurrency assertions in routine CI and a reproducible isolated latency benchmark for performance qualification.
 
 ## Review Evidence and Known Limits
 
