@@ -104,7 +104,7 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
   });
 }
 
-test("temporary observation failure retains badges with an explicit stale state", async ({ page }) => {
+test("temporary observation failure retains badges with an explicit stale state", async ({ page }, testInfo) => {
   const data = await fixture(page, "across", "columns");
   await expect.poll(data.observations).toBeGreaterThan(0);
   await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
@@ -112,6 +112,9 @@ test("temporary observation failure retains badges with an explicit stale state"
   await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
   await expect(page.locator("#board-participant-status")).toContainText("last-known");
   await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+  await page.screenshot({ path: testInfo.outputPath("stale-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 840 });
+  await page.screenshot({ path: testInfo.outputPath("stale-narrow.png") });
 });
 
 test("hash entry to Spec cancels a workspace read and retains badges on unchanged return", async ({ page }) => {
@@ -147,7 +150,7 @@ test("hash entry to Spec cancels a workspace read and retains badges on unchange
   await expect(page.locator("#board-groups")).not.toContainText("Late Alpha");
 });
 
-test("a provisional snapshot defers observations and resumes its cancelled full read on return", async ({ page }) => {
+test("a provisional snapshot defers observations and resumes its cancelled full read on return", async ({ page }, testInfo) => {
   const hold = responseHold();
   let fullReads = 0, cancelled = false;
   page.on("requestfailed", (request) => {
@@ -172,6 +175,9 @@ test("a provisional snapshot defers observations and resumes its cancelled full 
   // Cross the provisional render turn; identity is still unresolved while full read is held.
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   expect(data.observations()).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath("provisional-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 840 });
+  await page.screenshot({ path: testInfo.outputPath("provisional-narrow.png") });
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
     document.dispatchEvent(new Event("visibilitychange"));
