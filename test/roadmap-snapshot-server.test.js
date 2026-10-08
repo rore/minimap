@@ -89,12 +89,20 @@ test("snapshot endpoints scope observations and invalidate after a roadmap write
     assert.equal(observationResponse.status, 200, await observationResponse.clone().text());
     assert.equal((await observationResponse.json()).status, "disabled");
 
+    await fs.writeFile(path.join(repo, "roadmap.config.json"), JSON.stringify({ roadmapPath: "roadmap" }));
+    const changedConfigResponse = await fetch(`${endpoint}/api/workspace?cached=1`, { headers });
+    assert.equal(changedConfigResponse.status, 200, await changedConfigResponse.clone().text());
+    const changedConfig = await changedConfigResponse.json();
+    assert.notEqual(changedConfig.snapshot.id, fresh.snapshot.id);
+
     const write = await fetch(`${endpoint}/api/board`, {
       method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ groups: fresh.boardGroups, expectedRevision: fresh.boardRevision }),
+      body: JSON.stringify({ groups: changedConfig.boardGroups.map((group) => ({
+        name: group.name, itemIds: group.items.map((item) => item.id),
+      })), expectedRevision: changedConfig.boardRevision }),
     });
-    assert.equal(write.status, 200);
-    const expired = await fetch(`${endpoint}/api/board/observations?snapshot=${encodeURIComponent(fresh.snapshot.id)}`, { headers });
+    assert.equal(write.status, 200, await write.clone().text());
+    const expired = await fetch(`${endpoint}/api/board/observations?snapshot=${encodeURIComponent(changedConfig.snapshot.id)}`, { headers });
     assert.equal(expired.status, 409);
     assert.equal((await expired.json()).error.code, "snapshot_expired");
   } finally {

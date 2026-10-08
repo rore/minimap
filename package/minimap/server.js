@@ -125,6 +125,7 @@ function sendJson(response, statusCode, payload) {
 }
 
 function requestAbortSignal(request, response) {
+  if (request.minimapReadBudget) return request.minimapReadBudget;
   const controller = new AbortController();
   const abort = () => {
     if (!response.writableEnded) controller.abort(new DOMException("Request disconnected.", "AbortError"));
@@ -132,7 +133,13 @@ function requestAbortSignal(request, response) {
   request.once("aborted", abort);
   response.once("close", abort);
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
-  return { signal, cleanup: () => { request.off("aborted", abort); response.off("close", abort); } };
+  const budget = { signal, cleanup: () => {
+    request.off("aborted", abort);
+    response.off("close", abort);
+    if (request.minimapReadBudget === budget) delete request.minimapReadBudget;
+  } };
+  request.minimapReadBudget = budget;
+  return budget;
 }
 
 function snapshotAppError(error, signal) {
@@ -304,16 +311,16 @@ async function withJsonBody(request) {
   return body;
 }
 
-async function validateBoundRequest(request) {
-  await verifySourceContext(request.boundRepoRoot, request.boundExpected);
+async function validateBoundRequest(request, { signal } = {}) {
+  await verifySourceContext(request.boundRepoRoot, request.boundExpected, { signal });
   if (request.boundSpecRepo) {
     if (request.boundUrl.searchParams.has("path")) {
-      await requirePathInSource(request.boundRepoRoot, request.boundUrl.searchParams.get("path"));
+      await requirePathInSource(request.boundRepoRoot, request.boundUrl.searchParams.get("path"), { signal });
     }
-    for (const candidate of request.boundBodyPaths || []) await requirePathInSource(request.boundRepoRoot, candidate);
+    for (const candidate of request.boundBodyPaths || []) await requirePathInSource(request.boundRepoRoot, candidate, { signal });
     return;
   }
-  const roadmap = await requireRoadmapInSource(request.boundRepoRoot);
+  const roadmap = await requireRoadmapInSource(request.boundRepoRoot, { signal });
   const expectedPath = request.boundExpected.roadmapBinding?.resolvedPath;
   const actualPath = roadmap.resolvedPath;
   const samePath = typeof expectedPath === "string" && path.isAbsolute(expectedPath)
@@ -497,7 +504,7 @@ async function readThisSnapshot(repoRoot, { signal, cached = false } = {}) {
       const identity = await readWorktreeIdentity(repoRoot, { signal: scanSignal });
       const workspace = await loadWorkspace(repoRoot, { signal: scanSignal });
       workspace.specSessionsByItemId = await buildSpecSessionsByItemId(repoRoot, workspace, {
-        signal: scanSignal, onMutation: () => roadmapSnapshots.invalidateAll({ exceptSignal: scanSignal }),
+        signal: scanSignal, onMutation: () => roadmapSnapshots.invalidateAll(),
       });
       const observation = await buildObservationManifest(repoRoot, workspace, null, scanSignal);
       const finalWorkspace = await loadWorkspace(repoRoot, { signal: scanSignal });
@@ -505,7 +512,9 @@ async function readThisSnapshot(repoRoot, { signal, cached = false } = {}) {
       const admission = await captureSourceAdmission(repoRoot, workspace, identity, scanSignal);
       if (!admission || (identity && (identity.sourceKey !== admission.sourceKey
         || JSON.stringify(identity.git) !== JSON.stringify(admission.git)))) {
-        throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+        throw identity
+          ? new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated")
+          : new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
       }
       return { value: workspace, manifest: { openedRepo: canonicalPath(repoRoot), mode: "this", observation }, admission };
     },
@@ -764,7 +773,7 @@ async function handleWorktreeWorkspace(request, response) {
       load: async ({ signal: scanSignal }) => {
         const aggregate = await loadWorktreeAggregate(repoRoot, { openedOnly, signal: scanSignal });
         await attachAggregateSpecSessions(aggregate, { signal: scanSignal,
-          onMutation: () => roadmapSnapshots.invalidateAll({ exceptSignal: scanSignal }) });
+          onMutation: () => roadmapSnapshots.invalidateAll() });
         const sources = new Map();
         const sourceChecks = aggregate.snapshotChecks || [];
         for (const check of sourceChecks) {
@@ -1021,6 +1030,9 @@ async function handleApi(request, response, requestUrl) {
   if (!isTrustedLocalRequest(request)) {
     throw new AppError("Minimap API is available only from this local origin.", 403, "forbidden");
   }
+  const readBudget = bound && routedUrl.pathname === "/api/source/workspace"
+    ? requestAbortSignal(request, response) : null;
+  try {
   if (bound) {
     if (["/api/shutdown", "/api/worktree-workspace", "/api/setup/initialize"].includes(routedUrl.pathname)) {
       throw new AppError("Route cannot be source-bound.", 400, "bad_request");
@@ -1037,14 +1049,14 @@ async function handleApi(request, response, requestUrl) {
     request.boundExpected = expected;
     request.boundSpecRepo = routedUrl.pathname.startsWith("/api/spec-sessions") ? repoRoot : null;
     request.boundUrl = routedUrl;
-    await validateBoundRequest(request);
+    await validateBoundRequest(request, readBudget ? { signal: readBudget.signal } : undefined);
   }
   const invalidatesSnapshot = ["POST", "DELETE"].includes(request.method)
     && routedUrl.pathname !== "/api/shutdown"
     && !/^\/api\/spec-sessions\/by-file\/suggestions\/[^/]+\/preview$/.test(routedUrl.pathname);
   if (invalidatesSnapshot) response.invalidateRoadmapSnapshots = true;
   try {
-    if (bound) await withSourceWriteGuard(() => validateBoundRequest(request),
+    if (bound) await withSourceWriteGuard(() => validateBoundRequest(request, readBudget ? { signal: readBudget.signal } : undefined),
       () => match.handler(request, response, { url: routedUrl, params: match.params }),
       (candidate) => requirePathInSource(request.boundRepoRoot, candidate));
     else await match.handler(request, response, { url: routedUrl, params: match.params });
@@ -1057,6 +1069,7 @@ async function handleApi(request, response, requestUrl) {
     throw error;
   }
   return true;
+  } finally { readBudget?.cleanup(); }
 }
 
 async function requestListener(request, response) {
