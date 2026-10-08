@@ -462,6 +462,7 @@ test("a full-first load opens a deep-linked non-first derived feature in its req
   await selectedVersion.click();
   await expect(selectedVersion).toHaveAttribute("aria-pressed", "true");
   const selectedSource = await selectedVersion.getAttribute("data-editor-source");
+  await expect.poll(() => page.evaluate(() => new URLSearchParams(location.hash.slice(1)).get("source"))).toBe(selectedSource);
   const deepLink = page.url();
   const selectedRoute = await page.evaluate(() => Object.fromEntries(new URLSearchParams(location.hash.slice(1))));
   expect(selectedRoute.source).toBe(selectedSource);
@@ -476,6 +477,7 @@ test("a full-first load opens a deep-linked non-first derived feature in its req
       await openedFailureGate;
       return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "late opened-only failure" } }) });
     }
+    await openedStarted;
     return route.continue();
   });
   try {
@@ -535,12 +537,14 @@ test("an older initial load cannot rewrite a newer pending repository deep-link"
     const kind = new URL(route.request().url()).searchParams.get("openedOnly") === "1" ? "opened" : "full";
     return pair[kind].hold(route);
   });
-  const responseFor = (repo, openedOnly) => page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return url.pathname === "/api/worktree-workspace"
-      && (url.searchParams.get("openedOnly") === "1") === openedOnly
-      && response.request().headers()["x-minimap-repo"] === repo;
-  });
+  const oldSettled = new Set();
+  const recordSettlement = (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/worktree-workspace" && request.headers()["x-minimap-repo"] === older.root)
+      oldSettled.add(url.searchParams.get("openedOnly") === "1" ? "opened" : "full");
+  };
+  page.on("requestfailed", recordSettlement);
+  page.on("requestfinished", recordSettlement);
   try {
     await page.goto(`/#repo=${encodeURIComponent(older.root)}&sources=across`);
     await Promise.all([gates.get(older.root).opened.started, gates.get(older.root).full.started]);
@@ -548,11 +552,9 @@ test("an older initial load cannot rewrite a newer pending repository deep-link"
     await page.evaluate((hash) => { window.location.hash = hash; }, target);
     await Promise.all([gates.get(newer.root).opened.started, gates.get(newer.root).full.started]);
 
-    const oldOpenedResponse = responseFor(older.root, true);
-    const oldFullResponse = responseFor(older.root, false);
     gates.get(older.root).opened.release();
     gates.get(older.root).full.release();
-    await Promise.all([oldOpenedResponse, oldFullResponse]);
+    await expect.poll(() => oldSettled.size).toBe(2);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const current = await page.evaluate(() => Object.fromEntries(new URLSearchParams(location.hash.slice(1))));
     expect(current).toMatchObject({ repo: newer.root, sources: "across", lens: "status", layout: "columns" });
@@ -574,13 +576,18 @@ for (const [scenario, response] of [["request failure", null], ["unavailable wor
 }]]) test(`opened-only ${scenario} does not prevent the full worktree board from loading`, async ({ page }) => {
   const { owned, root } = await fixture(8);
   let partialRequests = 0;
+  let releaseFull;
+  const openedFinished = new Promise((resolve) => { releaseFull = resolve; });
   await page.route("**/api/worktree-workspace**", async (route) => {
     if (new URL(route.request().url()).searchParams.get("openedOnly") === "1") {
       partialRequests += 1;
-      return response
+      await (response
         ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) })
-        : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "opened-only request failed" } }) });
+        : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "opened-only request failed" } }) }));
+      releaseFull();
+      return;
     }
+    await openedFinished;
     return route.continue();
   });
   try {
@@ -590,7 +597,7 @@ for (const [scenario, response] of [["request failure", null], ["unavailable wor
     await expect(page.getByRole("button", { name: /Open blue-only/i })).toBeVisible();
     expect(partialRequests).toBeGreaterThan(0);
     await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
-  } finally { await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+  } finally { releaseFull(); await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test("same-scope refresh preserves cards until the replacement settles and retries after failure", async ({ page }) => {

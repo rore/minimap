@@ -165,6 +165,8 @@ test("combined large board stays usable in List and Columns at desktop and narro
 
 test("source menu stays responsive during discovery, deduplicates refresh, and ignores a closed response", async ({ page }) => {
   const { owned, root } = await fixture(2);
+  const now = Date.now();
+  await page.clock.setFixedTime(now);
   let inventoryCalls = 0;
   let releaseFirst;
   let releaseSecond;
@@ -212,6 +214,12 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     await firstResponse;
     await expect(page.locator("#board-source-menu")).toBeHidden();
 
+    await page.locator("#board-source-toggle").click();
+    await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
+    expect(inventoryCalls).toBe(1);
+    await page.locator("#board-source-toggle").click();
+    await page.clock.setFixedTime(now + 31_000);
+
     const secondRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
     await page.locator("#board-source-toggle").click();
     await secondRequest;
@@ -227,6 +235,7 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toBeFocused();
     await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
 
+    await page.clock.setFixedTime(now + 62_000);
     const thirdRequest = page.waitForRequest((request) => request.url().includes("/api/worktree-sources"));
     await page.locator("#board-source-toggle").click();
     await page.locator("#board-source-toggle").click();
@@ -268,7 +277,7 @@ test("inventory from a previous repository cannot replace the current repository
     await page.locator("#board-source-toggle").click();
     await inventoryA;
 
-    const workspaceB = page.waitForResponse((response) => response.url().endsWith("/api/workspace")
+    const workspaceB = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/workspace"
       && response.request().headers()["x-minimap-repo"]?.toLowerCase() === b.root.toLowerCase());
     await page.evaluate((repo) => {
       const params = new URLSearchParams(window.location.hash.slice(1));

@@ -5029,7 +5029,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
         for (let attempt = 0; ; attempt += 1) {
           if (!stillCurrent()) return null;
           let aggregate;
-          try { aggregate = await api.loadWorktreeWorkspace({ cached: useCached, participants: false, signal }); }
+          try { aggregate = await api.loadWorktreeWorkspace({ cached: useCached, compact: true, participants: false, signal }); }
           catch (error) {
             if (error.code === "snapshot_invalidated" && attempt === 0) { useCached = false; continue; }
             throw error;
@@ -5042,14 +5042,14 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
           await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
         }
       };
-      let fullSettled = false;
+      let fullReady = false;
       const completed = readFullSnapshot().then((aggregate) => ({ aggregate }), (error) => ({ error }))
-        .then((result) => { fullSettled = true; return result; });
+        .then((result) => { fullReady = Boolean(result.aggregate?.workspace); return result; });
       // A warm snapshot should not launch a second scan merely to provide a cold-load fallback.
       const opened = !sameScope ? (async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
-        if (fullSettled || !stillCurrent()) return { opened: true };
-        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, participants: false, signal }), opened: true }; }
+        if (fullReady || !stillCurrent()) return { opened: true };
+        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, compact: true, participants: false, signal }), opened: true }; }
         catch (error) { return { error, opened: true }; }
       })() : null;
       const first = opened ? await Promise.race([completed, opened]) : await completed;
