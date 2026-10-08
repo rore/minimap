@@ -63,7 +63,7 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource, onMutation } =
     let payload = null;
     try { payload = await response.json(); } catch {}
     if (!response.ok) throw normalizeError(response, payload);
-    if (init.method && init.method !== "GET" && typeof onMutation === "function") onMutation(url);
+    if (init.method && init.method !== "GET" && !/\/suggestions\/[^/]+\/preview$/.test(url) && typeof onMutation === "function") onMutation(url);
     return payload;
   }
 

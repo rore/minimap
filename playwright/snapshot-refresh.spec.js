@@ -114,6 +114,8 @@ test("temporary observation failure retains badges with an explicit stale state"
   await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
   await page.screenshot({ path: testInfo.outputPath("stale-desktop.png") });
   await page.setViewportSize({ width: 390, height: 840 });
+  await expect(page.locator("#board-participant-status")).toHaveClass(/is-incomplete/);
+  await expect(page.locator("#board-participant-status")).not.toHaveCSS("color", "rgba(0, 0, 0, 0)");
   await page.screenshot({ path: testInfo.outputPath("stale-narrow.png") });
 });
 

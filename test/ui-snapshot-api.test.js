@@ -2,6 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createApi } from "../package/minimap/ui/api.js";
 
+test("suggestion preview does not invalidate roadmap snapshots but applying does", async () => {
+  for (const scoped of [false, true]) {
+    const mutations = [];
+    const api = createApi({
+      getSource: () => scoped ? { mode: "across", identity: { repoRoot: "C:/checkouts/blue", sourceKey: "blue", git: {} } } : null,
+      onMutation: (url) => mutations.push(url),
+      fetch: async () => ({ ok: true, json: async () => ({}) }),
+    });
+    await api.previewSuggestion("feature.md", "suggestion");
+    assert.deepEqual(mutations, []);
+    await api.applySuggestion("feature.md", "suggestion");
+    assert.equal(mutations.length, 1);
+    assert.match(mutations[0], /\/suggestions\/suggestion\/apply$/);
+  }
+});
+
 function fixture() {
   const calls = [];
   const api = createApi({
