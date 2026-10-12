@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
-import { loadWorktreeAggregate } from "../package/minimap/src/worktree-aggregate.js";
+import { groupFeatureSources, loadWorktreeAggregate, sharedPaths } from "../package/minimap/src/worktree-aggregate.js";
 import { selectWorktreeParticipantCandidates } from "../package/minimap/src/worktree-presence.js";
 
 const dirs = [];
@@ -146,6 +146,89 @@ test("squash-integrated feature keeps one identity across later source edits", a
   assert.equal(recreated.features.filter((feature) => feature.id === "new").length, 2);
   assert.deepEqual(selectWorktreeParticipantCandidates(recreated).features.filter(({ id }) => id === "new"), []);
   assert.ok(selectWorktreeParticipantCandidates(recreated).ambiguous.some((entry) => entry.reference === "new"));
+});
+
+test("shared ancestor and squash proofs connect three committed versions regardless of opened worktree", async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/new.md", item("new", "planned"));
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "introduce new feature");
+  const storage = path.join(path.dirname(main), "storage");
+  git(main, "worktree", "add", "-b", "feature/storage", storage, git(sibling, "rev-parse", "HEAD"));
+  await write(sibling, "roadmap/features/new.md", item("new", "active"));
+  await write(sibling, "roadmap/scope.md", "scope with new feature\n");
+  git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "finish feature");
+  git(main, "merge", "--squash", "feature/sibling"); git(main, "commit", "-m", "integrate feature");
+  for (const root of [main, storage]) {
+    const result = await loadWorktreeAggregate(root);
+    const matches = result.features.filter(({ id }) => id === "new");
+    assert.equal(matches.length, 1, JSON.stringify({ features: result.features.map(({ id, versions }) => ({ id, statuses: versions.map(({ summary }) => summary.status) })), excluded: result.excluded, unavailable: result.unavailable }));
+    assert.equal(matches[0].versions.length, 3);
+    assert.equal(result.partial, false, JSON.stringify(result.coverage));
+  }
+});
+
+test("a capped direct comparison does not veto a proven chain, but an explicit break does", () => {
+  const identity = JSON.stringify(["new", "roadmap/features/new.md"]);
+  const sources = new Map([[identity, [0, 1, 2]]]);
+  const proof = () => ({ paths: new Map([["roadmap/features/new.md", "new"]]), breaks: new Set() });
+  const capped = { paths: new Map(), breaks: new Set(), uncertainty: "squash-evidence-limit" };
+  const edges = new Map([["0:1", proof()], ["1:2", proof()], ["0:2", capped]]);
+  const joined = groupFeatureSources(sources, edges);
+  assert.equal(new Set(joined.groupBySource.values()).size, 1);
+  assert.deepEqual(joined.contradictions, []);
+  edges.set("0:2", { ...capped, breaks: new Set(["roadmap/features/new.md"]) });
+  const broken = groupFeatureSources(sources, edges);
+  assert.equal(new Set(broken.groupBySource.values()).size, 3);
+  assert.deepEqual(broken.contradictions, [{ id: "new", filePath: "roadmap/features/new.md", sourceIndexes: [0, 1, 2] }]);
+  sources.set(identity, [2, 0, 1]);
+  assert.equal(new Set(groupFeatureSources(sources, edges).groupBySource.values()).size, 3);
+});
+
+test("known deletion survives later Git evidence failure and vetoes a proof chain", async () => {
+  const { main, sibling } = await fixture();
+  git(main, "rm", "roadmap/features/shared.md"); git(main, "commit", "-m", "delete shared");
+  await write(main, "roadmap/features/shared.md", item("shared"));
+  git(main, "add", "roadmap/features/shared.md"); git(main, "commit", "-m", "recreate shared");
+  const left = { repoRoot: main, git: { headCommit: git(main, "rev-parse", "HEAD") }, workspace: { items: {} } };
+  const right = { repoRoot: path.join(path.dirname(main), "unavailable"),
+    git: { headCommit: git(sibling, "rev-parse", "HEAD") }, workspace: { items: {} } };
+  const cache = { bases: new Map(), trees: new Map(), deletions: new Map(), histories: new Map(), historyLoads: 0, historyChanges: 0 };
+  const evidence = await sharedPaths(left, right, "roadmap", cache);
+  assert.equal(evidence.uncertainty, "git-evidence-unavailable");
+  assert.ok(evidence.breaks.has("roadmap/features/shared.md"));
+  const identity = JSON.stringify(["shared", "roadmap/features/shared.md"]);
+  const grouped = groupFeatureSources(new Map([[identity, [0, 1, 2]]]), new Map([
+    ["0:1", { paths: new Map([["roadmap/features/shared.md", "shared"]]), breaks: new Set() }],
+    ["1:2", { paths: new Map([["roadmap/features/shared.md", "shared"]]), breaks: new Set() }],
+    ["0:2", evidence],
+  ]));
+  assert.equal(new Set(grouped.groupBySource.values()).size, 3);
+
+  const second = await fixture();
+  await write(second.sibling, "notes/unrelated.txt", "unrelated\n");
+  git(second.sibling, "add", "notes/unrelated.txt"); git(second.sibling, "commit", "-m", "advance sibling");
+  const unavailable = path.join(path.dirname(second.main), "unavailable");
+  const renamedLeft = { repoRoot: second.main, git: { headCommit: git(second.main, "rev-parse", "HEAD") },
+    workspace: { items: { renamed: { filePath: path.join(second.main, "roadmap/features/shared.md") } } } };
+  const renamedRight = { repoRoot: unavailable, git: { headCommit: git(second.sibling, "rev-parse", "HEAD") },
+    workspace: { items: { renamed: { filePath: path.join(unavailable, "roadmap/features/shared.md") } } } };
+  const mismatch = await sharedPaths(renamedLeft, renamedRight, "roadmap",
+    { bases: new Map(), trees: new Map(), deletions: new Map(), histories: new Map(), historyLoads: 0, historyChanges: 0 });
+  assert.equal(mismatch.uncertainty, "git-evidence-unavailable");
+  assert.ok(mismatch.breaks.has("roadmap/features/shared.md"));
+});
+
+test("ancestor ID mismatch is explicit break evidence for same current ID and path", async () => {
+  const { main, sibling } = await fixture();
+  await write(main, "roadmap/features/shared.md", item("renamed", "active"));
+  await write(sibling, "roadmap/features/shared.md", item("renamed", "planned"));
+  await write(main, "roadmap/board.md", "# Now\n- renamed\n");
+  await write(sibling, "roadmap/board.md", "# Now\n- renamed\n");
+  git(main, "add", "roadmap"); git(main, "commit", "-m", "rename item id on main");
+  git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "independently rename item id");
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.features.filter(({ id }) => id === "renamed").length, 2);
 });
 
 for (const mergedSide of ["main", "sibling"]) test(`later merge on ${mergedSide} retains squash identity`, async () => {
