@@ -138,8 +138,9 @@ async function squashPaths(left, right, base, candidates, cache, signal) {
 
 // Shared ancestry or exact whole-change squash equivalence establishes display identity.
 // Git cannot distinguish an independently reproduced identical complete change.
-// Missing, shallow, or oversized Git evidence fails closed: the versions stay separate.
-async function sharedPaths(left, right, roadmapPath, cache, signal) {
+// Missing Git evidence cannot create a direct proof; other proven links may still connect versions.
+export async function sharedPaths(left, right, roadmapPath, cache, signal) {
+  const breaks = new Set();
   try {
     const heads = [left.git.headCommit, right.git.headCommit].sort().join(":");
     let base = cache.bases.get(heads);
@@ -173,8 +174,13 @@ async function sharedPaths(left, right, roadmapPath, cache, signal) {
         ? "ancestor-item-or-path-invalid" : null };
       cache.trees.set(treeKey, tree);
     }
-    if (tree.uncertainty === "ancestor-item-limit") return { paths: new Map(), uncertainty: tree.uncertainty };
-    const deleted = new Set();
+    if (tree.uncertainty === "ancestor-item-limit") return { paths: new Map(), breaks: new Set(), uncertainty: tree.uncertainty };
+    for (const [id, summary] of Object.entries(left.workspace.items)) {
+      const file = relative(left.repoRoot, summary.filePath);
+      const other = right.workspace.items[id];
+      if (other && relative(right.repoRoot, other.filePath) === file
+        && tree.ids.has(file) && tree.ids.get(file) !== id) breaks.add(file);
+    }
     for (const source of [left, right]) {
       const key = `${base}:${source.git.headCommit}`;
       let paths = cache.deletions.get(key);
@@ -184,14 +190,14 @@ async function sharedPaths(left, right, roadmapPath, cache, signal) {
         paths = new Set(output.split("\0").filter(Boolean));
         cache.deletions.set(key, paths);
       }
-      for (const file of paths) deleted.add(file);
+      for (const file of paths) breaks.add(file);
     }
-    const paths = new Map([...tree.ids].filter(([file]) => !deleted.has(file)));
+    const paths = new Map([...tree.ids].filter(([file]) => !breaks.has(file)));
     const candidates = new Map();
     for (const [id, summary] of Object.entries(left.workspace.items)) {
       const file = relative(left.repoRoot, summary.filePath);
       const other = right.workspace.items[id];
-      if (!tree.ids.has(file) && !deleted.has(file) && other
+      if (!tree.ids.has(file) && !breaks.has(file) && other
         && relative(right.repoRoot, other.filePath) === file) candidates.set(file, id);
     }
     let uncertainty = tree.uncertainty;
@@ -205,11 +211,42 @@ async function sharedPaths(left, right, roadmapPath, cache, signal) {
         uncertainty ||= error.message === "squash-evidence-limit" ? error.message : "squash-evidence-unavailable";
       }
     }
-    return { paths, uncertainty };
+    return { paths, breaks, uncertainty };
   } catch (error) {
     if (signal?.aborted) throw signal.reason || error;
-    return { paths: new Map(), uncertainty: error.message === "ancestor item limit" ? "ancestor-item-limit" : "git-evidence-unavailable" };
+    return { paths: new Map(), breaks, uncertainty: error.message === "ancestor item limit" ? "ancestor-item-limit" : "git-evidence-unavailable" };
   }
+}
+
+// A chain of positive proofs identifies the same feature. Explicit identity breaks
+// anywhere inside a chain invalidate the whole component, regardless of source order.
+export function groupFeatureSources(sourcesByIdentity, lineage) {
+  const groupBySource = new Map();
+  const contradictions = [];
+  for (const [identity, indexes] of sourcesByIdentity) {
+    const [id, filePath] = JSON.parse(identity);
+    const remaining = new Set(indexes);
+    while (remaining.size) {
+      const component = new Set([remaining.values().next().value]);
+      const queue = [...component];
+      remaining.delete(queue[0]);
+      for (const sourceIndex of queue) {
+        for (const other of [...remaining]) {
+          const evidence = lineage.get(`${Math.min(sourceIndex, other)}:${Math.max(sourceIndex, other)}`);
+          if (evidence?.paths.get(filePath) !== id) continue;
+          component.add(other);
+          queue.push(other);
+          remaining.delete(other);
+        }
+      }
+      const members = [...component].sort((a, b) => a - b);
+      const broken = members.some((left, i) => members.slice(i + 1).some((right) =>
+        lineage.get(`${left}:${right}`)?.breaks.has(filePath)));
+      if (broken) contradictions.push({ id, filePath, sourceIndexes: members });
+      for (const index of members) groupBySource.set(`${identity}:${index}`, `${identity}:${broken ? index : members[0]}`);
+    }
+  }
+  return { groupBySource, contradictions };
 }
 
 async function conflicts(versions, displayRevisions, signal) {
@@ -311,13 +348,25 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
     for (let j = i + 1; j < loaded.length; j += 1) {
       if (signal?.aborted) throw signal.reason;
       const evidence = await sharedPaths(loaded[i], loaded[j], relative(loaded[i].repoRoot, loaded[i].workspace.resolvedPath), evidenceCache, signal);
-      lineage.set(`${i}:${j}`, evidence.paths);
+      lineage.set(`${i}:${j}`, evidence);
       if (evidence.uncertainty) {
         result.partial = true;
         result.coverage.identityUncertain.push({ leftSourceKey: loaded[i].sourceKey,
           rightSourceKey: loaded[j].sourceKey, reason: evidence.uncertainty });
       }
     }
+  }
+  const sourcesByIdentity = new Map();
+  for (const [sourceIndex, source] of loaded.entries()) for (const [id, summary] of Object.entries(source.workspace.items)) {
+    const identity = JSON.stringify([id, relative(source.repoRoot, summary.filePath)]);
+    if (!sourcesByIdentity.has(identity)) sourcesByIdentity.set(identity, []);
+    sourcesByIdentity.get(identity).push(sourceIndex);
+  }
+  const { groupBySource, contradictions } = groupFeatureSources(sourcesByIdentity, lineage);
+  for (const entry of contradictions) {
+    result.partial = true;
+    result.coverage.identityUncertain.push({ reason: "identity-conflict", itemId: entry.id, filePath: entry.filePath,
+      sourceKeys: entry.sourceIndexes.map((index) => loaded[index].sourceKey) });
   }
   const features = [];
   const featureCandidates = new Map();
@@ -352,15 +401,12 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
     for (const [id, summary] of Object.entries(source.workspace.items)) {
       const filePath = relative(source.repoRoot, summary.filePath);
       const candidateKey = JSON.stringify([id, filePath]);
-      let candidates = featureCandidates.get(candidateKey);
-      if (!candidates) featureCandidates.set(candidateKey, candidates = []);
-      const match = candidates.find((feature) => feature.sourceIndexes.every((other) =>
-        lineage.get(`${Math.min(other, sourceIndex)}:${Math.max(other, sourceIndex)}`)?.get(filePath) === id));
+      const groupKey = groupBySource.get(`${candidateKey}:${sourceIndex}`);
+      const match = featureCandidates.get(groupKey);
       const feature = match || { key: hash(`${source.sourceKey}\0${id}\0${filePath}`), id, filePath,
-        versions: [], groups: [], conflicts: [], sourceIndexes: [] };
-      if (!match) { features.push(feature); candidates.push(feature); }
+        versions: [], groups: [], conflicts: [] };
+      if (!match) { features.push(feature); featureCandidates.set(groupKey, feature); }
       sourceFeatures.set(id, feature);
-      feature.sourceIndexes.push(sourceIndex);
       for (const groupName of memberships.get(id) || ["Not on a board"]) {
         const groupKind = memberships.has(id) ? "board" : "unlisted";
         const groupKey = groupKind === "board" ? `board:${groupName}` : "unlisted";
@@ -375,7 +421,6 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
   }
   for (const feature of features) {
     feature.conflicts = await conflicts(feature.versions, displayRevisions, signal);
-    delete feature.sourceIndexes;
   }
   const groupItemKeys = new Map([...groupMap.keys()].map((key) => [key, new Set()]));
   for (const appearance of appearanceOrder) {
