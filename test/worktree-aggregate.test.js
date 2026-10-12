@@ -148,6 +148,90 @@ test("squash-integrated feature keeps one identity across later source edits", a
   assert.ok(selectWorktreeParticipantCandidates(recreated).ambiguous.some((entry) => entry.reference === "new"));
 });
 
+for (const mergedSide of ["main", "sibling"]) test(`later merge on ${mergedSide} retains squash identity`, async () => {
+  const { main, sibling } = await fixture();
+  await write(sibling, "roadmap/features/new.md", item("new", "active"));
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "introduce new feature");
+  git(main, "merge", "--squash", "feature/sibling"); git(main, "commit", "-m", "integrate new feature");
+  const root = mergedSide === "main" ? main : sibling;
+  const branch = mergedSide === "main" ? "main" : "feature/sibling";
+  git(root, "checkout", "-b", "later-topic");
+  await write(root, "notes/topic.txt", "topic\n");
+  git(root, "add", "notes/topic.txt"); git(root, "commit", "-m", "topic change");
+  git(root, "checkout", branch);
+  await write(root, "notes/branch.txt", "branch\n");
+  git(root, "add", "notes/branch.txt"); git(root, "commit", "-m", "branch change");
+  git(root, "merge", "--no-ff", "later-topic", "-m", "later ordinary merge");
+
+  const result = await loadWorktreeAggregate(main);
+  const matches = result.features.filter(({ id }) => id === "new");
+  assert.equal(result.partial, false, JSON.stringify({ coverage: result.coverage, unavailable: result.unavailable, excluded: result.excluded }));
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].versions.length, 2);
+  assert.deepEqual(selectWorktreeParticipantCandidates(result).features.filter(({ id }) => id === "new"),
+    [{ key: matches[0].key, id: "new" }]);
+});
+
+test("merge commit alone cannot prove an independent item is the same feature", async () => {
+  const { main, sibling } = await fixture();
+  git(main, "checkout", "-b", "later-topic");
+  await write(main, "roadmap/features/new.md", item("new"));
+  await write(main, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  git(main, "add", "roadmap"); git(main, "commit", "-m", "topic introduces item");
+  git(main, "checkout", "main");
+  await write(main, "notes/main.txt", "unrelated main change\n");
+  git(main, "add", "notes/main.txt"); git(main, "commit", "-m", "main moves independently");
+  git(main, "merge", "--no-ff", "later-topic", "-m", "merge introduced item");
+  await write(sibling, "roadmap/features/new.md", item("new"));
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "independent item");
+
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.partial, false, JSON.stringify({ coverage: result.coverage, unavailable: result.unavailable, excluded: result.excluded }));
+  assert.equal(result.features.filter(({ id }) => id === "new").length, 2);
+  assert.deepEqual(selectWorktreeParticipantCandidates(result).features.filter(({ id }) => id === "new"), []);
+});
+
+test("untracked matching third copy remains ambiguous after squash identity is proven", async () => {
+  const { main, sibling } = await fixture();
+  const base = git(main, "rev-parse", "HEAD");
+  await write(sibling, "roadmap/features/new.md", item("new", "active"));
+  await write(sibling, "roadmap/board.md", "# Now\n- shared\n- new\n");
+  git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "introduce new feature");
+  git(main, "merge", "--squash", "feature/sibling"); git(main, "commit", "-m", "integrate new feature");
+  const third = path.join(path.dirname(main), "third");
+  git(main, "worktree", "add", "--detach", third, base);
+  await write(third, "roadmap/features/new.md", item("new", "done"));
+  await write(third, "roadmap/board.md", "# Now\n- shared\n- new\n");
+
+  const result = await loadWorktreeAggregate(main);
+  const matches = result.features.filter(({ id }) => id === "new");
+  assert.equal(matches.length, 2, JSON.stringify({ coverage: result.coverage, unavailable: result.unavailable, excluded: result.excluded }));
+  assert.deepEqual(matches.map(({ versions }) => versions.length).sort(), [1, 2]);
+  const participants = selectWorktreeParticipantCandidates(result);
+  assert.deepEqual(participants.features.filter(({ id }) => id === "new"), []);
+  assert.ok(participants.ambiguous.some(({ reference }) => reference === "new"));
+});
+
+test("deletion during merge resolution breaks inherited item identity", async () => {
+  const { main } = await fixture();
+  git(main, "checkout", "-b", "later-topic");
+  await write(main, "roadmap/features/shared.md", item("shared", "blocked"));
+  git(main, "add", "roadmap/features/shared.md"); git(main, "commit", "-m", "topic edits item");
+  git(main, "checkout", "main");
+  await write(main, "roadmap/features/shared.md", item("shared", "active"));
+  git(main, "add", "roadmap/features/shared.md"); git(main, "commit", "-m", "main edits item");
+  assert.throws(() => git(main, "merge", "--no-ff", "later-topic", "-m", "resolve by deletion"));
+  git(main, "rm", "roadmap/features/shared.md"); git(main, "commit", "-m", "resolve by deletion");
+  await write(main, "roadmap/features/shared.md", item("shared", "active"));
+  git(main, "add", "roadmap/features/shared.md"); git(main, "commit", "-m", "recreate item");
+
+  const result = await loadWorktreeAggregate(main);
+  assert.equal(result.features.filter(({ id }) => id === "shared").length, 2);
+  assert.deepEqual(selectWorktreeParticipantCandidates(result).features.filter(({ id }) => id === "shared"), []);
+});
+
 test("squash-integrated executable regular Markdown file shares identity", async () => {
   const { main, sibling } = await fixture();
   await write(sibling, "roadmap/features/executable.md", item("executable"));

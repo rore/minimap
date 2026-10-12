@@ -76,10 +76,11 @@ async function transitionHistory(source, base, cache, signal) {
     for (let i = 0; i < tokens.length; i += 1) {
       const token = tokens[i].replace(/^\n/, "");
       if (!token) continue;
-      const header = token.match(/^commit ([0-9a-f]{40,64}) ([0-9a-f]{40,64})$/i);
+      const header = token.match(/^commit ([0-9a-f]{40,64}) ((?:[0-9a-f]{40,64})(?: [0-9a-f]{40,64})*)$/i);
       if (header) {
         if (commits.length >= 64) throw new Error("squash-evidence-limit");
-        commits.push({ commit: header[1], parent: header[2], changes: new Map() });
+        const parents = header[2].split(" ");
+        commits.push({ commit: header[1], parent: parents[0], merge: parents.length > 1, changes: new Map() });
         continue;
       }
       const change = token.match(/^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) [AMDT]$/i);
@@ -118,7 +119,7 @@ async function squashPaths(left, right, base, candidates, cache, signal) {
   const histories = [await transitionHistory(left, base, cache, signal), await transitionHistory(right, base, cache, signal)];
   const objects = new Map();
   for (const [index, history] of histories.entries()) {
-    const integrations = new Set(histories[1 - index].commits.map((entry) => entry.signature));
+    const integrations = new Set(histories[1 - index].commits.filter((entry) => !entry.merge).map((entry) => entry.signature));
     for (const prefix of history.prefixes) {
       if (!integrations.has(prefix.signature)) continue;
       for (const file of candidates.keys()) {
@@ -178,7 +179,8 @@ async function sharedPaths(left, right, roadmapPath, cache, signal) {
       const key = `${base}:${source.git.headCommit}`;
       let paths = cache.deletions.get(key);
       if (!paths) {
-        const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames", `${base}..${source.git.headCommit}`, "--", ...dirs, { signal });
+        const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames",
+          "--diff-merges=first-parent", `${base}..${source.git.headCommit}`, "--", ...dirs, { signal });
         paths = new Set(output.split("\0").filter(Boolean));
         cache.deletions.set(key, paths);
       }

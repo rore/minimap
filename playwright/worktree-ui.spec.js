@@ -40,6 +40,52 @@ async function fixture(count = 84) {
   return { owned, root, sibling };
 }
 
+test("squash identity survives later merge in the rendered Across board", async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000);
+  const { owned, root, sibling } = await fixture(2);
+  try {
+    const first = path.join(sibling, "roadmap", "features", "large-01.md");
+    await fs.writeFile(first, (await fs.readFile(first, "utf8")).replace("status: in-progress", "status: done"));
+    await fs.writeFile(path.join(sibling, "roadmap", "features", "merged-feature.md"),
+      "---\nid: merged-feature\ntitle: Merged feature\nstatus: active\npriority: high\ncommitment: committed\n---\n\n## Summary\n\nIntegrated feature.\n");
+    const board = path.join(sibling, "roadmap", "board.md");
+    await fs.writeFile(board, (await fs.readFile(board, "utf8")).replace("- large-01", "- large-01\n- merged-feature"));
+    git(sibling, "add", "roadmap"); git(sibling, "commit", "-m", "introduce feature");
+    git(root, "merge", "--squash", "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls");
+    git(root, "commit", "-m", "integrate feature");
+    git(root, "checkout", "-b", "later-topic");
+    await fs.writeFile(path.join(root, "topic.txt"), "topic\n");
+    git(root, "add", "topic.txt"); git(root, "commit", "-m", "topic change");
+    git(root, "checkout", "main");
+    await fs.writeFile(path.join(root, "main.txt"), "main\n");
+    git(root, "add", "main.txt"); git(root, "commit", "-m", "main change");
+    git(root, "merge", "--no-ff", "later-topic", "-m", "later merge");
+
+    const aggregate = await (await request.get("/api/worktree-workspace", { headers: { "X-Minimap-Repo": root } })).json();
+    expect(aggregate.partial).toBe(false);
+    expect(aggregate.features.filter(({ id }) => id === "merged-feature")).toHaveLength(1);
+    await page.goto(`/#repo=${encodeURIComponent(root)}`);
+    await page.locator("#board-source-toggle").click();
+    await page.locator('#board-source-menu [data-source-choice="across"]').click();
+    await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded; 0 excluded");
+    await page.getByRole("button", { name: "In play" }).click();
+    await expect(page.getByRole("button", { name: /Open Merged feature/ })).toHaveCount(1);
+    await page.getByRole("button", { name: /Open Merged feature/ }).click();
+    await page.locator("#editor-source-summary").click();
+    await expect(page.locator("#editor-source-label [data-editor-source]")).toHaveCount(2);
+    await page.screenshot({ path: testInfo.outputPath("merged-list-desktop.png"), fullPage: true });
+    await page.locator("#board-layout-columns").click();
+    await expect(page.getByRole("button", { name: /Open Merged feature/ })).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath("merged-columns-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await page.screenshot({ path: testInfo.outputPath("merged-columns-390.png"), fullPage: true });
+    await page.locator("#board-layout-list").click();
+    await page.screenshot({ path: testInfo.outputPath("merged-list-390.png"), fullPage: true });
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
 test("combined large board stays usable in List and Columns at desktop and narrow widths", async ({ page, request }, testInfo) => {
   test.setTimeout(90_000);
   const apiFailures = [];
