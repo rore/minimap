@@ -3961,13 +3961,17 @@ function renderRelatedWork() {
     <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open record</button>
     ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div></li>`;
   }).join("");
-  const provenance = state.worktreeMode === "across" && view.source?.repoRoot
-    ? `<p class="muted">Selected checkout: ${escapeHtml(view.source.repoRoot)}. Other versions may differ.</p>` : "";
-  host.innerHTML = `${provenance}${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
+  host.innerHTML = `${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
     ${records.length ? '<p class="muted related-work-order">Sorted by Work Record file name. PR links are recorded references.</p>' : ""}
     ${records.length ? `<ul>${recordHtml}</ul>` : ""}
     ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-more>More records</button>' : ""}
     ${view.status !== "loading" ? '<button class="ghost-button related-work-refresh" type="button" data-related-refresh>Refresh related work</button>' : ""}`;
+  if (state.worktreeMode === "across" && view.source?.repoRoot) {
+    const provenance = document.createElement("p");
+    provenance.className = "muted";
+    provenance.textContent = `Selected checkout: ${view.source.repoRoot}. Other versions may differ.`;
+    host.prepend(provenance);
+  }
 }
 
 async function refreshRelatedWork({ generation, offset, append = false, fresh = false } = {}) {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-const moduleUrl = process.argv[2] ? pathToFileURL(process.argv[2]) : new URL("../../core/work_record/relationships.mjs", import.meta.url);
+const moduleUrl = process.argv[2] ? pathToFileURL(process.argv[2]) : new URL("../../package/minimap/src/work-record/work-record-relationships.mjs", import.meta.url);
 const { decodeConfig, decodeRecord } = await import(moduleUrl);
 const fixtures = JSON.parse(await readFile(new URL("./fixtures/relationships.json", import.meta.url), "utf8"));
 const bytes = (value) => new TextEncoder().encode(value);
