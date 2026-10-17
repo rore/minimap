@@ -3,6 +3,7 @@
 # Next
 - fix-shared-server-registry-test-isolation
 - add-work-item-dependencies
+- show-feature-related-work
 
 # Ideas
 - idea-board-management
