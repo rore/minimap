@@ -26,7 +26,7 @@
 
 **Verification plan:** Map the canonical seven criteria to shared decoder fixtures, unit/API/running-server E2E, large-corpus latency/I/O measurements and actual rendered screenshots. Establish numerical budgets before product edits. Run workflow checks, mirror synchronization and doc drift checks before delivery. Tests not yet run.
 
-**Plan review:** Pending shared contract and clean-context implementation plan review.
+**Plan review:** Shared contract 60111d4 accepted by Astra reviewer on 2026-10-17; Minimap API compatibility confirmed. Concrete consumer implementation plan and its clean-context review remain to be completed after baseline measurements. This is the implementation gate, not another contract proposal round.
 
 **Approvals:** Human authorization verified in Astra chat 01a07bef-18c8-71b2-89ab-c0cbe91e73ad, message 01a1493a-c390-78f3-bd9b-212e89384d36: "ok, so coordinate with the workflow and minimap managers to start this. agree on the shared format first, and keep the implementation simple." This authorizes coordinated development; no live environment changes. Implementation-specific review remains pending.
 
@@ -46,6 +46,8 @@ Recommendation sent to Workflow manager: pinned yaml 2.9.1 (ISC, no dependencies
 Recovery: shared proposal currently at Workflow commit 4ad1a8890186d55f8eb339ad0d11599b75724dbf is not agreed. Workflow manager will consolidate revised sample, capture edit and decoder recommendation for Astra. Next: incorporate review, discovery pointers, concrete budgets and reviewed implementation plan before code.
 
 ## Discovery evidence
+
+2026-10-17: Astra and Workflow manager confirmed contract acceptance. Proceed with implementation preparation under repo gates. Normal agent template/transition edits are a disclosed first-slice capture limitation, not automatic capture or a lost-input guarantee. decodeConfig validates a metadata profile only; required config fields retain Python-supported behavior, with no guessed fallback. Bound config bytes and library alias/cycle expansion. Unsupported metadata must not hide valid unrelated records/sources. Actual distributed size/license/conformance remain implementation evidence. Requested early decoder/fixture artifact handoff; baseline/plan assigned to existing economical worker in this isolated checkout. No live environment changes authorized.
 
 2026-10-17 consumer contract checkpoint: reviewed Workflow proposal 60111d4d65f019158e2cf33baba60c14bef213c2 and accepted API/ownership boundary for consolidated Astra review. `decodeConfig(bytes)` validates configured locator once per revision; `decodeRecord(bytes,{task_path,record_path})` owns lexical slug/ref and metadata grammar, never filesystem access. Accepted explicitly narrower safe YAML profile with shared fixtures documenting divergence from Python; malformed UTF-8 and escaped-equivalent JSON duplicate keys must be rejected to preserve exact identity. These are validation details, no API expansion. Workflow manager notified; final joint review still pending, not self-approved implementation readiness.
 
