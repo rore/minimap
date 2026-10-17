@@ -69,7 +69,7 @@ templates/checkpoints/discover.md	2920
 templates/checkpoints/establish-context.md	3444
 templates/checkpoints/implement.md	6501
 templates/checkpoints/plan-and-review.md	5270
-templates/checkpoints/review-result.md	4092
+templates/checkpoints/review-result.md	4157
 templates/checkpoints/verify.md	3124
 templates/skill-feedback.md	4288
 templates/work-record-expanded.md	2937

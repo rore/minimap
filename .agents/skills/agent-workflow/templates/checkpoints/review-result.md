@@ -27,6 +27,8 @@ If evidence is insufficient, run or request the smallest behavioral check that r
 
 Ready for review is not merged or released; verify delivery state in its owning system.
 
+For agent-instruction changes, distinguish tested/installed behavior from observed real-use adoption; record any agreed bounded follow-up in the existing feature/release record with its owner and evidence.
+
 ## Satisfy-by paths in practice
 
 **CODEOWNER approval.** With "Require Code Owner review" enabled, GitHub enforces owning-team approval. CI passes Redline the APPROVED reviewers that intersect `CODEOWNERS`.
@@ -37,9 +39,9 @@ Without `CODEOWNERS`, CI warns and passes no approvers, so codeowner-only checkp
 
 ## Relationship to plan-time approvals
 
-Plan-time approvals (Approvals field, clean-context Plan review reference) are recorded in the Work Record BEFORE implementation. Result-review checkpoint satisfaction happens on the PR AFTER implementation. Structurally distinct:
+Record plan approvals in the Work Record before implementation; satisfy result-review checkpoints on the PR afterward:
 
-- **Plan-time** (slice D): agent-attested plan approval in the Work Record. Cheating window acknowledged.
+- **Plan-time** (slice D): agent-attested plan approval in the Work Record.
 - **PR-time** (slice G): GitHub + CODEOWNERS evaluate; Redline surfaces; checker blocks only in binding mode.
 
 High work has agent technical plan/result reviews, human-reviewed and approved plan, separate human result review, and any triggered PR checkpoint. These are distinct.
