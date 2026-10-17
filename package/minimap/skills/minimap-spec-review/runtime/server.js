@@ -40,6 +40,7 @@ import {
 import { readServerRegistry, writeServerRegistry, deleteServerRegistry, readRuntimeIdentity } from "./src/server-registry.js";
 import { matchRoute } from "./src/router.js";
 import { createRoadmapSnapshotCoordinator } from "./src/roadmap-snapshots.js";
+import { createRelatedWorkScanner, readIndexedRecord, workflowConfigFingerprint } from "./src/related-work.js";
 import { compactWorktreePayload, expandWorktreePayload } from "./ui/worktree-payload.js";
 import { createLifecycleLog, lifecycleError } from "./src/server-lifecycle-log.js";
 import {
@@ -77,6 +78,9 @@ const palliumConfig = parsePalliumConfig(
   process.env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT,
 );
 const roadmapSnapshots = createRoadmapSnapshotCoordinator();
+const relatedWorkSnapshots = createRoadmapSnapshotCoordinator({ limits: { jobTimeoutMs: 10_000, maxBytes: 16 * 1024 * 1024 } });
+const scanRelatedWork = createRelatedWorkScanner();
+const relatedWorkLastGood = new Map();
 
 const runtimeIdentity = await readRuntimeIdentity(__filename);
 const serverVersion = runtimeIdentity.version;
@@ -1031,6 +1035,99 @@ async function handleGetItem(request, response, ctx) {
   sendJson(response, 200, item);
 }
 
+async function handleRelatedWork(request, response, ctx) {
+  const { signal, cleanup } = requestAbortSignal(request, response);
+  try {
+    const repoRoot = await resolveRoadmapRepo(request);
+    const itemId = decodeURIComponent(ctx.params[0]);
+    await readItemById(repoRoot, itemId);
+    const [source, roadmap] = await Promise.all([
+      readWorktreeIdentity(repoRoot, { signal }), requireRoadmapInSource(repoRoot, { signal }),
+    ]);
+    if (!source) return sendJson(response, 200, { status: "unavailable", reason: "source_identity_unavailable", records: [] });
+    const reference = await resolveRoadmapItemReference(repoRoot, roadmap.roadmapPath, itemId, { signal });
+    if (!reference) return sendJson(response, 200, { status: "unavailable", reason: "reference_identity_unavailable", records: [] });
+    const configHash = await workflowConfigFingerprint(repoRoot, { signal });
+    const key = JSON.stringify([repoRoot, source.sourceKey, source.git.headCommit, roadmap.resolvedPath, roadmap.configRevision, configHash]);
+    const requested = ctx.url.searchParams.get("generation");
+    let generation;
+    let index;
+    if (requested) {
+      index = relatedWorkSnapshots.getManifest(requested, key);
+      if (!index) throw new AppError("Related work changed. Restart from the first page.", 409, "related_work_changed");
+      generation = requested;
+    } else {
+      try {
+        const read = await relatedWorkSnapshots.read({ key, cached: ctx.url.searchParams.get("fresh") !== "1",
+          admit: () => true, signal, load: async ({ signal: scanSignal }) => {
+          const value = await scanRelatedWork(repoRoot, { signal: scanSignal, sourceCommit: source.git.headCommit });
+          if (await workflowConfigFingerprint(repoRoot, { signal: scanSignal }) !== configHash
+            || (value.configHash && value.configHash !== configHash)) {
+            throw new AppError("Workflow configuration changed during scan.", 409, "source_changed");
+          }
+          const [actual, currentRoadmap] = await Promise.all([
+            readWorktreeIdentity(repoRoot, { signal: scanSignal }), requireRoadmapInSource(repoRoot, { signal: scanSignal }),
+          ]);
+          if (actual?.sourceKey !== source.sourceKey || actual?.git.headCommit !== source.git.headCommit
+            || currentRoadmap.resolvedPath !== roadmap.resolvedPath || currentRoadmap.configRevision !== roadmap.configRevision) {
+            throw new AppError("Checkout or roadmap changed during related-work scan.", 409, "source_changed");
+          }
+          if (value.status === "partial" && relatedWorkSnapshots.getManifest(relatedWorkLastGood.get(key)?.id, key)) {
+            throw new AppError("Related-work scan has partial coverage.", 503, "related_work_partial", value.coverage);
+          }
+          return { value, manifest: value };
+        } });
+        index = read.value;
+        generation = read.snapshot.id;
+        if (read.snapshot.stale) index = { ...index, status: "stale", reason: "validation_due", staleSince: read.snapshot.validatedAt };
+        if (index.status === "ok" && relatedWorkLastGood.get(key)?.id !== generation) {
+          relatedWorkLastGood.delete(key);
+          relatedWorkLastGood.set(key, { id: generation, validatedAt: read.snapshot.validatedAt });
+          if (relatedWorkLastGood.size > 16) relatedWorkLastGood.delete(relatedWorkLastGood.keys().next().value);
+        }
+      } catch (error) {
+        if (signal.aborted || error.code === "source_changed" || error.code === "snapshot_invalidated") throw error;
+        const previous = relatedWorkLastGood.get(key);
+        index = previous && relatedWorkSnapshots.getManifest(previous.id, key);
+        if (!index) throw error;
+        generation = previous.id;
+        previous.failure = { reason: error.code || error.message, coverage: error.details || index.coverage };
+      }
+    }
+    const failed = relatedWorkLastGood.get(key);
+    if (failed?.id === generation && failed.failure) index = { ...index, status: "stale", ...failed.failure, staleSince: failed.validatedAt };
+    const matched = index.records.filter((record) => record.sources.some((entry) => entry.provider === "minimap"
+      && entry.scope_ref === reference.scope_ref && entry.local_ref === reference.local_ref));
+    if (ctx.url.searchParams.has("record")) {
+      const record = matched.find((entry) => entry.id === ctx.url.searchParams.get("record"));
+      if (!record) throw new AppError("Record is not in this index.", 404, "record_not_indexed");
+      const content = await readIndexedRecord(repoRoot, record, index.taskPath, { signal });
+      if (content === null) throw new AppError("Record changed. Refresh related work.", 409, "related_work_changed");
+      const [openedSource, openedRoadmap, openedConfig] = await Promise.all([
+        readWorktreeIdentity(repoRoot, { signal }), requireRoadmapInSource(repoRoot, { signal }), workflowConfigFingerprint(repoRoot, { signal }),
+      ]);
+      if (openedSource?.sourceKey !== source.sourceKey || openedSource?.git.headCommit !== source.git.headCommit
+        || openedRoadmap.resolvedPath !== roadmap.resolvedPath || openedRoadmap.configRevision !== roadmap.configRevision
+        || openedConfig !== configHash) throw new AppError("Source changed. Refresh related work.", 409, "related_work_changed");
+      return sendJson(response, 200, { id: record.id, title: record.title, recordedState: record.recordedState, content });
+    }
+    const rawOffset = ctx.url.searchParams.get("offset") || "0";
+    if (!/^(0|[1-9]\d*)$/.test(rawOffset) || Number(rawOffset) > matched.length) throw new AppError("Invalid related-work page.", 400, "bad_request");
+    const offset = Number(rawOffset);
+    const records = matched.slice(offset, offset + 20).map(({ sources, hash, path, ...record }) => record);
+    const [servedSource, servedRoadmap, servedConfig] = await Promise.all([
+      readWorktreeIdentity(repoRoot, { signal }), requireRoadmapInSource(repoRoot, { signal }), workflowConfigFingerprint(repoRoot, { signal }),
+    ]);
+    if (servedSource?.sourceKey !== source.sourceKey || servedSource?.git.headCommit !== source.git.headCommit
+      || servedRoadmap.resolvedPath !== roadmap.resolvedPath || servedRoadmap.configRevision !== roadmap.configRevision
+      || servedConfig !== configHash) throw new AppError("Source changed. Restart related work.", 409, "related_work_changed");
+    sendJson(response, 200, { status: index.status, reason: index.reason || null, coverage: index.coverage,
+      staleSince: index.staleSince || null,
+      records, total: matched.length, generation, nextOffset: offset + records.length < matched.length ? offset + records.length : null,
+      source: { repoRoot, sourceKey: source.sourceKey, headCommit: source.git.headCommit } });
+  } finally { cleanup(); }
+}
+
 async function handleSaveItem(request, response, ctx) {
   const repoRoot = await resolveRoadmapRepo(request);
   const id = decodeURIComponent(ctx.params[0]);
@@ -1080,6 +1177,7 @@ const routes = [
   { method: "GET",    pattern: /^\/api\/board\/participant-counts$/, handler: handleBoardParticipantCounts },
   { method: "GET",    pattern: /^\/api\/board\/observations$/, handler: handleBoardObservations },
   { method: "GET",    pattern: /^\/api\/items\/([^/]+)\/participants$/, handler: handleItemParticipants },
+  { method: "GET",    pattern: /^\/api\/items\/([^/]+)\/related-work$/, handler: handleRelatedWork },
   { method: "GET",    pattern: /^\/api\/items\/([^/]+)$/, handler: handleGetItem },
   { method: "POST",   pattern: /^\/api\/items\/([^/]+)$/, handler: handleSaveItem },
 ];

@@ -65,6 +65,14 @@ Across does not edit board order or synchronize files. Opening an item exposes c
 
 Across participant counts use one bounded feature-wide read for at most 200 unambiguous logical features. An association is not checkout-specific; ambiguous same-ID features cannot inherit one another's count or detail. Errors and overflow remain visibly incomplete, not zero.
 
+## Related Work Records
+
+Feature detail may show a read-only reverse lookup of local Agent Workflow Work Records. Only a supported `Relationships` declaration with an exact Minimap provider, repository/roadmap scope, and item reference links a record. `sources: []` means known no source; `sources: null`, a missing declaration, invalid or unsupported metadata, and unreadable records are unknown coverage, never inferred links or confirmed absence. Recorded state and PR URLs do not prove current work, approval, delivery, or live PR status. No backlink is written to the feature, and the lookup does not create a spec session.
+
+This checkout reads its configured records; Across reads the selected checkout version. Distinct or conflicting versions remain source-specific. Discovery runs independently of board, item and draft reads; automatic validation occurs with the existing 30-second visible refresh and manual Refresh requests fresh validation. A complete generation replaces old links after add, edit, move, remap or delete. A failed or partial validation may show only a same-source last-good generation with a stale/partial notice. Changed checkout HEAD, roadmap binding, or Workflow config cannot inherit it. Page cursors bind to one generation and require restart after turnover; opening a record rechecks its selected source, confined path and content hash.
+
+The scanner streams directory names, selects and stats at most 1,000 record paths, reads at most 64 KiB of Workflow config and 256 KiB per selected record, and caps total record input at 128 MiB. Its metadata reuse is bounded to 16 MiB across projects; the separate read snapshot also has a 16 MiB bound, two active scans and a 10-second deadline. Extra or unreadable records produce partial coverage. Results show 20 records per page in Work Record filename order, which is not activity order. The lookup is local and disposable: it does not execute viewed-repository code, install a Python runtime, query a remote PR service, or maintain a second system of record.
+
 ## Canonical File Ownership
 
 Within the resolved roadmap root:

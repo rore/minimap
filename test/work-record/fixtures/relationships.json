@@ -1,0 +1,638 @@
+{
+  "record_template": "# Fixture Work Record\n\n<!-- agent-workflow:start -->\n**Outcome:** Expose related work.\n\n**Target:** fixture.\n\n**Scope:** Relationship metadata.\n\n**Constraints:** Preserve legacy behavior.\n\n**Completion criteria:** Exact references round-trip.\n\n__RELATIONSHIPS__\n\n**Risk:** Routine\n\n**Complexity:** Simple\n\n**Reason:** Fixture.\n\n**Approach:** Validate metadata.\n\n**Verification:** Shared fixtures.\n\n**State:** Ready to implement\n<!-- agent-workflow:end -->\n",
+  "cases": [
+    {
+      "name": "legacy",
+      "raw": null,
+      "status": "legacy"
+    },
+    {
+      "name": "known-none",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "unverified",
+      "raw": "{\"schema_version\":1,\"sources\":null,\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "exact-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "many-sources-prs",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"},{\"provider\":\"other\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"}],\"pull_requests\":[\"https://github.com/Rore/agent-workflow/pull/53\",\"https://github.com/rore/minimap/pull/53\"]}",
+      "status": "declared"
+    },
+    {
+      "name": "unicode-and-comment-like-refs",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"<!-- untouched --> é\",\"local_ref\":\"é with spaces\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-https-navigation",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\",\"url\":\"https://example.com/feature?q=1#details\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "surrounding-template-hints",
+      "raw": "<!-- hint -->\n{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"}],\"pull_requests\":[]}\n<!-- hint -->",
+      "status": "declared"
+    },
+    {
+      "name": "duplicate-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"},{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "case-distinct-sources",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"},{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"feature #1\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "duplicate-pr-case",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/Rore/Agent-Workflow/pull/53\",\"https://github.com/rore/agent-workflow/pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "escaped-duplicate-key",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"\\u0073ources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "inter-token-comment",
+      "raw": "{\"schema_version\":1,<!-- bad -->\"sources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "malformed-json",
+      "raw": "{\"schema_version\":1,",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "boolean-version",
+      "raw": "{\"schema_version\":true,\"sources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "future-version",
+      "raw": "{\"schema_version\":2,\"sources\":[],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_relationship_version"
+    },
+    {
+      "name": "unknown-field",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[],\"extra\":1}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "missing-sources",
+      "raw": "{\"schema_version\":1,\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-control",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"bad\\nref\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-incomplete",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "unsafe-pr",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"javascript:alert(1)\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-credentials",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://user:pass@github.com/rore/agent-workflow/pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "unsupported-pr-host",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"}],\"pull_requests\":[\"https://gitlab.com/rore/agent-workflow/-/merge_requests/53\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "unsupported-safe-github-profile",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\"}],\"pull_requests\":[\"https://github.com/rore/agent-workflow/issues/53\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-leading-zero",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/053\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "unsafe-source-url",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope:Repo Α\",\"local_ref\":\"Feature #1\",\"url\":\"file:///C:/secret\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "comment-like-string-and-outer-hints",
+      "raw": "<!-- before -->\n{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"<!-- preserve exactly -->\"}],\"pull_requests\":[]}\n<!-- after -->",
+      "status": "declared"
+    },
+    {
+      "name": "whitespace-only-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"   \"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-c1-control",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"badref\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "escaped-lone-surrogate-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"\\ud800\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-navigation-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"item\",\"url\":\"https://example.com:8443/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "pr-explicit-default-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com:443/rore/agent-workflow/pull/53\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-query",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/53?x=1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-fragment",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/53#details\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "unsupported-owner-profile",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/ro_re/agent-workflow/pull/53\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "zero-version",
+      "raw": "{\"schema_version\":0,\"sources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "negative-version",
+      "raw": "{\"schema_version\":-1,\"sources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "integral-number-version",
+      "raw": "{\"schema_version\":1.0,\"sources\":[],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "integral-exponent-version",
+      "raw": "{\"schema_version\":1e0,\"sources\":[],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-missing-authority",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"item\",\"url\":\"https:example.com\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-long-s-scheme",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"httpſ://example.com/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-missing-authority",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https:github.com/rore/agent-workflow/pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-long-s-scheme",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"httpſ://github.com/rore/agent-workflow/pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-unencoded-space",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"minimap\",\"scope_ref\":\"scope\",\"local_ref\":\"item\",\"url\":\"https://example.com/a b\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "unsupported-before-unsafe-pr",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://gitlab.com/r/r/-/merge_requests/1\",\"javascript:bad\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "unsupported-before-duplicate-pr",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://gitlab.com/r/r/-/merge_requests/1\",\"https://github.com/rore/agent-workflow/pull/53\",\"https://github.com/RORE/agent-workflow/pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "repository-dot-underscore",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/.github_repo/pull/53\"]}",
+      "status": "declared"
+    },
+    {
+      "name": "repository-dotdot",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/../pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "signed-pr-profile",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/+1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "zero-pr-profile",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/0\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "unicode-pr-profile",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/é/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "empty-port-profile",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com:/rore/agent-workflow/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "json-surrounding-whitespace",
+      "raw": " \t\r\n{\"schema_version\":1,\"sources\":[],\"pull_requests\":[]}\r\n\t ",
+      "status": "declared"
+    },
+    {
+      "name": "json-prefix-bom",
+      "raw": "\uFEFF{\"schema_version\":1,\"sources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "json-suffix-bom",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[]}\uFEFF",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "json-prefix-nel",
+      "raw": "\u0085{\"schema_version\":1,\"sources\":[],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "json-suffix-nel",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[]}\u0085",
+      "status": "invalid",
+      "reason": "invalid_json"
+    },
+    {
+      "name": "source-authority-repaired-slashes",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https:////example.com/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-empty-user",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://@example.com/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-percent-host",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://exa%mple.com/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-invalid-ipv6",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://[v1.foo]/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-nonnormalized-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://256.256.256.256/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-canonical-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://192.0.2.1/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-ipv6",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://[2001:db8::1]/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-idn",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-authority-idn-joiner",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://a‍b.example/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-authority-idn-prefix-joiner",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://‍ab.example/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-authority-bom-host",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://﻿example.com/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-path-bom",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com/﻿item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-punycode-short",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://xn--a.example/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-punycode-valid-looking",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://xn--fa-hia.de/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-final-dot",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com./item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-double-final-dot",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com../item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-short-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://127.1/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-hex-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://0x7f000001/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-leading-zero-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://192.000.2.1/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-bracket-junk",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://[2001:db8::1]junk/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-empty-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-signed-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:+1/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-nonalphanumeric-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:80x/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-port-zero",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:0/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-port-max",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:65535/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-port-too-large",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:65536/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-port-leading-zeroes",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:00080/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "invalid-metadata-after-unsupported-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"},{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-unicode-host-case-fold",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://gıthub.com/rore/agent-workflow/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-unicode-owner-case-fold",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/Kore/agent-workflow/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-unicode-joiner-host",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://a‍b.example/r/r/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-oversized-host-label",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-punycode-host-lexical",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://xn--a.example/r/r/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-ipv6-explicit-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://[2001:db8::1]:443/r/r/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-github-percent-path",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/repo%2fprivate/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-signed-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://example.com:+1/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-overflow-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://example.com:65536/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "invalid-pr-after-unsupported-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"}],\"pull_requests\":[\"javascript:bad\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    }
+  ],
+  "config_cases": [
+    {
+      "name": "block-layout",
+      "text": "version: 1\nworkRecord:\n  backend: local\n  local:\n    taskPath: \".agent-workflow/tasks/{slug}.md\"\n",
+      "status": "ok",
+      "task_path": ".agent-workflow/tasks/{slug}.md"
+    },
+    {
+      "name": "flow-custom-layout",
+      "text": "version: 1\nworkRecord: {backend: local, local: {taskPath: \"work records/{slug}.md\"}}\n",
+      "status": "ok",
+      "task_path": "work records/{slug}.md"
+    },
+    {
+      "name": "canonicalizes-empty-path-components",
+      "text": "version: 1\nworkRecord: {backend: local, local: {taskPath: \"work records//nested/{slug}.md/\"}}\n",
+      "status": "ok",
+      "task_path": "work records/nested/{slug}.md",
+      "record_path": "work records/nested/fixture.md"
+    },
+    {
+      "name": "alias-merge-override",
+      "text": "version: 1\nbase: &base {taskPath: \"ignored/{slug}.md\"}\nworkRecord:\n  backend: local\n  local:\n    <<: *base\n    taskPath: \"records/{slug}.md\"\n",
+      "status": "ok",
+      "task_path": "records/{slug}.md"
+    },
+    {
+      "name": "yaml11-bool-not-path",
+      "text": "version: 1\nworkRecord: {backend: local, local: {taskPath: yes}}\n",
+      "status": "invalid",
+      "reason": "invalid_config"
+    },
+    {
+      "name": "missing-backend",
+      "text": "version: 1\nworkRecord: {local: {taskPath: \"records/{slug}.md\"}}\n",
+      "status": "invalid",
+      "reason": "invalid_config"
+    },
+    {
+      "name": "future-version",
+      "text": "version: 2\nworkRecord: {backend: local, local: {taskPath: \"records/{slug}.md\"}}\n",
+      "status": "unsupported",
+      "reason": "unsupported_config_version"
+    },
+    {
+      "name": "unsupported-backend",
+      "text": "version: 1\nworkRecord: {backend: jira}\n",
+      "status": "unsupported",
+      "reason": "unsupported_backend"
+    },
+    {
+      "name": "unsafe-layout",
+      "text": "version: 1\nworkRecord: {backend: local, local: {taskPath: \"../{slug}.md\"}}\n",
+      "status": "invalid",
+      "reason": "invalid_task_path"
+    },
+    {
+      "name": "duplicate-version",
+      "text": "version: 1\nversion: 1\nworkRecord: {backend: local, local: {taskPath: \"records/{slug}.md\"}}\n",
+      "status": "invalid",
+      "reason": "invalid_config"
+    },
+    {
+      "name": "custom-tag",
+      "text": "version: 1\nextra: !custom value\n",
+      "status": "invalid",
+      "reason": "invalid_config"
+    },
+    {
+      "name": "cycle",
+      "text": "version: 1\nextra: &a [*a]\nworkRecord: {backend: local, local: {taskPath: \"records/{slug}.md\"}}\n",
+      "status": "invalid",
+      "reason": "invalid_config"
+    },
+    {
+      "name": "tagged-set-cycle",
+      "text": "version: 1\nextra: &s !!set { ? *s : null }\nworkRecord: {backend: local, local: {taskPath: \"records/{slug}.md\"}}\n",
+      "status": "unsupported",
+      "reason": "unsupported_yaml_type"
+    }
+  ],
+  "invalid_utf8_hex": [
+    "ff",
+    "c0af",
+    "e282",
+    "eda080"
+  ]
+}

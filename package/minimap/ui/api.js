@@ -97,6 +97,14 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource, onMutation } =
     reorderLensGroup: (field, payload) => postJson(`/api/lenses/${id(field)}/order`, payload),
     saveScope: (scopeText, expectedRevision = null) => postJson("/api/scope", { scopeText, expectedRevision }),
     readItem: (itemId, options = {}) => request(`/api/items/${id(itemId)}`, options),
+    readRelatedWork: (itemId, { generation, offset, record, fresh = false, ...options } = {}) => {
+      const query = new URLSearchParams();
+      if (generation) query.set("generation", generation);
+      if (offset != null) query.set("offset", String(offset));
+      if (record) query.set("record", record);
+      if (fresh) query.set("fresh", "1");
+      return request(`/api/items/${id(itemId)}/related-work${query.size ? `?${query}` : ""}`, options);
+    },
     readBoardParticipantCounts: ({ includeCompleted = false, ...options } = {}) => request(
       `/api/board/participant-counts${includeCompleted === true ? "?includeCompleted=1" : ""}`, options,
     ),

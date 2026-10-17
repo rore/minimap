@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolveRoadmapItemReference } from "../package/minimap/src/pallium.js";
 
 // Routine CI skips this qualification. Run it alone after mirrors are ready:
 // MINIMAP_RUN_PERFORMANCE=1 node --test test/roadmap-performance.test.js
@@ -28,6 +29,7 @@ const scripts = path.join(runtimeRoot, "package/minimap/skills/minimap-roadmap/s
 const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
 const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
+const workRecordCount = Number(process.env.MINIMAP_PERFORMANCE_WORK_RECORDS || 0);
 // Generated only inside the disposable fixture. IPC is available solely to the
 // owning test parent; no production diagnostic route or installed preload.
 export const performancePreload = String.raw`
@@ -152,6 +154,28 @@ async function fixture(owned, name, sources, count) {
   return root;
 }
 
+async function seedWorkRecords(repoRoot, count) {
+  const directory = path.join(repoRoot, ".agent-workflow", "tasks");
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(path.join(repoRoot, "agent-workflow.yaml"), [
+    "version: 1", "workRecord:", "  backend: local", "  local:",
+    "    taskPath: .agent-workflow/tasks/{slug}.md", "",
+  ].join("\n"));
+  const relationship = await resolveRoadmapItemReference(repoRoot, "roadmap", "item-0000");
+  assert.ok(relationship?.scope_ref && relationship?.local_ref, "Fixture must use the authoritative source-reference helper");
+  const sharedFixture = JSON.parse(await fs.readFile(path.join(projectRoot, "test/work-record/fixtures/relationships.json"), "utf8"));
+  for (let index = 0; index < count; index += 1) {
+    const slug = `fixture-${String(index).padStart(4, "0")}`;
+    const outcome = `Synthetic performance record ${index}`;
+    const relationshipJson = JSON.stringify({ schema_version: 1,
+      sources: [{ provider: "minimap", scope_ref: relationship.scope_ref, local_ref: relationship.local_ref }],
+      pull_requests: [`https://github.com/example/project-a-performance/pull/${index + 1}`] });
+    const content = sharedFixture.record_template.replace("Fixture Work Record", outcome)
+      .replace("__RELATIONSHIPS__", `**Relationships:**\n${relationshipJson}`);
+    await fs.writeFile(path.join(directory, `${slug}.md`), content);
+  }
+}
+
 async function start(root, env) {
   const child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -212,7 +236,7 @@ async function stopAndRemove(child, env, owned) {
   }
 }
 
-async function qualify(sources, items, samples, signal) {
+async function qualify(sources, items, samples, signal, recordCount = 0) {
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-performance-"));
   let child;
   const env = { ...process.env, MINIMAP_HOME: path.join(owned, "home"),
@@ -224,7 +248,8 @@ async function qualify(sources, items, samples, signal) {
   await fs.writeFile(preload, performancePreload);
   env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import=${pathToFileURL(preload).href}`;
   const measurements = { firstUsable: [], fullSnapshot: [], warmAcross: [], healthDuringScan: [],
-    warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [] };
+    warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [],
+    ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [], relatedCold: [], relatedWarm: [], relatedUnchangedRefresh: [], relatedShared: [], relatedOneEdit: [], healthDuringRelated: [], featureDetailDuringRelated: [] } : {}) };
   const serverScenarios = [];
   const observe = async (scenario, sample, work) => {
     const before = await serverMetrics(child, true);
@@ -258,20 +283,24 @@ async function qualify(sources, items, samples, signal) {
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
         versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
+        generation: body.generation, total: body.total, nextOffset: body.nextOffset,
+        relatedRecords: body.records?.length, relatedStatus: body.status, firstRelatedTitle: body.records?.[0]?.title,
+        relatedBodyReads: body.coverage?.bodyReads, relatedEnumerations: body.coverage?.enumerations,
         pid: body.pid, runtime: body.runtime, code: body.code, error: response.ok ? undefined : body.error };
     } catch (error) {
       return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100, error: error.message };
     }
   };
   const full = legacy ? "/api/worktree-workspace" : "/api/worktree-workspace?participants=0&compact=1";
+  const featureDetail = "/api/items/item-0000";
   const openedRoute = legacy ? `${full}?openedOnly=1` : `${full}&openedOnly=1`;
   const repeatedRoute = legacy ? full : `${full}&cached=1`;
   const otherRoute = legacy ? "/api/workspace" : "/api/workspace?cached=1";
   const requireSuccessful = (records, scenario) => assert.ok(records.every((record) => record.status === 200),
     `${scenario} failed: ${JSON.stringify(records.filter((record) => record.status !== 200))}`);
-  const resultReport = () => ({ sources, itemsPerSource: items, samples, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
+  const resultReport = () => ({ sources, itemsPerSource: items, samples, workRecordCount: recordCount, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
     summary: Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
-      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
+      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "featureDetailDuringScan", "featureDetailWarm", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
     measurementLabels: { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
       warmOtherProjectDuringScan: legacy ? "Fresh This read of other project during scan" : "Warm cached This read of other project during scan" },
     measurements, serverScenarios,
@@ -280,6 +309,7 @@ async function qualify(sources, items, samples, signal) {
     limits: "HTTP first usable excludes browser paint. Existing identity caps may retain separate features and partial coverage. OS caches are not flushed. Preload instrumentation adds overhead. File counts measure wrapped readFile/readFileSync calls, not all filesystem syscalls; Git counts measure wrapped execFile/spawn/execFileSync launches. Event-loop delay is measured inside the actual server process, with its histogram reset between named scenarios; mixed scan/probe scenarios are not attributed to individual requests." });
   try {
     const a = await fixture(owned, "project-a", sources, items);
+    if (recordCount) await seedWorkRecords(a, recordCount);
     const b = await fixture(owned, "project-b", sources, items);
     const launched = await start(a, env); child = launched.child; await launched.ready;
     const health = await read("/health");
@@ -309,6 +339,7 @@ async function qualify(sources, items, samples, signal) {
         const probes = Promise.all([
           probe("/health", null, measurements.healthDuringScan, 480, 250),
           probe(otherRoute, b, measurements.warmOtherProjectDuringScan, 240, 500, otherPrime.snapshot?.id),
+          ...(recordCount ? [probe(featureDetail, a, measurements.featureDetailDuringScan, 480, 250)] : []),
         ]);
         const usable = await Promise.any([opened, across].map((pending) => pending.then((result) => {
           if (result.status !== 200) throw result;
@@ -344,6 +375,71 @@ async function qualify(sources, items, samples, signal) {
           const counts = serverScenarios.at(-1).counters;
           assert.equal(counts.gitExecFile + counts.gitSpawn + counts.gitExecFileSync, 0, "Warm read must launch zero Git processes");
         }
+      }
+    }
+    if (recordCount) {
+      const relatedRoute = "/api/items/item-0000/related-work";
+      const cold = await observe("related-work-cold-with-health-and-detail", 0, async () => {
+        const results = await Promise.all([
+          read(`${relatedRoute}?fresh=1`, a), read("/health"), read(featureDetail, a),
+        ]);
+        measurements.healthDuringRelated.push(results[1]);
+        measurements.featureDetailDuringRelated.push(results[2]);
+        requireSuccessful(results, "Cold related-work scan and concurrent probes");
+        return results[0];
+      });
+      measurements.relatedCold.push(cold);
+      assert.equal(cold.relatedRecords, 20);
+      assert.equal(cold.total, recordCount);
+      assert.equal(cold.relatedStatus, "ok");
+      assert.equal(cold.relatedBodyReads, recordCount);
+      for (let sample = 0; sample < Math.max(warmSamples, 5); sample += 1) {
+        const warm = await observe("related-work-warm", sample, () => read(relatedRoute, a));
+        measurements.relatedWarm.push(warm);
+        requireSuccessful([warm], "Warm related-work read");
+        assert.equal(warm.generation, cold.generation);
+        assert.equal(warm.relatedBodyReads, recordCount, "Retained generation reports its original scan counters");
+      }
+      const unchanged = await observe("related-work-unchanged-refresh", 0, () => read(`${relatedRoute}?fresh=1`, a));
+      measurements.relatedUnchangedRefresh.push(unchanged);
+      requireSuccessful([unchanged], "Unchanged related-work validation");
+      assert.equal(unchanged.relatedBodyReads, 0);
+      assert.equal(unchanged.relatedEnumerations, 1);
+      const shared = await observe("related-work-four-subscribers", 0,
+        () => Promise.all(Array.from({ length: 4 }, () => read(`${relatedRoute}?fresh=1`, a))));
+      measurements.relatedShared.push(...shared);
+      requireSuccessful(shared, "Four same-scope related-work subscribers");
+      assert.equal(new Set(shared.map((entry) => entry.generation)).size, 1, "Concurrent subscribers must share one generation");
+      assert.ok(shared.every((entry) => entry.relatedBodyReads === 0));
+      const changedFile = path.join(a, ".agent-workflow", "tasks", "fixture-0000.md");
+      await fs.writeFile(changedFile, (await fs.readFile(changedFile, "utf8")).replaceAll("Synthetic performance record 0", "Edited performance record 0"));
+      const edited = await observe("related-work-one-edit", 0, () => read(`${relatedRoute}?fresh=1`, a));
+      measurements.relatedOneEdit.push(edited);
+      requireSuccessful([edited], "One-record related-work refresh");
+      assert.equal(edited.total, recordCount);
+      assert.equal(edited.firstRelatedTitle, "Edited performance record 0");
+      assert.equal(edited.relatedBodyReads, 1);
+      const configFile = path.join(a, "agent-workflow.yaml");
+      for (let sample = 1; sample < 5; sample += 1) {
+        await fs.appendFile(configFile, `# cold sample ${sample}\n`);
+        const fresh = await observe("related-work-cold", sample, () => read(`${relatedRoute}?fresh=1`, a));
+        measurements.relatedCold.push(fresh);
+        requireSuccessful([fresh], "Cold related-work reconfiguration");
+        assert.equal(fresh.total, recordCount);
+        assert.equal(fresh.relatedBodyReads, recordCount);
+        const nextTitle = `Edited performance record 0 sample ${sample}`;
+        await fs.writeFile(changedFile, (await fs.readFile(changedFile, "utf8")).replace(/^# .+$/m, `# ${nextTitle}`));
+        const incremental = await observe("related-work-one-edit", sample, () => read(`${relatedRoute}?fresh=1`, a));
+        measurements.relatedOneEdit.push(incremental);
+        requireSuccessful([incremental], "One-record related-work refresh");
+        assert.equal(incremental.total, recordCount);
+        assert.equal(incremental.firstRelatedTitle, nextTitle);
+        assert.equal(incremental.relatedBodyReads, 1);
+      }
+      for (let sample = 0; sample < Math.max(warmSamples, 5); sample += 1) {
+        const detail = await observe("feature-detail-warm", sample, () => read(featureDetail, a));
+        measurements.featureDetailWarm.push(detail);
+        requireSuccessful([detail], "Feature detail during Work Record corpus qualification");
       }
     }
     for (let n = 0; n < samples; n++) {
@@ -388,6 +484,8 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
   assert.ok(Number.isInteger(samples) && samples >= 1 && samples <= 20, "Samples must be 1..20");
   assert.ok(Number.isInteger(warmSamples) && warmSamples >= 1 && warmSamples <= 20, "Warm samples must be 1..20");
   assert.ok(!legacy || warmSamples === 1, "Extra warm samples require the snapshot runtime");
+  assert.ok(Number.isInteger(workRecordCount) && (workRecordCount === 0 || workRecordCount === 1000),
+    "MINIMAP_PERFORMANCE_WORK_RECORDS must be unset or 1000");
   const runtimeProvenance = runtimeRoot === projectRoot ? { source: "working-checkout", revision: git(projectRoot, "rev-parse", "HEAD"),
     workingTreeDirty: Boolean(git(projectRoot, "status", "--porcelain")) }
     : JSON.parse(await fs.readFile(path.join(runtimeRoot, "performance-provenance.json"), "utf8"));
@@ -395,13 +493,13 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
   const report = { startedAt: new Date().toISOString(), node: process.version, platform: process.platform,
     git: git(projectRoot, "--version"), revision: git(projectRoot, "rev-parse", "HEAD"),
     workingTreeDirty: Boolean(git(projectRoot, "status", "--porcelain")), runtimeRoot, runtimeProvenance,
-    mode: legacy ? "legacy-fresh" : "snapshot", sources, items, samples, warmSamples, results: [] };
+    mode: legacy ? "legacy-fresh" : "snapshot", sources, items, samples, warmSamples, workRecordCount, results: [] };
   await fs.mkdir(path.join(projectRoot, "tmp"), { recursive: true });
   const evidence = path.join(projectRoot, "tmp", `roadmap-performance-${Date.now()}.json`);
   matrix: for (const sourceCount of sources) for (const itemCount of items) {
     let failed = true;
     await t.test(`${sourceCount} sources x ${itemCount} items`, { timeout: 15 * 60 * 1000 }, async (cell) => {
-      const result = await qualify(sourceCount, itemCount, samples, cell.signal);
+      const result = await qualify(sourceCount, itemCount, samples, cell.signal, workRecordCount);
       report.results.push(result);
       await fs.writeFile(evidence, `${JSON.stringify(report, null, 2)}\n`);
       t.diagnostic(JSON.stringify({ sources: sourceCount, items: itemCount, summary: result.summary, evidence }));

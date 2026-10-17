@@ -1,7 +1,7 @@
 ---
 id: show-feature-related-work
 title: Show related Work Records and pull requests in feature detail
-status: queued
+status: in-progress
 priority: medium
 commitment: committed
 labels:
@@ -67,4 +67,10 @@ An attention inbox, assignment/approval registry, automatic feature status chang
 
 ## Notes
 
-This is a queued definition ready for an implementation agent once Workflow's supported reference/read contract is agreed. Existing Minimap refresh and worktree contracts are the starting point. The feature may use a disposable index, but roadmap and Work Record files remain authoritative. No installed skill, shared server, launcher, or user environment change is authorized here.
+Implementation started on 2026-10-17. Astra accepted Workflow's shared contract proposal `60111d4`; Minimap confirmed the decoder boundary. The implementation Work Record is `.agent-workflow/tasks/implement-related-work.md` on `feat/implement-related-work`. Baseline measurements and the concrete consumer plan preceded runtime edits. The feature uses a disposable index while roadmap and Work Record files remain authoritative. The implementation and tests have made no installed-skill, shared-server, launcher, or user-environment change. The separately approved green-gated rollout remains the manager's responsibility after delivery checks pass.
+
+The initial producer captures references in the agent's normal Work Record edit with exact read-back. This is not automatic capture or a guarantee that omitted input was detected; that limitation must remain explicit in acceptance.
+
+The consumer implementation runs in an isolated preview and remains **in progress**. The narrower optional PR URL hostname profile was approved; the Workflow-owned decoder/fixtures now come from producer revision `87cd9df73dc7f2ddf9ce0dd28986cc929a0cce21`, which classifies safe noncanonical PR URLs as unsupported while retaining invalid results for unsafe URLs. Minimap's selected-checkout lookup is read-only, generation-bound, and caps each scan at 1,000 record bodies, 256 KiB each, 128 MiB input, and 20 visible records per page; Work Record filename order is not activity order. Missing, unverified (`sources: null`), legacy, invalid, unreadable and overflow records produce explicit incomplete coverage without inferred matches. Recorded state and PR references do not prove live activity or delivery. A genuine producer-emitted positive feature relationship was verified at Workflow checkout `f50a9f88aadf5eed1546067f64b4175b69c0c55d`: the isolated browser displayed that Work Record, its recorded state and readable body. The desktop and narrow Related work views were accepted after overflow repair. Focused final-decoder checks pass; upstream release, consumer PR/CI gates, and approved rollout remain open.
+
+The implementation is under review in [rore/minimap#49](https://github.com/rore/minimap/pull/49), opened at consumer commit `c41ffb6c4c0457dab7785ac43ec27c9cc7de9139`. This link records delivery provenance for this feature; it is not an inferred Work Record relationship or evidence of merge. The feature remains in progress until review, CI, upstream release, and rollout are complete.
