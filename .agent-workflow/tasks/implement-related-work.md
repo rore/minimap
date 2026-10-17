@@ -28,7 +28,7 @@
 
 **Plan review:** Shared contract 60111d4 accepted by Astra reviewer on 2026-10-17; Minimap API compatibility confirmed. Agent technical review: /root/related_work_plan_review APPROVED corrected consumer plan at71659c5104ac73c101da88554f4df2e92e45bd41 after three findings were resolved in mandatory Consumer plan corrections below. Existing board baseline passed; representative record/detail baseline still precedes runtime edits. Human implementation-plan approval remains pending through Workflow manager.
 
-**Approvals:** Human authorization verified in Astra chat 01a07bef-18c8-71b2-89ab-c0cbe91e73ad, message 01a1493a-c390-78f3-bd9b-212e89384d36: "ok, so coordinate with the workflow and minimap managers to start this. agree on the shared format first, and keep the implementation simple." This authorizes coordinated development; no live environment changes. Implementation-specific review remains pending.
+**Approvals:** Approved by user 2026-10-17: "btw i approve this work, if you need approval". Direct approval in Minimap manager chat after the reviewed consumer implementation scope was reported. Workflow manager also forwarded the user's "approved" answering its combined plan request for Minimap71659c5 and Workflowac923e2. Approval covers reviewed implementation and disclosed normal-edit capture limitation; it does not authorize live installation/service changes or waive baseline/artifact/verification requirements.
 
 **Exceptions:** —
 
@@ -43,7 +43,7 @@ Source: roadmap/features/show-feature-related-work.md. Exact Minimap references:
 
 Workflow owns the decoder; Minimap owns containment, index, cache, and paging. The accepted contract specifies a trusted Node data-only ESM API and shared fixtures. No decoder package has been installed in this checkout. Runtime size/license/conformance are still to be measured from the actual handoff; earlier npm whole-package size estimates were not runtime-bundle measurements and are not an implementation basis. No extra CLI or export.
 
-Shared contract and corrected consumer technical plan reviews are accepted. Current gates: coordinated human plan approval, trusted decoder handoff, and representative record/detail baseline. Existing board baseline passed; no runtime implementation has started.
+Shared contract, corrected consumer technical plan and human plan approval are complete. Remaining prerequisites: trusted decoder handoff and representative record/detail baseline. Existing board baseline passed; no runtime implementation has started. State remains Blocked only for the named artifact/baseline prerequisite, never for already-received human approval.
 
 ## Discovery evidence
 
