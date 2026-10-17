@@ -31,7 +31,7 @@ At pickup, pause, resume, handoff, and completion, if an applicable canonical ro
 
 ## Source-item lifecycle
 
-Applicable authoritative item: keep exact ID/link in Work Record prose outside markers; follow tracker rules.
+Keep exact source IDs/links in prose; maintain Relationships per [capture rules](templates/checkpoints/establish-context.md#relationships).
 
 |When|Action|
 |---|---|
