@@ -183,12 +183,18 @@ function validateRelationships(raw) {
   if (value.schema_version > 1) throw UNSUPPORTED("unsupported_relationship_version");
   if (value.sources !== null && !Array.isArray(value.sources)) throw INVALID("invalid_relationships");
   const identities = new Set();
+  let unsupportedSourceUrl = false;
   for (const source of value.sources ?? []) {
     if (!source || Array.isArray(source) || typeof source !== "object") throw INVALID("invalid_relationships");
     const keys = Object.keys(source).sort().join();
     if (keys !== "local_ref,provider,scope_ref" && keys !== "local_ref,provider,scope_ref,url") throw INVALID("invalid_relationships");
     if (![source.provider, source.scope_ref, source.local_ref].every(validString)) throw INVALID("invalid_relationships");
-    if (Object.hasOwn(source, "url") && (!validString(source.url) || !isSafeHttpsUrl(source.url))) throw INVALID("invalid_relationships");
+    if (Object.hasOwn(source, "url")) {
+      if (!validString(source.url)) throw INVALID("invalid_relationships");
+      const sourceUrlProfile = httpsUrlAuthority(source.url);
+      if (!sourceUrlProfile) throw INVALID("invalid_relationships");
+      if (sourceUrlProfile.status === "unsupported") unsupportedSourceUrl = true;
+    }
     const identity = JSON.stringify([source.provider, source.scope_ref, source.local_ref]);
     if (identities.has(identity)) throw INVALID("invalid_relationships");
     identities.add(identity);
@@ -198,16 +204,13 @@ function validateRelationships(raw) {
   let unsupportedPr = false;
   for (const url of value.pull_requests) {
     if (!validString(url) || /[\\\u0000-\u0020\u007f]/u.test(url)) throw INVALID("invalid_relationships");
+    const profile = httpsUrlAuthority(url);
+    if (!profile || profile.hasPort) throw INVALID("invalid_relationships");
     const match = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)$/i.exec(url);
-    if (/^https:\/\/[^/]+:\d+(?:\/|$)/i.test(url)) throw INVALID("invalid_relationships");
     if (!match) {
-      if (isSafeHttpsUrl(url)) {
-        const parsed = new URL(url);
-        if (/^https:\/\/[^/]+:\d+(?:\/|$)/i.test(url) || (parsed.hostname.toLowerCase() === "github.com" && (parsed.search || parsed.hash || url.includes("%")))) throw INVALID("invalid_relationships");
-        unsupportedPr = true;
-        continue;
-      }
-      throw INVALID("invalid_relationships");
+      if (profile.host.toLowerCase() === "github.com" && (profile.hasQuery || profile.hasFragment || profile.encodedPath)) throw INVALID("invalid_relationships");
+      unsupportedPr = true;
+      continue;
     }
     if ([".", ".."].includes(match[2])) throw INVALID("invalid_relationships");
     const identity = `${match[1].toLowerCase()}/${match[2].toLowerCase()}/${match[3]}`;
@@ -215,38 +218,53 @@ function validateRelationships(raw) {
     prs.add(identity);
   }
   if (unsupportedPr) throw UNSUPPORTED("unsupported_pr_url");
+  if (unsupportedSourceUrl) throw UNSUPPORTED("unsupported_source_url");
   return value;
 }
 
-function isSafeHttpsUrl(value) {
-  if (typeof value !== "string" || !/^https:\/\//i.test(value) || !wellFormed(value) || /[\\\p{Cc}\u0020]/u.test(value)) return false;
-  const authorityMatch = /^https:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(value);
-  if (!authorityMatch || /[@%]/u.test(authorityMatch[1])) return false;
-  const authority = authorityMatch[1];
-  let rawHost;
+function httpsUrlAuthority(value) {
+  if (typeof value !== "string" || !/^https:\/\//i.test(value) || !wellFormed(value) || /[\\\p{White_Space}\p{Cc}]/u.test(value)) return null;
+  const match = /^https:\/\/([^/?#]+)/i.exec(value);
+  if (!match || /[@%]/u.test(match[1])) return null;
+  const authority = match[1];
+  const suffix = value.slice(match[0].length);
+  const queryIndex = suffix.indexOf("?");
+  const fragmentIndex = suffix.indexOf("#");
+  const path = suffix.split(/[?#]/u, 1)[0];
+  const urlFields = { hasQuery: queryIndex >= 0 && (fragmentIndex < 0 || queryIndex < fragmentIndex), hasFragment: fragmentIndex >= 0, encodedPath: path.includes("%") };
   if (authority.startsWith("[")) {
     const closing = authority.indexOf("]");
-    if (closing < 0) return false;
-    rawHost = authority.slice(1, closing);
-  } else {
-    rawHost = authority.includes(":") ? authority.slice(0, authority.lastIndexOf(":")) : authority;
-  }
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return false;
-    if (authority.startsWith("[")) return true;
-    const asciiHost = new URL(`https://${rawHost}/`).hostname;
-    const labels = asciiHost.split(".");
-    if (labels.at(-1) === "") labels.pop();
-    if (!labels.length || labels.some((label) => !/^[A-Za-z0-9_-]+$/u.test(label))) return false;
-    if (/^(?:[0-9]+|0x[0-9a-f]*)$/i.test(labels.at(-1))) {
-      const octets = rawHost.split(".");
-      if (octets.length !== 4 || octets.some((octet) => !/^(?:0|[1-9][0-9]*)$/u.test(octet) || Number(octet) > 255)) return false;
+    if (closing < 0 || (authority.slice(closing + 1) !== "" && !/^:[0-9]+$/u.test(authority.slice(closing + 1)))) return null;
+    const port = authority.slice(closing + 2);
+    if (authority.slice(closing + 1).startsWith(":") && Number(port) > 65535) return null;
+    try {
+      new URL(`https://[${authority.slice(1, closing)}]/`);
+      return { status: "supported", host: authority.slice(0, closing + 1), hasPort: authority.slice(closing + 1) !== "", ...urlFields };
+    } catch {
+      return null;
     }
-    return true;
-  } catch {
-    return false;
   }
+  if ((authority.match(/:/gu) ?? []).length > 1) return null;
+  const colon = authority.indexOf(":");
+  const host = colon < 0 ? authority : authority.slice(0, colon);
+  const port = colon < 0 ? null : authority.slice(colon + 1);
+  if (port !== null && (!/^[0-9]+$/u.test(port) || Number(port) > 65535)) return null;
+  if (!host) return null;
+  const finalDot = host.endsWith(".");
+  const hostWithoutDot = finalDot ? host.slice(0, -1) : host;
+  const labels = hostWithoutDot.split(".");
+  if (!hostWithoutDot || labels.some((label) => !label)) return null;
+  if (/[^\x00-\x7F]/u.test(host)) {
+    if ([...hostWithoutDot].length > 253 || labels.some((label) => [...label].length > 63)) return null;
+    if (labels.some((label) => !/^(?:[A-Za-z0-9_-]|[^\x00-\x7F])+$/u.test(label))) return null;
+    if (/^(?:[0-9]+|0x[0-9a-f]*)$/iu.test(labels.at(-1))) return null;
+    return { status: "unsupported", host, hasPort: port !== null, ...urlFields };
+  }
+  if (hostWithoutDot.length > 253 || labels.some((label) => label.length > 63) || labels.some((label) => !/^[A-Za-z0-9_-]+$/u.test(label))) return null;
+  if (/^(?:[0-9]+|0x[0-9a-f]*)$/iu.test(labels.at(-1))) {
+    if (finalDot || labels.length !== 4 || labels.some((label) => !/^(?:0|[1-9][0-9]*)$/u.test(label) || Number(label) > 255)) return null;
+  }
+  return { status: "supported", host, hasPort: port !== null, ...urlFields };
 }
 
 function validateSlug(slug) {

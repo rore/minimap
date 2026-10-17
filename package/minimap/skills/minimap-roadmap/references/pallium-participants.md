@@ -10,13 +10,7 @@ Pallium's skill is helpful but not required when this reference and the callable
 
 ## Get the exact item reference
 
-Read the authoritative reference locally; do not recreate its escaping or repository identity rules:
-
-```bash
-node <skill>/runtime/cli.js roadmap item-ref <item-id> --repo <absolute-repo-path> --json
-```
-
-The result contains `scope_ref` and `local_ref`. It does not contact Pallium and still works when `MINIMAP_PALLIUM_ENDPOINT` is unset. If the command reports that repository identity is unavailable, continue the roadmap work without a Pallium association; do not guess from a local path, branch, or raw item id.
+Use the shared [Feature references in handoffs](../SKILL.md#feature-references-in-handoffs) procedure to read the canonical item and resolve its exact tuple. The CLI does not contact Pallium and still works when `MINIMAP_PALLIUM_ENDPOINT` is unset. If identity is unavailable, continue the roadmap work without a Pallium association; do not guess from a local path, branch, or raw item id.
 
 The versioned form is:
 
@@ -31,7 +25,7 @@ The board's Recent and quieter Dormant badges classify attached, nonclosed sessi
 
 Use existing linked Pallium session controls for explicit association cleanup; Minimap performs no administration. Explicit detach removes only that origin, while structural origins require producer refresh. Close releases the alias and excludes the session from default participant reads but retains associations. Detach does not relabel captured History. Associations do not backfill earlier turns or guarantee historical participation, access, or coverage: per-turn lookup must succeed and History has a five-reference capture cap.
 
-- Read the authoritative item file, then derive its exact reference with the command above.
+- Read the authoritative item file, then use the shared feature-reference procedure above.
 - Call `pallium_relay_work_refs` before attaching. Reuse an existing association with the same `scope_ref` and `local_ref`; otherwise call `pallium_relay_attach_work_ref` with that exact pair.
 - If attach reports a capacity limit, do not detach or replace another association silently. Continue without the new association and report the result when it matters.
 - Keep the association across turns. When you actually leave the work, call `pallium_relay_detach_work_ref` with the same pair. Detach only an explicit association you attached.

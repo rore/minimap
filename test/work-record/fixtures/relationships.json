@@ -229,8 +229,20 @@
       "reason": "invalid_relationships"
     },
     {
+      "name": "source-long-s-scheme",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"httpſ://example.com/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
       "name": "pr-missing-authority",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https:github.com/rore/agent-workflow/pull/53\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-long-s-scheme",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"httpſ://github.com/rore/agent-workflow/pull/53\"]}",
       "status": "invalid",
       "reason": "invalid_relationships"
     },
@@ -284,8 +296,8 @@
     {
       "name": "empty-port-profile",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com:/rore/agent-workflow/pull/1\"]}",
-      "status": "unsupported",
-      "reason": "unsupported_pr_url"
+      "status": "invalid",
+      "reason": "invalid_relationships"
     },
     {
       "name": "json-surrounding-whitespace",
@@ -359,7 +371,121 @@
     {
       "name": "source-authority-idn",
       "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-authority-idn-joiner",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://a‍b.example/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-authority-idn-prefix-joiner",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://‍ab.example/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-authority-bom-host",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://﻿example.com/item\"}],\"pull_requests\":[]}",
+      "status": "unsupported",
+      "reason": "unsupported_source_url"
+    },
+    {
+      "name": "source-path-bom",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com/﻿item\"}],\"pull_requests\":[]}",
       "status": "declared"
+    },
+    {
+      "name": "source-authority-punycode-short",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://xn--a.example/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-punycode-valid-looking",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://xn--fa-hia.de/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-final-dot",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com./item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-double-final-dot",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com../item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-short-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://127.1/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-hex-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://0x7f000001/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-leading-zero-ipv4",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://192.000.2.1/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-bracket-junk",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://[2001:db8::1]junk/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-empty-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-signed-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:+1/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-nonalphanumeric-port",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:80x/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-port-zero",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:0/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-port-max",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:65535/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "source-authority-port-too-large",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:65536/item\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "source-authority-port-leading-zeroes",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://example.com:00080/item\"}],\"pull_requests\":[]}",
+      "status": "declared"
+    },
+    {
+      "name": "invalid-metadata-after-unsupported-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"},{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\"}],\"pull_requests\":[]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
     },
     {
       "name": "pr-unicode-host-case-fold",
@@ -372,6 +498,42 @@
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/Kore/agent-workflow/pull/1\"]}",
       "status": "unsupported",
       "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-unicode-joiner-host",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://a‍b.example/r/r/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-oversized-host-label",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-punycode-host-lexical",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://xn--a.example/r/r/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-ipv6-explicit-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://[2001:db8::1]:443/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-github-percent-path",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/repo%2fprivate/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "invalid-pr-after-unsupported-source",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"}],\"pull_requests\":[\"https://example.com:443/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
     }
   ],
   "config_cases": [
