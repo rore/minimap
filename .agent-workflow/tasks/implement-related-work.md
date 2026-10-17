@@ -39,6 +39,8 @@ Source: roadmap/features/show-feature-related-work.md. Exact Minimap references:
 
 ## Implementation
 
+Combined approval provenance verified by Workflow manager: user item `01a14976-06ce-7f92-acf0-834decbc6cb7` in chat `01a0d7cd-696b-76a0-8f2f-48a80a201905`, 2026-10-17T10:43:51Z, verbatim "approved". This supplements the direct approval in this chat for the reviewed combined scope. Workflow reports SPEC-first commit `c9e4358`; tested decoder/fixtures not yet delivered.
+
 2026-10-17: Created isolated feat/implement-related-work from 40317a8f1517dbc0b89b667dbfd7ee8140c731bc. Blocked means product implementation awaits shared contract review; independent discovery continues. Canonical planning PR #48 is already merged; its completed documentation-only record is not reused as implementation approval.
 
 Workflow owns the decoder; Minimap owns containment, index, cache, and paging. The accepted contract specifies a trusted Node data-only ESM API and shared fixtures. No decoder package has been installed in this checkout. Runtime size/license/conformance are still to be measured from the actual handoff; earlier npm whole-package size estimates were not runtime-bundle measurements and are not an implementation basis. No extra CLI or export.
