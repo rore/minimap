@@ -179,20 +179,20 @@
     {
       "name": "pr-explicit-default-port",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com:443/rore/agent-workflow/pull/53\"]}",
-      "status": "invalid",
-      "reason": "invalid_relationships"
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
     },
     {
       "name": "pr-query",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/53?x=1\"]}",
-      "status": "invalid",
-      "reason": "invalid_relationships"
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
     },
     {
       "name": "pr-fragment",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/agent-workflow/pull/53#details\"]}",
-      "status": "invalid",
-      "reason": "invalid_relationships"
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
     },
     {
       "name": "unsupported-owner-profile",
@@ -520,18 +520,30 @@
     {
       "name": "pr-ipv6-explicit-port",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://[2001:db8::1]:443/r/r/pull/1\"]}",
-      "status": "invalid",
-      "reason": "invalid_relationships"
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
     },
     {
       "name": "pr-github-percent-path",
       "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://github.com/rore/repo%2fprivate/pull/1\"]}",
+      "status": "unsupported",
+      "reason": "unsupported_pr_url"
+    },
+    {
+      "name": "pr-signed-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://example.com:+1/r/r/pull/1\"]}",
+      "status": "invalid",
+      "reason": "invalid_relationships"
+    },
+    {
+      "name": "pr-overflow-port",
+      "raw": "{\"schema_version\":1,\"sources\":[],\"pull_requests\":[\"https://example.com:65536/r/r/pull/1\"]}",
       "status": "invalid",
       "reason": "invalid_relationships"
     },
     {
       "name": "invalid-pr-after-unsupported-source",
-      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"}],\"pull_requests\":[\"https://example.com:443/r/r/pull/1\"]}",
+      "raw": "{\"schema_version\":1,\"sources\":[{\"provider\":\"p\",\"scope_ref\":\"s\",\"local_ref\":\"i\",\"url\":\"https://éxample.com/item\"}],\"pull_requests\":[\"javascript:bad\"]}",
       "status": "invalid",
       "reason": "invalid_relationships"
     }

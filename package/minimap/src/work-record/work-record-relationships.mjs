@@ -191,9 +191,9 @@ function validateRelationships(raw) {
     if (![source.provider, source.scope_ref, source.local_ref].every(validString)) throw INVALID("invalid_relationships");
     if (Object.hasOwn(source, "url")) {
       if (!validString(source.url)) throw INVALID("invalid_relationships");
-      const sourceUrlProfile = httpsUrlAuthority(source.url);
-      if (!sourceUrlProfile) throw INVALID("invalid_relationships");
-      if (sourceUrlProfile.status === "unsupported") unsupportedSourceUrl = true;
+      const sourceUrlStatus = httpsUrlAuthority(source.url);
+      if (!sourceUrlStatus) throw INVALID("invalid_relationships");
+      if (sourceUrlStatus === "unsupported") unsupportedSourceUrl = true;
     }
     const identity = JSON.stringify([source.provider, source.scope_ref, source.local_ref]);
     if (identities.has(identity)) throw INVALID("invalid_relationships");
@@ -204,11 +204,9 @@ function validateRelationships(raw) {
   let unsupportedPr = false;
   for (const url of value.pull_requests) {
     if (!validString(url) || /[\\\u0000-\u0020\u007f]/u.test(url)) throw INVALID("invalid_relationships");
-    const profile = httpsUrlAuthority(url);
-    if (!profile || profile.hasPort) throw INVALID("invalid_relationships");
+    if (!httpsUrlAuthority(url)) throw INVALID("invalid_relationships");
     const match = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+)\/pull\/([1-9][0-9]*)$/i.exec(url);
     if (!match) {
-      if (profile.host.toLowerCase() === "github.com" && (profile.hasQuery || profile.hasFragment || profile.encodedPath)) throw INVALID("invalid_relationships");
       unsupportedPr = true;
       continue;
     }
@@ -227,11 +225,6 @@ function httpsUrlAuthority(value) {
   const match = /^https:\/\/([^/?#]+)/i.exec(value);
   if (!match || /[@%]/u.test(match[1])) return null;
   const authority = match[1];
-  const suffix = value.slice(match[0].length);
-  const queryIndex = suffix.indexOf("?");
-  const fragmentIndex = suffix.indexOf("#");
-  const path = suffix.split(/[?#]/u, 1)[0];
-  const urlFields = { hasQuery: queryIndex >= 0 && (fragmentIndex < 0 || queryIndex < fragmentIndex), hasFragment: fragmentIndex >= 0, encodedPath: path.includes("%") };
   if (authority.startsWith("[")) {
     const closing = authority.indexOf("]");
     if (closing < 0 || (authority.slice(closing + 1) !== "" && !/^:[0-9]+$/u.test(authority.slice(closing + 1)))) return null;
@@ -239,7 +232,7 @@ function httpsUrlAuthority(value) {
     if (authority.slice(closing + 1).startsWith(":") && Number(port) > 65535) return null;
     try {
       new URL(`https://[${authority.slice(1, closing)}]/`);
-      return { status: "supported", host: authority.slice(0, closing + 1), hasPort: authority.slice(closing + 1) !== "", ...urlFields };
+      return "supported";
     } catch {
       return null;
     }
@@ -258,13 +251,13 @@ function httpsUrlAuthority(value) {
     if ([...hostWithoutDot].length > 253 || labels.some((label) => [...label].length > 63)) return null;
     if (labels.some((label) => !/^(?:[A-Za-z0-9_-]|[^\x00-\x7F])+$/u.test(label))) return null;
     if (/^(?:[0-9]+|0x[0-9a-f]*)$/iu.test(labels.at(-1))) return null;
-    return { status: "unsupported", host, hasPort: port !== null, ...urlFields };
+    return "unsupported";
   }
   if (hostWithoutDot.length > 253 || labels.some((label) => label.length > 63) || labels.some((label) => !/^[A-Za-z0-9_-]+$/u.test(label))) return null;
   if (/^(?:[0-9]+|0x[0-9a-f]*)$/iu.test(labels.at(-1))) {
     if (finalDot || labels.length !== 4 || labels.some((label) => !/^(?:0|[1-9][0-9]*)$/u.test(label) || Number(label) > 255)) return null;
   }
-  return { status: "supported", host, hasPort: port !== null, ...urlFields };
+  return "supported";
 }
 
 function validateSlug(slug) {
