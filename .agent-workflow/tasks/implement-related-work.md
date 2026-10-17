@@ -47,6 +47,8 @@ Recovery: shared proposal currently at Workflow commit 4ad1a8890186d55f8eb339ad0
 
 ## Discovery evidence
 
+2026-10-17 consumer contract checkpoint: reviewed Workflow proposal 60111d4d65f019158e2cf33baba60c14bef213c2 and accepted API/ownership boundary for consolidated Astra review. `decodeConfig(bytes)` validates configured locator once per revision; `decodeRecord(bytes,{task_path,record_path})` owns lexical slug/ref and metadata grammar, never filesystem access. Accepted explicitly narrower safe YAML profile with shared fixtures documenting divergence from Python; malformed UTF-8 and escaped-equivalent JSON duplicate keys must be rejected to preserve exact identity. These are validation details, no API expansion. Workflow manager notified; final joint review still pending, not self-approved implementation readiness.
+
 Read-only agent `/root/related_work_discovery` inspected baseline 40317a8; no edits/tests. Reuse `src/roadmap-snapshots.js:createRoadmapSnapshotCoordinator` for coalescing, subscriber cancellation, deadlines/concurrency/byte bounds and invalidation. Related reads need separate scope from board snapshots. `server.js` already handles This via `readThisSnapshot` and Across via `handleWorktreeWorkspace`.
 
 `src/source-bound.js:requirePathInSource` is the containment seam; records must stay within the admitted checkout, independently of roadmap root. Worktree versions already carry repoRoot/sourceKey. `ui/app.js:renderPreview` and `#item-preview` are the read-only insertion seam; avoid `renderItem` for background updates because it resets drafts. Reuse `beginItemLoad`/`itemIntentIsCurrent` guards and selectedSource/sourceVersion identity.
