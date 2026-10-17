@@ -1,7 +1,7 @@
 ---
 id: show-feature-related-work
 title: Show related Work Records and pull requests in feature detail
-status: queued
+status: in-progress
 priority: medium
 commitment: committed
 labels:
@@ -67,4 +67,6 @@ An attention inbox, assignment/approval registry, automatic feature status chang
 
 ## Notes
 
-This is a queued definition ready for an implementation agent once Workflow's supported reference/read contract is agreed. Existing Minimap refresh and worktree contracts are the starting point. The feature may use a disposable index, but roadmap and Work Record files remain authoritative. No installed skill, shared server, launcher, or user environment change is authorized here.
+Implementation started on 2026-10-17. Astra accepted Workflow's shared contract proposal `60111d4`; Minimap confirmed the decoder boundary. The implementation Work Record is `.agent-workflow/tasks/implement-related-work.md` on `feat/implement-related-work`. Baseline measurements and the concrete consumer plan precede runtime edits. Existing Minimap refresh and worktree contracts are the starting point. The feature may use a disposable index, but roadmap and Work Record files remain authoritative. No installed skill, shared server, launcher, or user environment change is authorized here.
+
+The initial producer captures references in the agent's normal Work Record edit with exact read-back. This is not automatic capture or a guarantee that omitted input was detected; that limitation must remain explicit in acceptance.
