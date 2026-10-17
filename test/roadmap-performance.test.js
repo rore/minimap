@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolveRoadmapItemReference } from "../package/minimap/src/pallium.js";
 
 // Routine CI skips this qualification. Run it alone after mirrors are ready:
 // MINIMAP_RUN_PERFORMANCE=1 node --test test/roadmap-performance.test.js
@@ -28,6 +29,7 @@ const scripts = path.join(runtimeRoot, "package/minimap/skills/minimap-roadmap/s
 const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
 const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
+const workRecordCount = Number(process.env.MINIMAP_PERFORMANCE_WORK_RECORDS || 0);
 // Generated only inside the disposable fixture. IPC is available solely to the
 // owning test parent; no production diagnostic route or installed preload.
 export const performancePreload = String.raw`
@@ -152,6 +154,44 @@ async function fixture(owned, name, sources, count) {
   return root;
 }
 
+async function seedWorkRecords(repoRoot, count) {
+  const directory = path.join(repoRoot, ".agent-workflow", "tasks");
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(path.join(repoRoot, "agent-workflow.yaml"), [
+    "version: 1", "workRecord:", "  backend: local", "  local:",
+    "    taskPath: .agent-workflow/tasks/{slug}.md", "",
+  ].join("\n"));
+  const relationship = await resolveRoadmapItemReference(repoRoot, "roadmap", "item-0000");
+  assert.ok(relationship?.scope_ref && relationship?.local_ref, "Fixture must use the authoritative source-reference helper");
+  for (let index = 0; index < count; index += 1) {
+    const slug = `fixture-${String(index).padStart(4, "0")}`;
+    const outcome = `Synthetic performance record ${index}`;
+    const relationshipJson = JSON.stringify({ schema_version: 1,
+      sources: [{ provider: "minimap", scope_ref: relationship.scope_ref, local_ref: relationship.local_ref }],
+      pull_requests: [`https://github.com/example/project-a-performance/pull/${index + 1}`] });
+    const baseline = JSON.stringify({ source: "synthetic-performance-fixture", outcome,
+      scope: "Read-only performance calibration", constraints: "—", completion_criteria: "Fixture can be read" });
+    const lines = [
+      "<!-- agent-workflow:start -->",
+      `**Outcome:** ${outcome}`,
+      "**Target:** Synthetic benchmark fixture",
+      "**Scope:** Read-only performance calibration",
+      "**Constraints:** —",
+      "**Completion criteria:** Fixture can be read",
+      "**Requirement baseline:**", baseline,
+      "**Relationships:**", relationshipJson,
+      "**Risk:** Routine",
+      "**Complexity:** Simple",
+      "**Approach:** Synthetic record for performance qualification.",
+      "**Verification:** Read through the isolated benchmark fixture.",
+      "**State:** Ready to implement",
+      "<!-- agent-workflow:end -->",
+      "",
+    ];
+    await fs.writeFile(path.join(directory, `${slug}.md`), lines.join("\n"));
+  }
+}
+
 async function start(root, env) {
   const child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -212,7 +252,7 @@ async function stopAndRemove(child, env, owned) {
   }
 }
 
-async function qualify(sources, items, samples, signal) {
+async function qualify(sources, items, samples, signal, recordCount = 0) {
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-performance-"));
   let child;
   const env = { ...process.env, MINIMAP_HOME: path.join(owned, "home"),
@@ -224,7 +264,8 @@ async function qualify(sources, items, samples, signal) {
   await fs.writeFile(preload, performancePreload);
   env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import=${pathToFileURL(preload).href}`;
   const measurements = { firstUsable: [], fullSnapshot: [], warmAcross: [], healthDuringScan: [],
-    warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [] };
+    warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [],
+    ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [] } : {}) };
   const serverScenarios = [];
   const observe = async (scenario, sample, work) => {
     const before = await serverMetrics(child, true);
@@ -264,14 +305,15 @@ async function qualify(sources, items, samples, signal) {
     }
   };
   const full = legacy ? "/api/worktree-workspace" : "/api/worktree-workspace?participants=0&compact=1";
+  const featureDetail = "/api/items/item-0000";
   const openedRoute = legacy ? `${full}?openedOnly=1` : `${full}&openedOnly=1`;
   const repeatedRoute = legacy ? full : `${full}&cached=1`;
   const otherRoute = legacy ? "/api/workspace" : "/api/workspace?cached=1";
   const requireSuccessful = (records, scenario) => assert.ok(records.every((record) => record.status === 200),
     `${scenario} failed: ${JSON.stringify(records.filter((record) => record.status !== 200))}`);
-  const resultReport = () => ({ sources, itemsPerSource: items, samples, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
+  const resultReport = () => ({ sources, itemsPerSource: items, samples, workRecordCount: recordCount, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
     summary: Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
-      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
+      statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "featureDetailDuringScan", "featureDetailWarm", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
     measurementLabels: { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
       warmOtherProjectDuringScan: legacy ? "Fresh This read of other project during scan" : "Warm cached This read of other project during scan" },
     measurements, serverScenarios,
@@ -280,6 +322,7 @@ async function qualify(sources, items, samples, signal) {
     limits: "HTTP first usable excludes browser paint. Existing identity caps may retain separate features and partial coverage. OS caches are not flushed. Preload instrumentation adds overhead. File counts measure wrapped readFile/readFileSync calls, not all filesystem syscalls; Git counts measure wrapped execFile/spawn/execFileSync launches. Event-loop delay is measured inside the actual server process, with its histogram reset between named scenarios; mixed scan/probe scenarios are not attributed to individual requests." });
   try {
     const a = await fixture(owned, "project-a", sources, items);
+    if (recordCount) await seedWorkRecords(a, recordCount);
     const b = await fixture(owned, "project-b", sources, items);
     const launched = await start(a, env); child = launched.child; await launched.ready;
     const health = await read("/health");
@@ -309,6 +352,7 @@ async function qualify(sources, items, samples, signal) {
         const probes = Promise.all([
           probe("/health", null, measurements.healthDuringScan, 480, 250),
           probe(otherRoute, b, measurements.warmOtherProjectDuringScan, 240, 500, otherPrime.snapshot?.id),
+          ...(recordCount ? [probe(featureDetail, a, measurements.featureDetailDuringScan, 480, 250)] : []),
         ]);
         const usable = await Promise.any([opened, across].map((pending) => pending.then((result) => {
           if (result.status !== 200) throw result;
@@ -344,6 +388,13 @@ async function qualify(sources, items, samples, signal) {
           const counts = serverScenarios.at(-1).counters;
           assert.equal(counts.gitExecFile + counts.gitSpawn + counts.gitExecFileSync, 0, "Warm read must launch zero Git processes");
         }
+      }
+    }
+    if (recordCount) {
+      for (let sample = 0; sample < Math.max(warmSamples, 5); sample += 1) {
+        const detail = await observe("feature-detail-warm", sample, () => read(featureDetail, a));
+        measurements.featureDetailWarm.push(detail);
+        requireSuccessful([detail], "Feature detail during Work Record corpus qualification");
       }
     }
     for (let n = 0; n < samples; n++) {
@@ -388,6 +439,8 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
   assert.ok(Number.isInteger(samples) && samples >= 1 && samples <= 20, "Samples must be 1..20");
   assert.ok(Number.isInteger(warmSamples) && warmSamples >= 1 && warmSamples <= 20, "Warm samples must be 1..20");
   assert.ok(!legacy || warmSamples === 1, "Extra warm samples require the snapshot runtime");
+  assert.ok(Number.isInteger(workRecordCount) && (workRecordCount === 0 || workRecordCount === 1000),
+    "MINIMAP_PERFORMANCE_WORK_RECORDS must be unset or 1000");
   const runtimeProvenance = runtimeRoot === projectRoot ? { source: "working-checkout", revision: git(projectRoot, "rev-parse", "HEAD"),
     workingTreeDirty: Boolean(git(projectRoot, "status", "--porcelain")) }
     : JSON.parse(await fs.readFile(path.join(runtimeRoot, "performance-provenance.json"), "utf8"));
@@ -395,13 +448,13 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
   const report = { startedAt: new Date().toISOString(), node: process.version, platform: process.platform,
     git: git(projectRoot, "--version"), revision: git(projectRoot, "rev-parse", "HEAD"),
     workingTreeDirty: Boolean(git(projectRoot, "status", "--porcelain")), runtimeRoot, runtimeProvenance,
-    mode: legacy ? "legacy-fresh" : "snapshot", sources, items, samples, warmSamples, results: [] };
+    mode: legacy ? "legacy-fresh" : "snapshot", sources, items, samples, warmSamples, workRecordCount, results: [] };
   await fs.mkdir(path.join(projectRoot, "tmp"), { recursive: true });
   const evidence = path.join(projectRoot, "tmp", `roadmap-performance-${Date.now()}.json`);
   matrix: for (const sourceCount of sources) for (const itemCount of items) {
     let failed = true;
     await t.test(`${sourceCount} sources x ${itemCount} items`, { timeout: 15 * 60 * 1000 }, async (cell) => {
-      const result = await qualify(sourceCount, itemCount, samples, cell.signal);
+      const result = await qualify(sourceCount, itemCount, samples, cell.signal, workRecordCount);
       report.results.push(result);
       await fs.writeFile(evidence, `${JSON.stringify(report, null, 2)}\n`);
       t.diagnostic(JSON.stringify({ sources: sourceCount, items: itemCount, summary: result.summary, evidence }));
