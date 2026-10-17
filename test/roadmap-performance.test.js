@@ -163,32 +163,16 @@ async function seedWorkRecords(repoRoot, count) {
   ].join("\n"));
   const relationship = await resolveRoadmapItemReference(repoRoot, "roadmap", "item-0000");
   assert.ok(relationship?.scope_ref && relationship?.local_ref, "Fixture must use the authoritative source-reference helper");
+  const sharedFixture = JSON.parse(await fs.readFile(path.join(projectRoot, "test/work-record/fixtures/relationships.json"), "utf8"));
   for (let index = 0; index < count; index += 1) {
     const slug = `fixture-${String(index).padStart(4, "0")}`;
     const outcome = `Synthetic performance record ${index}`;
     const relationshipJson = JSON.stringify({ schema_version: 1,
       sources: [{ provider: "minimap", scope_ref: relationship.scope_ref, local_ref: relationship.local_ref }],
       pull_requests: [`https://github.com/example/project-a-performance/pull/${index + 1}`] });
-    const baseline = JSON.stringify({ source: "synthetic-performance-fixture", outcome,
-      scope: "Read-only performance calibration", constraints: "—", completion_criteria: "Fixture can be read" });
-    const lines = [
-      "<!-- agent-workflow:start -->",
-      `**Outcome:** ${outcome}`,
-      "**Target:** Synthetic benchmark fixture",
-      "**Scope:** Read-only performance calibration",
-      "**Constraints:** —",
-      "**Completion criteria:** Fixture can be read",
-      "**Requirement baseline:**", baseline,
-      "**Relationships:**", relationshipJson,
-      "**Risk:** Routine",
-      "**Complexity:** Simple",
-      "**Approach:** Synthetic record for performance qualification.",
-      "**Verification:** Read through the isolated benchmark fixture.",
-      "**State:** Ready to implement",
-      "<!-- agent-workflow:end -->",
-      "",
-    ];
-    await fs.writeFile(path.join(directory, `${slug}.md`), lines.join("\n"));
+    const content = sharedFixture.record_template.replace("Fixture Work Record", outcome)
+      .replace("__RELATIONSHIPS__", `**Relationships:**\n${relationshipJson}`);
+    await fs.writeFile(path.join(directory, `${slug}.md`), content);
   }
 }
 
@@ -265,7 +249,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
   env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import=${pathToFileURL(preload).href}`;
   const measurements = { firstUsable: [], fullSnapshot: [], warmAcross: [], healthDuringScan: [],
     warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [],
-    ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [] } : {}) };
+    ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [], relatedCold: [], relatedWarm: [], relatedUnchangedRefresh: [], relatedShared: [], relatedOneEdit: [], healthDuringRelated: [], featureDetailDuringRelated: [] } : {}) };
   const serverScenarios = [];
   const observe = async (scenario, sample, work) => {
     const before = await serverMetrics(child, true);
@@ -299,6 +283,9 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
         versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
+        generation: body.generation, total: body.total, nextOffset: body.nextOffset,
+        relatedRecords: body.records?.length, relatedStatus: body.status, firstRelatedTitle: body.records?.[0]?.title,
+        relatedBodyReads: body.coverage?.bodyReads, relatedEnumerations: body.coverage?.enumerations,
         pid: body.pid, runtime: body.runtime, code: body.code, error: response.ok ? undefined : body.error };
     } catch (error) {
       return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100, error: error.message };
@@ -391,6 +378,64 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
       }
     }
     if (recordCount) {
+      const relatedRoute = "/api/items/item-0000/related-work";
+      const cold = await observe("related-work-cold-with-health-and-detail", 0, async () => {
+        const results = await Promise.all([
+          read(`${relatedRoute}?fresh=1`, a), read("/health"), read(featureDetail, a),
+        ]);
+        measurements.healthDuringRelated.push(results[1]);
+        measurements.featureDetailDuringRelated.push(results[2]);
+        requireSuccessful(results, "Cold related-work scan and concurrent probes");
+        return results[0];
+      });
+      measurements.relatedCold.push(cold);
+      assert.equal(cold.relatedRecords, 20);
+      assert.equal(cold.total, recordCount);
+      assert.equal(cold.relatedStatus, "ok");
+      assert.equal(cold.relatedBodyReads, recordCount);
+      for (let sample = 0; sample < Math.max(warmSamples, 5); sample += 1) {
+        const warm = await observe("related-work-warm", sample, () => read(relatedRoute, a));
+        measurements.relatedWarm.push(warm);
+        requireSuccessful([warm], "Warm related-work read");
+        assert.equal(warm.generation, cold.generation);
+        assert.equal(warm.relatedBodyReads, recordCount, "Retained generation reports its original scan counters");
+      }
+      const unchanged = await observe("related-work-unchanged-refresh", 0, () => read(`${relatedRoute}?fresh=1`, a));
+      measurements.relatedUnchangedRefresh.push(unchanged);
+      requireSuccessful([unchanged], "Unchanged related-work validation");
+      assert.equal(unchanged.relatedBodyReads, 0);
+      assert.equal(unchanged.relatedEnumerations, 1);
+      const shared = await observe("related-work-four-subscribers", 0,
+        () => Promise.all(Array.from({ length: 4 }, () => read(`${relatedRoute}?fresh=1`, a))));
+      measurements.relatedShared.push(...shared);
+      requireSuccessful(shared, "Four same-scope related-work subscribers");
+      assert.equal(new Set(shared.map((entry) => entry.generation)).size, 1, "Concurrent subscribers must share one generation");
+      assert.ok(shared.every((entry) => entry.relatedBodyReads === 0));
+      const changedFile = path.join(a, ".agent-workflow", "tasks", "fixture-0000.md");
+      await fs.writeFile(changedFile, (await fs.readFile(changedFile, "utf8")).replaceAll("Synthetic performance record 0", "Edited performance record 0"));
+      const edited = await observe("related-work-one-edit", 0, () => read(`${relatedRoute}?fresh=1`, a));
+      measurements.relatedOneEdit.push(edited);
+      requireSuccessful([edited], "One-record related-work refresh");
+      assert.equal(edited.total, recordCount);
+      assert.equal(edited.firstRelatedTitle, "Edited performance record 0");
+      assert.equal(edited.relatedBodyReads, 1);
+      const configFile = path.join(a, "agent-workflow.yaml");
+      for (let sample = 1; sample < 5; sample += 1) {
+        await fs.appendFile(configFile, `# cold sample ${sample}\n`);
+        const fresh = await observe("related-work-cold", sample, () => read(`${relatedRoute}?fresh=1`, a));
+        measurements.relatedCold.push(fresh);
+        requireSuccessful([fresh], "Cold related-work reconfiguration");
+        assert.equal(fresh.total, recordCount);
+        assert.equal(fresh.relatedBodyReads, recordCount);
+        const nextTitle = `Edited performance record 0 sample ${sample}`;
+        await fs.writeFile(changedFile, (await fs.readFile(changedFile, "utf8")).replace(/^# .+$/m, `# ${nextTitle}`));
+        const incremental = await observe("related-work-one-edit", sample, () => read(`${relatedRoute}?fresh=1`, a));
+        measurements.relatedOneEdit.push(incremental);
+        requireSuccessful([incremental], "One-record related-work refresh");
+        assert.equal(incremental.total, recordCount);
+        assert.equal(incremental.firstRelatedTitle, nextTitle);
+        assert.equal(incremental.relatedBodyReads, 1);
+      }
       for (let sample = 0; sample < Math.max(warmSamples, 5); sample += 1) {
         const detail = await observe("feature-detail-warm", sample, () => read(featureDetail, a));
         measurements.featureDetailWarm.push(detail);

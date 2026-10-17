@@ -77,6 +77,8 @@ Columns can be collapsed to give other groups more room:
 
 Each item opens in **Read** mode. **Edit** provides a form; **Raw** edits the markdown. Unknown metadata and extra sections are preserved. **Review** opens the item as a spec session, and a comment badge indicates open discussion.
 
+The collapsed **Related work** section in Read mode finds local Agent Workflow Work Records that explicitly cite that exact feature. Open a record to read it, or follow its recorded PR links. The record's state and PR URLs are historical references, not live execution or PR status. Results refresh independently of the board and editor, including on manual Refresh. Across worktrees shows the selected checkout's record versions; another checkout may disagree. Missing, unverified, invalid, or unreadable relationships yield partial or unavailable coverage rather than a confirmed zero. Discovery is bounded to 1,000 records per selected checkout and the list shows 20 at a time; the [roadmap contract](package/minimap/CONTRACT.md) gives the exact limits.
+
 ![Roadmap item editor](docs/images/minimap-item-editor.png)
 
 ### Working across Git worktrees

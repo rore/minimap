@@ -320,6 +320,10 @@ const refreshButton = document.querySelector("#refresh-button");
 const statusBanner = document.querySelector("#status-banner");
 const form = document.querySelector("#item-form");
 const previewElement = document.querySelector("#item-preview");
+const relatedRecordDialog = document.querySelector("#related-record-dialog");
+let relatedWorkRequest = null;
+let relatedWorkView = { status: "loading", records: [] };
+let relatedRecordRequestId = 0;
 const itemParticipantsElement = document.querySelector("#item-participants");
 const itemParticipantsStatusElement = document.querySelector("#item-participants-status");
 const itemParticipantsRefreshButton = document.querySelector("#item-participants-refresh");
@@ -3582,7 +3586,8 @@ function itemIntentIsCurrent(intent, { requireSelected = false } = {}) {
 
 function currentReadScopeKey() {
   return JSON.stringify([state.repoPath, state.worktreeMode, state.appMode,
-    state.selectedSource?.sourceKey || null, sourceRef(state.selectedSource)]);
+    state.selectedSource?.sourceKey || null, sourceRef(state.selectedSource), state.selectedSource?.git?.headCommit || null,
+    state.pinnedSource?.sourceKey || null, sourceRef(state.pinnedSource), state.pinnedSource?.git?.headCommit || null]);
 }
 
 function specIntentIsCurrent(intent) {
@@ -3914,12 +3919,123 @@ function renderPreview() {
   `).join("");
 
   previewElement.className = "preview-surface preview-reading";
+  const relatedOpen = previewElement.querySelector("#related-work")?.open || false;
   previewElement.innerHTML = `
     ${itemTitle ? `<h1 class="preview-title">${escapeHtml(itemTitle)}</h1>` : ""}
     ${previewBadges ? `<div class="preview-meta">${previewBadges}</div>` : ""}
+    <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Related work</summary><div id="related-work-content" aria-live="polite"></div></details>
     <div class="preview-body">${sectionHtml || '<p class="muted">This item does not have any readable sections yet.</p>'}</div>
   `;
+  renderRelatedWork();
 }
+
+function renderRelatedWork() {
+  const host = previewElement.querySelector("#related-work-content");
+  if (!host) return;
+  const view = relatedWorkView;
+  const records = view.records || [];
+  const summary = previewElement.querySelector("#related-work > summary");
+  if (summary) summary.textContent = view.status === "loading" ? "Related work · Loading"
+    : view.status === "ok" ? `Related work · ${view.total || records.length || "None"}`
+      : view.status === "stale" ? "Related work · Last known"
+        : view.status === "error" || view.status === "unavailable" ? "Related work · Unavailable"
+          : "Related work · Partial";
+  const message = view.status === "loading" ? (records.length ? "Refreshing related work…" : "Loading related work…")
+    : view.status === "unavailable" ? "Related work is unavailable for this checkout."
+      : view.status === "error" ? "Could not load related work. Try Refresh."
+        : view.status === "stale" ? `Related work could not be fully verified. Showing the last successful result from ${view.staleSince ? new Date(view.staleSince).toLocaleString() : "an earlier scan"}.`
+          : view.status === "partial" ? view.coverage?.unverified
+            ? "Related work is partial; some Work Records have unverified feature references."
+            : "Related work is partial; some relationship information is unavailable."
+            : records.length ? "" : "No related Work Records found.";
+  const recordHtml = records.map((record) => {
+    const urls = record.pullRequests || [];
+    const repositories = new Set(urls.map((url) => new URL(url).pathname.split("/").slice(1, 3).join("/")));
+    const prLinks = urls.map((url) => {
+      const segments = new URL(url).pathname.split("/").filter(Boolean);
+      const label = repositories.size > 1 ? `${segments[0]}/${segments[1]}#${segments.at(-1)}` : `PR #${segments.at(-1)}`;
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+    });
+    return `<li class="related-work-row"><div class="related-work-main"><strong>${escapeHtml(record.title)}</strong>
+    <span class="muted">Recorded state: ${escapeHtml(record.recordedState)}</span></div>
+    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open record</button>
+    ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div></li>`;
+  }).join("");
+  const provenance = state.worktreeMode === "across" && view.source?.repoRoot
+    ? `<p class="muted">Selected checkout: ${escapeHtml(view.source.repoRoot)}. Other versions may differ.</p>` : "";
+  host.innerHTML = `${provenance}${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
+    ${records.length ? '<p class="muted related-work-order">Sorted by Work Record file name. PR links are recorded references.</p>' : ""}
+    ${records.length ? `<ul>${recordHtml}</ul>` : ""}
+    ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-more>More records</button>' : ""}
+    ${view.status !== "loading" ? '<button class="ghost-button related-work-refresh" type="button" data-related-refresh>Refresh related work</button>' : ""}`;
+}
+
+async function refreshRelatedWork({ generation, offset, append = false, fresh = false } = {}) {
+  if (!state.currentItem || !state.selectedItemId) return;
+  relatedWorkRequest?.controller.abort();
+  const controller = new AbortController();
+  const intent = { controller, itemId: state.selectedItemId, scope: currentReadScopeKey(), generation: state.itemLoadGeneration };
+  relatedWorkRequest = intent;
+  if (!append) relatedWorkView = { ...relatedWorkView, status: "loading" };
+  renderRelatedWork();
+  try {
+    const result = await api.readRelatedWork(state.currentItem.id, { generation, offset, fresh, signal: controller.signal });
+    if (relatedWorkRequest !== intent || controller.signal.aborted || intent.itemId !== state.selectedItemId
+      || intent.scope !== currentReadScopeKey() || intent.generation !== state.itemLoadGeneration) return;
+    const selected = state.worktreeMode === "across" ? state.selectedSource : state.boundRequired ? state.pinnedSource : null;
+    if (selected && result.source && (result.source.repoRoot !== selected.repoRoot || result.source.sourceKey !== selected.sourceKey
+      || result.source?.headCommit !== selected.git?.headCommit)) return;
+    relatedWorkView = { ...result, records: append ? [...relatedWorkView.records, ...result.records] : result.records };
+    renderRelatedWork();
+    if (!fresh && !append && result.status === "stale" && result.reason === "validation_due") void refreshRelatedWork({ fresh: true });
+  } catch (error) {
+    if (controller.signal.aborted || relatedWorkRequest !== intent) return;
+    relatedWorkView = { ...relatedWorkView, status: relatedWorkView.records.length ? "stale" : "error", reason: error.message };
+    renderRelatedWork();
+  } finally {
+    if (relatedWorkRequest === intent) relatedWorkRequest = null;
+  }
+}
+
+previewElement.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-related-refresh]")) return void refreshRelatedWork({ fresh: true });
+  if (event.target.closest("[data-related-more]")) return void refreshRelatedWork({
+    generation: relatedWorkView.generation, offset: relatedWorkView.nextOffset, append: true,
+  });
+  const button = event.target.closest("[data-related-record]");
+  if (!button) return;
+  const recordId = button.dataset.relatedRecord;
+  const scope = currentReadScopeKey();
+  const itemId = state.currentItem?.id;
+  const requestId = ++relatedRecordRequestId;
+  const title = relatedWorkView.records.find((entry) => entry.id === recordId)?.title || "Work Record";
+  document.querySelector("#related-record-title").textContent = title;
+  document.querySelector("#related-record-meta").textContent = "";
+  document.querySelector("#related-record-content").textContent = "Loading record…";
+  relatedRecordDialog.showModal();
+  try {
+    const result = await api.readRelatedWork(itemId, { generation: relatedWorkView.generation, record: recordId });
+    if (requestId !== relatedRecordRequestId || !relatedRecordDialog.open) return;
+    if (scope !== currentReadScopeKey() || itemId !== state.currentItem?.id) { relatedRecordDialog.close(); return; }
+    document.querySelector("#related-record-title").textContent = result.title;
+    document.querySelector("#related-record-meta").textContent = `Recorded state: ${result.recordedState}`;
+    // The decoder validates relationship metadata; it is omitted from the reading view.
+    const lines = result.content.replace(/\r\n?/g, "\n").split("\n");
+    const visible = [];
+    let inRelationships = false;
+    for (const line of lines) {
+      if (/^\*\*Relationships:\*\*/.test(line)) { inRelationships = true; continue; }
+      if (inRelationships && /^\*\*[^*]+:\*\*/.test(line)) inRelationships = false;
+      if (!inRelationships && !/^\s*<!-- agent-workflow:(?:start|end) -->\s*$/.test(line)) visible.push(line);
+    }
+    document.querySelector("#related-record-content").innerHTML = renderMarkdownToHtml(visible.join("\n").replace(/^# [^\n]*\n/, ""));
+  } catch (error) {
+    if (requestId === relatedRecordRequestId && relatedRecordDialog.open)
+      document.querySelector("#related-record-content").textContent = `Could not open record: ${error.message}`;
+  }
+});
+document.querySelector("#related-record-close").addEventListener("click", () => relatedRecordDialog.close());
+relatedRecordDialog.addEventListener("close", () => { relatedRecordRequestId++; });
 
 function positionEditorSourceMenu() {
   editorSourceSelectElement.style.maxWidth = "";
@@ -5162,6 +5278,8 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
+  relatedWorkRequest?.controller.abort();
+  relatedWorkView = { status: "loading", records: [] };
   renderEditorSourceSelect();
   renderEditorChrome();
 
@@ -5174,6 +5292,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     loadedItemSource = state.selectedSource;
     loadedBoardAppearance = card;
     renderItem(item);
+    void refreshRelatedWork();
     applyEditorMode();
     syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
     if (rerenderBoard) {
@@ -5490,6 +5609,10 @@ refreshButton.addEventListener("click", () => {
     replaceRoute: true,
     preserveDirtyItem: true,
   };
+  const reload = async (loadOptions) => {
+    await loadWorkspace(state.selectedItemId, loadOptions);
+    if (state.currentItem) await refreshRelatedWork({ fresh: true });
+  };
   if (state.boundRequired && !state.pinnedSource) {
     const repoPath = state.repoPath;
     const generation = workspaceLoadGeneration;
@@ -5500,11 +5623,11 @@ refreshButton.addEventListener("click", () => {
       if (!stillCurrent()) return;
       const sourceCandidate = inventory.sources.find(isOpenedSource);
       if (!sourceCandidate) throw new Error("This checkout is unavailable. Reopen the source menu to choose a checkout.");
-      return loadWorkspace(state.selectedItemId, { ...options, sourceCandidate });
+      return reload({ ...options, sourceCandidate });
     }).catch((error) => { if (stillCurrent()) setBanner(error.message, "error"); });
     return;
   }
-  void loadWorkspace(state.selectedItemId, options);
+  void reload(options);
 });
 
 roadmapModeButton.addEventListener("click", () => {
@@ -6461,6 +6584,7 @@ function refreshVisibleRoadmap() {
     void loadWorkspace(state.selectedItemId, { fresh: state.workspaceStale, preserveDirtyItem: true, preserveBoardControls: true, background: true });
   }
   if (boardPresenceIsVisible()) void refreshBoardPresence();
+  if (state.currentItem && !relatedWorkRequest) void refreshRelatedWork({ fresh: true });
 }
 
 document.addEventListener("visibilitychange", () => {
