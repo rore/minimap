@@ -1,5 +1,4 @@
 # Now
-- recent-worktrees-and-blocked
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -14,6 +13,7 @@
 - idea-timeline-view
 
 # Done
+- recent-worktrees-and-blocked
 - nonblocking-performance-pass
 - preserve-board-view-state
 - consolidate-roadmap-refresh
