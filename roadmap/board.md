@@ -1,4 +1,5 @@
 # Now
+- preserve-board-view-state
 
 # Next
 - fix-shared-server-registry-test-isolation
