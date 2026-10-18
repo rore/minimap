@@ -2609,7 +2609,7 @@ function getBoardCardStatus(item) {
   return "";
 }
 
-function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
+function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", feature = null) {
   const metaParts = [];
   if (activeLensKey !== "kind") {
     metaParts.push(`<span class="board-item-kind">${escapeHtml(item.kind)}</span>`);
@@ -2644,9 +2644,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
     return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
   }).join("\n");
   const conflictBadge = differingFields.length ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(conflictDetail)}" aria-label="${escapeHtml(conflictDetail)}">${escapeHtml(differingFields.filter((field) => field !== "revision").map((field) => `${humanizeFilterKey(field)} differs`).join(" · ") || "Versions differ")}</span>` : "";
-  const feature = activeLensKey === "board" && item.featureKey
-    ? state.worktreeData?.features.find((entry) => entry.key === item.featureKey) : null;
-  const otherGroups = [...new Set((feature?.groups || []).filter((group) => group.kind === "board" && group.name !== item.sourceVersion?.group).map((group) => group.name))];
+  const otherGroups = [...new Set((activeLensKey === "board" ? feature?.groups || [] : []).filter((group) => group.kind === "board" && group.name !== item.sourceVersion?.group).map((group) => group.name))];
   const groupCue = otherGroups.length ? `<span class="board-source-badge" role="note" title="${escapeHtml(otherGroups.join("\n"))}">${escapeHtml(`Also in ${otherGroups[0]}${otherGroups.length > 1 ? ` +${otherGroups.length - 1}` : ""}`)}</span>` : "";
 
   return `
@@ -2961,6 +2959,7 @@ function renderBoardColumnsMode() {
 
   const activeLens = getActiveLensDefinition();
   const visibleGroups = getVisibleBoardGroups();
+  const features = state.worktreeMode === "across" ? getWorktreeProjection().features : null;
   const allowColumnDrag = canDragItemsInColumnLayout();
   const allowColumnReorder = canReorderColumnsInColumnLayout();
   const boardGrouping = activeLens?.key === DEFAULT_LENS_KEY;
@@ -2990,7 +2989,7 @@ function renderBoardColumnsMode() {
       : "";
     const reorderAttributes = allowColumnReorder ? `data-board-column-drop-index="${group.originalIndex}"` : "";
 
-    const cardsHtml = group.items.map((item, itemIndex) => {
+    const cardsHtml = collapsed ? "" : group.items.map((item, itemIndex) => {
       if (isMissingBoardItem(item)) {
         return renderMissingBoardCardColumn(item);
       }
@@ -3015,7 +3014,7 @@ function renderBoardColumnsMode() {
       return `
         <article class="board-column-card${activeClass}${getBoardCardStatus(item) ? ` board-card-status-${getBoardCardStatus(item)}` : ""}${placementAttributes ? " board-column-dropzone" : ""}" title="${escapeHtml(item.title)}" ${placementAttributes} ${itemOrderDropAttributes}>
           <div class="board-column-card-main" data-item-dblopen="${escapeHtml(item.id)}" title="${escapeHtml(item.title)}">
-            ${buildBoardCardBodyMarkup(item, activeLens?.key)}
+            ${buildBoardCardBodyMarkup(item, activeLens?.key, "", features?.get(item.featureKey))}
           </div>
           <div class="board-column-card-actions">
             <button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" ${orderAttributes}>Open</button>
@@ -3262,6 +3261,7 @@ function renderBoardReadMode() {
 
   const activeLens = getActiveLensDefinition();
   const visibleGroups = getVisibleBoardGroups();
+  const features = state.worktreeMode === "across" ? getWorktreeProjection().features : null;
   const filtered = isSearchActive();
   const allowGroupReorder = state.worktreeMode !== "across" && activeLens?.key === DEFAULT_LENS_KEY && !filtered;
   const allowDerivedDrag = canDragItemsInActiveLens();
@@ -3288,7 +3288,7 @@ function renderBoardReadMode() {
   const html = visibleGroups.map((group) => {
     const collapseKey = state.worktreeMode === "across" ? group.groupKey : group.name;
     const collapsed = isGroupCollapsed(collapseKey);
-    const items = group.items.map((item, itemIndex) => {
+    const items = collapsed ? "" : group.items.map((item, itemIndex) => {
       if (isMissingBoardItem(item)) {
         return renderMissingBoardCardRead(item);
       }
@@ -3309,7 +3309,7 @@ function renderBoardReadMode() {
       return `
         <div class="board-item-row">
           <button class="board-item${active}${getBoardCardStatus(item) ? ` board-card-status-${getBoardCardStatus(item)}` : ""}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
-            ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle)}
+            ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle, features?.get(item.featureKey))}
           </button>
         </div>
       `;

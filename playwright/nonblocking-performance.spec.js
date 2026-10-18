@@ -44,6 +44,16 @@ test("List layout makes one immediate board rebuild and retains selection", asyn
     await expect(page.locator("#board-groups .board-item")).toHaveCount(ids.length);
     await expect(page.locator("#item-preview .preview-title")).toHaveText("Feature item-01");
     await expect(page).toHaveURL(/boardView=1&item=item-01/);
+    const group = page.locator(".board-group").first();
+    await group.locator(".collapse-toggle").click();
+    await expect(group.locator(".group-count")).toHaveText(String(ids.length));
+    await expect(group.locator(".board-item")).toHaveCount(0);
+    await expect(page.locator("#item-preview .preview-title")).toHaveText("Feature item-01");
+    await expect(page).toHaveURL(/item=item-01/);
+    await page.screenshot({ path: test.info().outputPath("list-collapsed-desktop.png") });
+    await group.locator(".collapse-toggle").click();
+    await expect(group.locator(".board-item")).toHaveCount(ids.length);
+    await expect(group.locator('[data-item-id="item-01"]')).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({ path: test.info().outputPath("list-desktop.png"), fullPage: true });
 
     const search = page.locator("#board-search");
@@ -98,12 +108,22 @@ test("List layout makes one immediate board rebuild and retains selection", asyn
     expect(await originalColumnCard.evaluate((element) => element.isConnected)).toBe(true);
     expect(await page.locator(".board-column-list").first().evaluate((list) => list.scrollTop)).toBe(columnScrollBefore);
     await originalColumnCard.dispose();
+    await page.getByRole("button", { name: "Collapse Delivery column", exact: true }).click();
+    await expect(page.locator(".board-column .group-count")).toHaveText(String(ids.length));
+    await expect(page.locator(".board-column-card-main")).toHaveCount(0);
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await page.screenshot({ path: test.info().outputPath("columns-collapsed-desktop.png") });
+    await page.getByRole("button", { name: "Expand Delivery column", exact: true }).click();
+    await expect(page.locator(".board-column-card-main")).toHaveCount(ids.length);
+    expect(await page.locator(".board-column-list").first().evaluate((list) => list.scrollTop)).toBe(columnScrollBefore);
     await search.fill("");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: test.info().outputPath("columns-narrow.png") });
     await page.locator("#board-layout-list").click();
     await expect(page.locator("#board-groups .board-item")).toHaveCount(ids.length);
     await page.screenshot({ path: test.info().outputPath("list-narrow.png") });
+    await page.locator(".board-group").first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath("list-narrow-board.png") });
   } finally {
     await page.goto("about:blank");
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

@@ -117,6 +117,18 @@ test("aggregate read keeps the selected repo even without a bound item source", 
   assert.ok(f.calls.every((call) => new Headers(call.opts.headers).get("X-Minimap-Repo") === "C:/different/project"));
 });
 
+test("an aggregate response cancelled after reading its body stops before compact expansion", async () => {
+  const controller = new AbortController();
+  const reason = new Error("superseded aggregate");
+  let expanded = false;
+  const api = createApi({ fetch: async () => ({ ok: true, status: 200, json: async () => {
+    controller.abort(reason);
+    return { get worktreeFormat() { expanded = true; throw new Error("stale payload expanded"); } };
+  } }) });
+  await assert.rejects(api.loadWorktreeWorkspace({ compact: true, signal: controller.signal }), (error) => error === reason);
+  assert.equal(expanded, false);
+});
+
 test("inventory ignores the editor pin and fresh workspace binds the explicitly selected checkout", async () => {
   const f = fakeFetch([{}, {}]);
   const api = createApi({ fetch: f, getRepo: () => "C:/board", getSource: () => ({ mode: "across", identity: null }) });
