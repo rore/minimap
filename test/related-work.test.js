@@ -78,6 +78,28 @@ test("unverified sources make coverage partial without inferring a feature link"
   assert.deepEqual(result.records.filter((entry) => entry.sources.length).map((entry) => entry.title), ["Linked"]);
 });
 
+test("legacy relationship-free records are partial, distinct from successful empty and unavailable scans", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-related-legacy-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const scan = createRelatedWorkScanner();
+  const unavailable = await scan(root);
+  assert.equal(unavailable.status, "unavailable");
+  assert.equal(unavailable.reason, "missing_workflow");
+  const directory = path.join(root, "records");
+  await fs.mkdir(directory);
+  await fs.writeFile(path.join(root, "agent-workflow.yaml"), 'version: 1\nworkRecord: {backend: local, local: {taskPath: "records/{slug}.md"}}\n');
+  const empty = await scan(root);
+  assert.equal(empty.status, "ok");
+  assert.deepEqual(empty.records, []);
+  await fs.writeFile(path.join(directory, "legacy.md"), fixture.record_template
+    .replace("Fixture Work Record", "Feature title cannot infer a link")
+    .replace("__RELATIONSHIPS__", ""));
+  const legacy = await scan(root);
+  assert.equal(legacy.status, "partial");
+  assert.equal(legacy.coverage.legacy, 1);
+  assert.deepEqual(legacy.records, []);
+});
+
 test("configured slug directories are scanned without treating the directory as a record", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-related-directory-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
