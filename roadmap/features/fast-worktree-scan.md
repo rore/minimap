@@ -1,7 +1,7 @@
 ---
 id: fast-worktree-scan
 title: Speed up real worktree scans and retain progress across tab switches
-status: in-progress
+status: done
 priority: high
 commitment: committed
 ---
@@ -21,7 +21,7 @@ Pallium's 25-worktree aggregate took 37.6 seconds despite only 162 distinct feat
 
 ## Delivery
 
-Work Record: `.agent-workflow/tasks/fast-worktree-scan.md`. Implementation and independent technical review are complete. Full CI and merge are the remaining delivery gates. No live deployment is included.
+Work Record: `.agent-workflow/tasks/fast-worktree-scan.md`. Implementation and independent technical review are complete. Delivered by [PR #58](https://github.com/rore/minimap/pull/58), gated on full CI before merge. No live deployment is included.
 
 ## Implementation and qualification
 

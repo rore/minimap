@@ -1,5 +1,4 @@
 # Now
-- fast-worktree-scan
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -14,6 +13,7 @@
 - idea-timeline-view
 
 # Done
+- fast-worktree-scan
 - recent-worktrees-and-blocked
 - nonblocking-performance-pass
 - preserve-board-view-state

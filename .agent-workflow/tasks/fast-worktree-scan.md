@@ -5,7 +5,7 @@
 **Constraints:** No live deployment, installation or data changes. Preserve source confinement, identity decisions, fresh validation, cancellation for superseded scopes, bounded resource use and error recovery. No new service or dependency.
 **Completion criteria:** Real Pallium and generic complex-history qualification show a substantial scan-time reduction with unchanged results; hiding and returning to a tab does not restart its scan; explicit scope changes still cancel; focused and full CI tests, rendered checks and independent review pass; PR is merged.
 **Requirement baseline:** {"source":"user-request:2026-10-18:fast-worktree-scan","outcome":"Make real multi-worktree roadmap scans substantially faster and preserve useful in-flight scans across browser tab switches.","scope":"Profile the real Pallium scan, remove the measured redundant or serial work without weakening identity/freshness, preserve bounded reads across temporary tab hiding, and cover both changes with regressions and visual qualification.","constraints":"No live deployment, installation or data changes. Preserve source confinement, identity decisions, fresh validation, cancellation for superseded scopes, bounded resource use and error recovery. No new service or dependency.","completion_criteria":"Real Pallium and generic complex-history qualification show a substantial scan-time reduction with unchanged results; hiding and returning to a tab does not restart its scan; explicit scope changes still cancel; focused and full CI tests, rendered checks and independent review pass; PR is merged."}
-**Relationships:** {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:fast-worktree-scan"}],"pull_requests":[]}
+**Relationships:** {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:fast-worktree-scan"}],"pull_requests":["https://github.com/rore/minimap/pull/58"]}
 **Risk:** High
 **Complexity:** Moderate
 **Reason:** Shared Git identity/freshness implementation and documented hidden-tab cancellation behavior are affected; source guarantees must remain unchanged.
@@ -25,7 +25,7 @@ manual: Actual Pallium read-only timing and result comparison; desktop/narrow Li
 
 ## Recovery
 
-Isolated owner checkout: `.local/fast-worktree-scan`, branch `feat/fast-worktree-scan`, base4352c08167efbeed1304676bbf15bb2db98d6aa3. Root owns this record and canonical roadmap. Backend and UI implementation is complete in this isolated checkout. Focused regression and final independent review are in progress; the same-state actual Pallium comparison passed. Follow user authorization through merge without another routine approval stop. Independent technical review is retained. The previous live deployment remains untouched.
+Isolated owner checkout: `.local/fast-worktree-scan`, branch `feat/fast-worktree-scan`, base4352c08167efbeed1304676bbf15bb2db98d6aa3. Root owns this record and canonical roadmap. Backend and UI implementation is complete in this isolated checkout. Focused regression and final independent review passed; PR #58 is the delivery vehicle and full CI remains the merge gate. Follow user authorization through merge without another routine approval stop. Independent technical review is retained. The previous live deployment remains untouched.
 
 ## Verification evidence
 
