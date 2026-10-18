@@ -271,11 +271,12 @@ test("remembers the unlisted group and explains source-limit exclusions", async 
     await expect(unlisted).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator("#board-source-status-summary")).toContainText("Partial coverage");
     await page.locator("#board-source-status").evaluate((details) => { details.open = true; });
-    await expect(page.locator("#board-source-status-details")).toContainText("at most 16 worktrees, including the opened checkout");
+    await expect(page.locator("#board-source-status-details")).toContainText("at most 25 worktrees, including this checkout and up to 24 recent eligible siblings");
     await expect(page.locator("#board-source-status-details")).toContainText(limitedPath);
     await page.locator("#board-source-status").evaluate((details) => { details.open = false; });
     await page.locator(".board-source-control > button").first().click();
-    await expect(page.locator("#board-source-menu")).toContainText(`Not inspected: ${limitedPath}`);
+    await expect(page.locator("#board-source-menu")).toContainText(`Not selected: ${limitedPath}`);
+    await expect(page.locator("#board-source-menu")).toContainText("Outside the 25-checkout recent selection");
     await page.screenshot({ path: path.join(images, "source-limit-menu-desktop.png"), fullPage: false });
 
     await page.locator("#board-source-toggle").click();

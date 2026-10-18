@@ -478,7 +478,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
 }
 
 test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout: 60 * 60 * 1000 }, async (t) => {
-  const sources = selection("MINIMAP_PERFORMANCE_SOURCES", [1, 4, 16]);
+  const sources = selection("MINIMAP_PERFORMANCE_SOURCES", [1, 4, 16, 25]);
   const items = selection("MINIMAP_PERFORMANCE_ITEMS", [100, 1000]);
   const samples = Number(process.env.MINIMAP_PERFORMANCE_SAMPLES || 1);
   assert.ok(Number.isInteger(samples) && samples >= 1 && samples <= 20, "Samples must be 1..20");

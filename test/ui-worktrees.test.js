@@ -48,6 +48,18 @@ test("board group shows a sibling's in-progress version and keeps conflicts", ()
   assert.deepEqual(group.items[0].versions.map((entry) => entry.sourceKey), ["sibling"]);
 });
 
+test("Across In play includes a blocked version without participants and composes filters per version", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "A", { id: "x", title: "opened", searchText: "opened", metadata: { status: "queued", milestone: "v1" } }),
+    version("sibling", "A", { id: "x", title: "blocked sibling", searchText: "blocked sibling", metadata: { status: " BLOCKED ", milestone: "v2" } }),
+  ] }]);
+  const [group] = projectWorktreeGroups(aggregate, { inPlay: true, participantCounts: new Map() });
+  assert.deepEqual(group.items[0].matchingVersions.map((entry) => entry.sourceKey), ["sibling"]);
+  assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, searchQuery: "opened" }), []);
+  assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, activeFilters: { milestone: ["v1"] } }), []);
+  assert.equal(projectWorktreeGroups(aggregate, { inPlay: true, activeFilters: { milestone: ["v2"] } })[0].items.length, 1);
+});
+
 test("the same feature in separate groups counts once", () => {
   const aggregate = fixture([{ key: "f", id: "x", entries: [
     version("opened", "A", { id: "x", title: "x", searchText: "", metadata: {} }),

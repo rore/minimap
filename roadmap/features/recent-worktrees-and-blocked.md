@@ -13,7 +13,7 @@ Expand Across worktrees to 25 checkouts and choose recent local checkouts instea
 ## Scope
 
 - Preserve the opened checkout and select the most recent eligible siblings within a total of 25.
-- Define a cheap, deterministic local activity signal; disclose what it does not observe.
+- Rank siblings by the last complete local HEAD reflog event timestamp, with unknown timestamps last and canonical-path ties. Plain uncommitted edits do not change ranking.
 - Exclude stale/missing checkouts before allocating usable slots, preserve identity validation and truthful partial coverage.
 - Include normalized blocked status in the shared In play predicate, preserving composition with other filters and attached-session matches.
 - Update UI descriptions and agent contracts, add regression coverage, and measure responsiveness with 25 sources.

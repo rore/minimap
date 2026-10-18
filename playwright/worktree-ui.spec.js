@@ -821,3 +821,51 @@ test("Across participant badges refresh independently and remain scoped through 
     await fs.rm(other.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("blocked In play survives unavailable sessions in This and Across, with explicit filters", async ({ page }) => {
+  test.setTimeout(90_000);
+  const { owned, root, sibling } = await fixture(3);
+  const images = path.join(process.cwd(), "artifacts", "recent-worktrees-and-blocked");
+  try {
+    await fs.mkdir(images, { recursive: true });
+    const blockedHere = path.join(root, "roadmap", "features", "large-03.md");
+    await fs.writeFile(blockedHere, (await fs.readFile(blockedHere, "utf8")).replace("status: queued", "status: blocked"));
+    const blockedSibling = path.join(sibling, "roadmap", "features", "large-01.md");
+    await fs.writeFile(blockedSibling, (await fs.readFile(blockedSibling, "utf8")).replace("status: in-progress", "status: blocked"));
+    await page.route("**/api/board/observations**", (route) => route.fulfill({ status: 503, json: { error: { message: "sessions unavailable" } } }));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/#repo=${encodeURIComponent(root)}&boardView=1&inPlay=1`);
+    await expect(page.locator('[data-item-id="large-03"]')).toBeVisible();
+    await expect(page.locator('[data-item-id="large-02"]')).toHaveCount(0);
+    await page.screenshot({ path: path.join(images, "this-list-desktop.png") });
+    await page.locator("#board-layout-columns").click();
+    await expect(page.locator('[data-item-dblopen="large-03"]')).toBeVisible();
+    await page.screenshot({ path: path.join(images, "this-columns-desktop.png") });
+
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&boardView=1&inPlay=1`);
+    await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded");
+    await expect(page.getByRole("button", { name: /Open large-01/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open large-03/ })).toBeVisible();
+    await page.screenshot({ path: path.join(images, "across-list-desktop.png") });
+    await page.locator("#board-layout-columns").click();
+    await expect(page.getByRole("button", { name: /Open large-01/ })).toBeVisible();
+    await page.screenshot({ path: path.join(images, "across-columns-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: path.join(images, "across-columns-narrow.png") });
+    await page.locator("#board-layout-list").click();
+    await page.screenshot({ path: path.join(images, "across-list-narrow.png") });
+    await page.getByRole("button", { name: /Open large-01/ }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(images, "across-list-narrow-board.png") });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&boardView=1&inPlay=1&f=status%3Aqueued`);
+    await expect(page.locator("#board-groups .empty-state")).toContainText("No confirmed roadmap items match yet; In play results are incomplete.");
+    await expect(page.getByRole("button", { name: /Open large-01/ })).toHaveCount(0);
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&boardView=1&inPlay=1&f=status%3Ablocked`);
+    await expect(page.getByRole("button", { name: /Open large-01/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open large-03/ })).toBeVisible();
+  } finally {
+    await page.goto("about:blank");
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});

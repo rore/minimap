@@ -730,7 +730,7 @@ function renderBoardSourceControl() {
   boardSourceStatusDetailsElement.innerHTML = coverage
     + (aggregate?.provisional ? `<p>Only the opened checkout is shown. Other worktrees and session information ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; feature totals and In play are incomplete.</p>` : state.worktreeLoading ? "<p>Updating worktrees. The previous board remains available until the refresh finishes.</p>" : "")
     + (state.workspaceStale ? "<p>These are the last-known results; fresh validation is pending or unavailable.</p>" : "")
-    + (sourceLimitReached ? "<p>Checkout discovery intentionally inspects at most 16 worktrees, including the opened checkout. Unavailable or prunable entries use inspection slots; later checkouts were not inspected or loaded.</p>" : "")
+    + (sourceLimitReached ? "<p>Checkout discovery selects at most 25 worktrees, including this checkout and up to 24 recent eligible siblings. Other checkouts outside that selection were not loaded. Recency uses local Git events; uncommitted edits do not affect it.</p>" : "")
     + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
     + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
 }
@@ -739,7 +739,7 @@ function sourceExclusionReason(entry) {
   if (entry.reason === "workspace-load-failed") return entry.message || "Roadmap workspace could not be loaded";
   return ({ "incompatible-roadmap-config": "Roadmap location differs from the opened checkout",
     "missing-or-unavailable": "Checkout path is missing or unreadable",
-    prunable: "Git worktree is prunable", "source-limit": "16-worktree safety limit reached",
+    prunable: "Git worktree is prunable", "source-limit": "Outside the 25-checkout recent selection",
     "different-common-git-dir": "Not part of this Git worktree family" })[entry.reason] || entry.reason;
 }
 
@@ -774,7 +774,7 @@ function renderBoardSourceMenu(inventory) {
     ...sources.filter((source) => !isOpenedSource(source))
       .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(sourceDisplayName(inventory, source.sourceKey))}<small>${escapeHtml(source.repoRoot)}</small></button>`),
   ];
-  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">${entry.reason === "source-limit" ? "Not inspected" : "Excluded"}: ${escapeHtml(`${entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
+  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">${entry.reason === "source-limit" ? "Not selected" : "Excluded"}: ${escapeHtml(`${entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
   const aggregate = state.worktreeMode === "across" ? state.worktreeData : null;
   const missing = aggregate?.coverage?.missingBoardRefs || [];
   const missingRows = missing.slice(0, 20).map((entry) => {
@@ -782,7 +782,7 @@ function renderBoardSourceMenu(inventory) {
   }).join("");
   const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
   const status = inventory?.error ? "Discovery unavailable · showing last-known choices" : inventory?.loading ? "Checking local checkouts…"
-    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Partial discovery · at most 16 worktrees inspected, including this checkout; later checkouts were not inspected"
+    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Partial discovery · at most 25 recent worktrees selected, including this checkout; other checkouts were not loaded"
     : inventory?.partial ? "Partial discovery · some checkouts are unavailable" : inventory?.unavailable ? "Worktree discovery unavailable" : "";
   boardSourceMenuElement.innerHTML = `${choices.join("")}${status ? `<p class="source-menu-status" role="status">${escapeHtml(status)}</p>` : ""}${excluded}${missingNotice}`;
   if (focusedChoice) [...boardSourceMenuElement.querySelectorAll("[data-source-choice]")]
