@@ -256,6 +256,24 @@ test("byte pressure evicts the least recently used entry before the entry-count 
   assert.ok(coordinator.getManifest(c.snapshot.id, "c"));
 });
 
+test("cache byte budget includes UTF-8 value, manifest and admission while retaining two entries", async () => {
+  const loaded = result({ body: "v" }, { refs: ["é".repeat(20)] }, { guard: "汉".repeat(20) });
+  const bytes = Object.values(loaded).reduce((sum, part) => sum + Buffer.byteLength(JSON.stringify(part)), 0);
+  const { coordinator } = makeCoordinator({ maxBytes: bytes * 2, maxEntries: 16 });
+  const load = async () => loaded;
+  const a = await coordinator.read({ key: "a", load });
+  const b = await coordinator.read({ key: "b", load });
+  for (const [key, previous] of [["a", a], ["b", b]]) {
+    const cached = await coordinator.read({ key, cached: true, load: () => assert.fail("Two complete entries fit"), admit: async () => true });
+    assert.equal(cached.snapshot.id, previous.snapshot.id);
+  }
+  await coordinator.read({ key: "a", cached: true, load, admit: async () => true });
+  const c = await coordinator.read({ key: "c", load });
+  assert.equal(coordinator.getManifest(b.snapshot.id, "b"), null, "Metadata bytes force eviction of the untouched entry");
+  assert.deepEqual(coordinator.getManifest(a.snapshot.id, "a"), loaded.manifest);
+  assert.deepEqual(coordinator.getManifest(c.snapshot.id, "c"), loaded.manifest);
+});
+
 test("an oversized manifest is not retained and cannot leave an older snapshot reusable", async () => {
   const { coordinator } = makeCoordinator({ maxBytes: 100 });
   const old = await coordinator.read({ key: "repo:this", load: async () => result({ version: 1 }) });

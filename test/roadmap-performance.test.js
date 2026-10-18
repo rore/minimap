@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { resolveRoadmapItemReference } from "../package/minimap/src/pallium.js";
 
 // Routine CI skips this qualification. Run it alone after mirrors are ready:
@@ -26,6 +26,9 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const runtimeRoot = process.env.MINIMAP_PERFORMANCE_RUNTIME_ROOT
   ? path.resolve(process.env.MINIMAP_PERFORMANCE_RUNTIME_ROOT) : projectRoot;
 const scripts = path.join(runtimeRoot, "package/minimap/skills/minimap-roadmap/scripts");
+// Archives from before the bootstrap remain usable for matched baselines.
+const launcherName = await fs.access(path.join(scripts, "start-server.cjs"))
+  .then(() => "start-server.cjs", () => "start-server.mjs");
 const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
 const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
@@ -41,11 +44,18 @@ import { syncBuiltinESMExports } from "node:module";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send) {
+if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) && process.send) {
+  const poolAtPreload = process.env.UV_THREADPOOL_SIZE ?? null;
   const counters = { gitExecFile: 0, gitSpawn: 0, gitExecFileSync: 0,
     fileReadAsync: 0, fileReadCallback: 0, fileReadSync: 0 };
   const gitCommands = {};
   const serializations = [];
+  let memoryPeak = { ...process.memoryUsage() };
+  const memoryTimer = setInterval(() => {
+    const current = process.memoryUsage();
+    for (const key of Object.keys(current)) memoryPeak[key] = Math.max(memoryPeak[key] || 0, current[key]);
+  }, 50);
+  memoryTimer.unref();
   const stringify = JSON.stringify;
   if (process.env.MINIMAP_PERFORMANCE_DIAGNOSTICS === "1") JSON.stringify = function (value, ...args) {
     const result = stringify(value, ...args);
@@ -95,10 +105,12 @@ if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send)
     const count = Number(histogram.count);
     const ms = (value) => count ? Math.round(value / 10000) / 100 : null;
     process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid, serializations: serializations.splice(0),
+      poolAtPreload, childNode: process.version, poolEnvironment: process.env.UV_THREADPOOL_SIZE ?? null,
+      memoryCurrent: process.memoryUsage(), memoryPeak,
       counters: { ...counters }, gitCommands: { ...gitCommands },
       eventLoopDelay: { samples: count, resolutionMs: 10, p50Ms: ms(histogram.percentile(50)),
         p95Ms: ms(histogram.percentile(95)), maxMs: ms(histogram.max), meanMs: ms(histogram.mean) } });
-    if (message.reset) histogram.reset();
+    if (message.reset) { histogram.reset(); memoryPeak = { ...process.memoryUsage() }; }
   });
 }
 `;
@@ -177,7 +189,7 @@ async function seedWorkRecords(repoRoot, count) {
 }
 
 async function start(root, env) {
-  const child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  const child = spawn(process.execPath, [path.join(scripts, launcherName)], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   const ready = new Promise((resolve, reject) => {
@@ -244,9 +256,15 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     MINIMAP_PALLIUM_SETTINGS_PATH: path.join(owned, "empty-settings.json"), PORT: String(await freePort()) };
   await fs.writeFile(env.MINIMAP_PALLIUM_SETTINGS_PATH, "{}");
   await fs.mkdir(env.MINIMAP_HOME);
-  const preload = path.join(env.MINIMAP_HOME, "performance-preload.mjs");
-  await fs.writeFile(preload, performancePreload);
-  env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import=${pathToFileURL(preload).href}`;
+  // Synchronous CommonJS preload avoids initializing libuv via ESM loading
+  // before the canonical bootstrap sets its absent-only default.
+  const preload = path.join(env.MINIMAP_HOME, "performance-preload.cjs");
+  const commonjsPreload = performancePreload
+    .replace(/import (\w+) from "([^"]+)";/g, 'const $1 = require("$2");')
+    .replace(/import \{ ([^}]+) \} from "([^"]+)";/g, 'const { $1 } = require("$2");');
+  assert.ok(!commonjsPreload.includes("import "), "Performance preload must not invoke ESM before bootstrap");
+  await fs.writeFile(preload, commonjsPreload);
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --require="${preload.split(path.sep).join("/")}"`;
   const measurements = { firstUsable: [], fullSnapshot: [], warmAcross: [], healthDuringScan: [],
     warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [],
     ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [], relatedCold: [], relatedWarm: [], relatedUnchangedRefresh: [], relatedShared: [], relatedOneEdit: [], healthDuringRelated: [], featureDetailDuringRelated: [] } : {}) };
@@ -258,11 +276,15 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     finally {
       const after = await serverMetrics(child);
       assert.equal(after.pid, child.pid);
+      assert.equal(after.poolAtPreload, env.UV_THREADPOOL_SIZE ?? null);
+      assert.equal(after.poolEnvironment, env.UV_THREADPOOL_SIZE ?? (launcherName === "start-server.cjs" ? "8" : null));
       serverScenarios.push({ scenario, sample, durationMs: Math.round(performance.now() - begin),
         countersBefore: before.counters, countersAfter: after.counters,
         counters: Object.fromEntries(Object.keys(after.counters).map((key) => [key, after.counters[key] - before.counters[key]])),
         gitCommands: Object.fromEntries(Object.keys(after.gitCommands).map((key) => [key, after.gitCommands[key] - (before.gitCommands[key] || 0)])),
-        eventLoopDelay: after.eventLoopDelay });
+        eventLoopDelay: after.eventLoopDelay, poolAtPreload: after.poolAtPreload,
+        childNode: after.childNode, poolEnvironment: after.poolEnvironment,
+        memoryBefore: before.memoryCurrent, memoryAfter: after.memoryCurrent, memoryPeak: after.memoryPeak });
       serverScenarios.at(-1).serializations = after.serializations;
     }
   };

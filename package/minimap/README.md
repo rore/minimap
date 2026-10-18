@@ -91,10 +91,12 @@ Each skill exposes the same four scripts under `scripts/`. Agents use these only
 
 | Script | What it does |
 |---|---|
-| `start-server.mjs` | Start, or detect + reuse a running instance. |
+| `start-server.cjs` | Start, or detect + reuse a running instance. |
 | `status.mjs` | Print live runtime version/API/source and process status. Exit 0 running, 1 stale, 3 not running. |
 | `stop-server.mjs` | Graceful shutdown via `POST /api/shutdown`. Cleans stale registry. |
 | `restart-server.mjs [--replace-runtime]` | Restart the same runtime; explicitly opt in to replacing a different or unknown shared runtime. |
+
+`start-server.cjs` sets a process-local `UV_THREADPOOL_SIZE=8` only when absent, then imports the existing launcher in the same process. Restart sets that default in its new child's environment. Explicit overrides and reused servers remain unchanged. Legacy `start-server.mjs` and direct development entrypoints retain Node's caller-configured/default pool. Preloads that initialize libuv before the bootstrap must set the desired pool in the initial environment; the bootstrap cannot retune an initialized pool.
 
 The launcher probes `$MINIMAP_HOME/server.json` and live health. Compatible APIs can reuse different releases; unknown/incompatible runtimes remain untouched. Status prints live version/API/source. Routine restart requires the same version and canonical runtime source path; coordinate shared-client impact before `--replace-runtime`, which can replace or downgrade a different/unknown server. No adjacent-port sweep is performed. Update relevant installed skill copies via the existing copy-in method or checkout links; old launchers cannot be retroactively guarded. File updates alone do not replace a running server.
 

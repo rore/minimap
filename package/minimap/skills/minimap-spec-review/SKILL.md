@@ -18,7 +18,7 @@ When the user asks to **view** a spec session, give them a URL. When they ask yo
 ### 2. Make sure the server is running
 
 ```bash
-node <path-to-this-skill>/scripts/start-server.mjs
+node <path-to-this-skill>/scripts/start-server.cjs
 ```
 
 The launcher prints one line: `Minimap running at http://localhost:<port>` (just started) or `Minimap already running at http://localhost:<port>` (reused). Capture the port — default 4312, falls forward if busy.
@@ -63,5 +63,5 @@ If `node ...` fails to spawn (sandbox restriction — `CreateProcessWithLogonW f
 - Do not edit the target file unless the user explicitly asks.
 - Prefer anchored comments over chat-only feedback.
 - Treat the user as the merge authority.
-- Do not edit `$MINIMAP_HOME/server.json` or its participant preference by hand or send process signals to the server. Use the bundled scripts (`start-server.mjs`, `restart-server.mjs`, `stop-server.mjs`).
+- Do not edit `$MINIMAP_HOME/server.json` or its participant preference by hand or send process signals to the server. Use the bundled scripts (`start-server.cjs`, `restart-server.mjs`, `stop-server.mjs`).
 - If Minimap's documentation, CLI, HTTP API, server, UI, or lifecycle scripts fail or contradict documented behavior, load [`references/upstream-feedback.md`](references/upstream-feedback.md); otherwise do not load it.

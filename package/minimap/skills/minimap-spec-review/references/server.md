@@ -10,12 +10,16 @@ The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must com
 
 | Command | Exit codes | What it does |
 | --- | --- | --- |
-| `node <skill>/scripts/start-server.mjs` | 0 = running (started or reused); 1 = incompatible/unknown API, settings mismatch, or occupied port | Probe the registry and live `/health`; reuse only a compatible API with matching participant settings. |
+| `node <skill>/scripts/start-server.cjs` | 0 = running (started or reused); 1 = incompatible/unknown API, settings mismatch, or occupied port | Probe the registry and live `/health`; reuse only a compatible API with matching participant settings. |
 | `node <skill>/scripts/status.mjs` | 0 = running; 1 = stale registry; 3 = not running | Print live identity, registry port/startedAt, and local lifecycle log path/recent evidence, including when stale or stopped. Legacy identity prints unknown. |
 | `node <skill>/scripts/stop-server.mjs` | 0 = stopped (or was already not running, or stale cleaned); 1 = shutdown failed | `POST /api/shutdown`, wait for the port to free. |
 | `node <skill>/scripts/restart-server.mjs [--replace-runtime]` | 0 = restarted; 1 = refusal, stop, start, or verification failure | Preflight registered/requested targets before any stop; default permits only the same runtime. Serialize per home, then stop/spawn and verify the child-reported port/identity/configuration. Failed cleanup targets only its own child PID. |
 
 Exit codes follow `systemctl` conventions for `status` (0/1/3 = running/stale/not-running).
+
+The canonical `start-server.cjs` bootstrap sets a process-local `UV_THREADPOOL_SIZE=8` only when that variable is absent, then imports the existing launcher in the same process. Restart applies the same absent-only default to its new child's environment before Node starts. Explicit values, including an empty value, are preserved. Reusing a running server does not change its pool. No persistent environment setting is written.
+
+Legacy `start-server.mjs` remains supported without the bootstrap default, as do direct development entrypoints. Caller preloads that initialize libuv before the bootstrap must set their desired pool in the initial environment; an initialized pool cannot be retuned by the bootstrap.
 
 ## Local lifecycle diagnostics
 
@@ -27,7 +31,7 @@ Historical events are not proof of the current failure's cause. A verified live 
 
 ## Discovery
 
-`start-server.mjs` reads `$MINIMAP_HOME/server.json` and probes `/health`. A compatible running API is reused even when package versions or runtime sources differ. Unknown/legacy or incompatible API identity is refused without shutdown or saved preference changes. The same checks apply to a race winner on the requested port. Both skills share one registry/server across repositories.
+`start-server.cjs` reads `$MINIMAP_HOME/server.json` and probes `/health`. A compatible running API is reused even when package versions or runtime sources differ. Unknown/legacy or incompatible API identity is refused without shutdown or saved preference changes. The same checks apply to a race winner on the requested port. Both skills share one registry/server across repositories.
 
 The running server transparently serves spec sessions and any roadmap that requests it (see the `#repo=` URL convention used by the roadmap skill).
 
@@ -61,7 +65,7 @@ Roadmap Recent/Dormant badges classify attached, nonclosed sessions under Palliu
 
 The shared server may also expose the roadmap item's read-only Participants panel. Set `MINIMAP_PALLIUM_ENDPOINT` on a supported start or restart command to opt in with one validated loopback HTTP origin. Exact-session participant links require the separate `MINIMAP_PALLIUM_DASHBOARD_ENDPOINT`, set only for a reviewed compatible dashboard. Successful commands save both settings under `$MINIMAP_HOME`; an explicit empty dashboard value disables links while retaining lookup, and an explicit empty lookup value clears both. Invalid values are rejected without changing the running server or saved preference.
 
-A requested or saved effective setting that differs from a healthy server's verified effective setting—or whose identity cannot be verified on a legacy server—is not silently ignored: `start-server.mjs` exits with restart guidance. `status.mjs` reports lookup and link state independently as enabled, disabled, or unknown without exposing either origin. This server setting is independent of whether an agent has Pallium skills or MCP tools, and disabled mode makes no Pallium requests.
+A requested or saved effective setting that differs from a healthy server's verified effective setting—or whose identity cannot be verified on a legacy server—is not silently ignored: `start-server.cjs` exits with restart guidance. `status.mjs` reports lookup and link state independently as enabled, disabled, or unknown without exposing either origin. This server setting is independent of whether an agent has Pallium skills or MCP tools, and disabled mode makes no Pallium requests.
 
 ## URL
 

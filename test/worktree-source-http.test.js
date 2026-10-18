@@ -52,7 +52,7 @@ test("worktree inventory is immediate and selected source loads are fresh and so
   git(root, "worktree", "add", "-b", "feature/linked", linked);
   await fs.writeFile(path.join(linked, "roadmap.config.json"), "not json\n");
 
-  child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  child = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

@@ -50,7 +50,7 @@ Ask your agent:
 The agent starts or reuses the local server and gives you a browser URL. You can also start it yourself using either installed skill:
 
 ```bash
-node <path-to-skill>/scripts/start-server.mjs
+node <path-to-skill>/scripts/start-server.cjs
 ```
 
 Use the port printed by the launcher; the default is 4312. Roadmap URLs identify the repository explicitly:
@@ -180,10 +180,12 @@ Both skills expose these scripts under `scripts/`. Use them for lifecycle operat
 
 | Script | Purpose |
 |---|---|
-| `start-server.mjs` | Start or reuse a compatible running server. |
+| `start-server.cjs` | Start or reuse a compatible running server. |
 | `status.mjs` | Report live identity, participant settings, and lifecycle diagnostics; exits 0 running, 1 stale, 3 not running. |
 | `stop-server.mjs` | Gracefully stop the server or clean a stale registry. |
 | `restart-server.mjs [--replace-runtime]` | Restart; replacing a different or unknown runtime requires explicit opt-in. |
+
+Packaged start and restart default the new server's filesystem worker pool to 8 (`UV_THREADPOOL_SIZE`) only when unset. Explicit overrides remain authoritative. The legacy `start-server.mjs` and direct development entrypoints retain Node's caller-configured/default pool; a reused server is unchanged. See the lifecycle reference for preloads and startup details.
 
 The server is shared across repositories and both modes. Coordinate before replacing it: replacement interrupts all clients and can downgrade the running version. Updating an installed skill's files does not restart the server. See [server lifecycle](package/minimap/skills/minimap-roadmap/references/server.md) for compatibility, configuration, and diagnostics.
 

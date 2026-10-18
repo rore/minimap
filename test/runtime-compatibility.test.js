@@ -77,10 +77,12 @@ test("compatible runtime reuses different versions and reports live identity, no
   const server = await fixture(ctx, identity);
   try {
     const before = await readRegistry(ctx);
-    const result = await run(ctx, "start-server.mjs");
-    assert.equal(result.code, 0, result.stderr);
-    assert.equal(server.shutdowns, 0);
-    assert.equal(await readRegistry(ctx), before);
+    for (const script of ["start-server.cjs", "start-server.mjs"]) {
+      const result = await run(ctx, script);
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(server.shutdowns, 0);
+      assert.equal(await readRegistry(ctx), before);
+    }
     const status = await run(ctx, "status.mjs");
     assert.equal(status.code, 0, status.stderr);
     assert.match(status.stdout, /version:\s*0\.0\.1/);
@@ -106,7 +108,7 @@ test("unknown and incompatible runtimes cannot be reused or restarted implicitly
       await fs.writeFile(preferencePath, preference);
       try {
         const before = await readRegistry(ctx);
-        for (const script of ["start-server.mjs", "restart-server.mjs"]) {
+        for (const script of ["start-server.cjs", "start-server.mjs", "restart-server.mjs"]) {
           const result = await run(ctx, script);
           assert.equal(result.code, 1, `${name}: ${script}: ${result.stderr}`);
           assert.match(result.stderr, /runtime|compatib/i);

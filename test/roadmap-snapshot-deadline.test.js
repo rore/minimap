@@ -77,7 +77,7 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
   await git(repo, "config", "user.name", "Snapshot Test");
   await git(repo, "add", ".");
   await git(repo, "commit", "-m", "fixture");
-  launcher = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  launcher = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: projectRoot, env, windowsHide: true, stdio: "ignore",
   });
   let ready = false;
@@ -169,7 +169,7 @@ for (const mode of ["this", "across"]) test(`${mode} snapshots reject a Git ref 
     if (launcher && launcher.exitCode === null) await new Promise((resolve) => launcher.once("exit", resolve));
     await fs.rm(root, { recursive: true, force: true });
   });
-  launcher = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  launcher = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: projectRoot, env, windowsHide: true, stdio: "ignore",
   });
   let ready = false;
@@ -242,7 +242,7 @@ test("fresh snapshots reject a Git ref change between initial and final identity
     if (launcher && launcher.exitCode === null) await new Promise((resolve) => launcher.once("exit", resolve));
     await fs.rm(root, { recursive: true, force: true });
   });
-  launcher = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  launcher = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: projectRoot, env, windowsHide: true, stdio: "ignore",
   });
   let ready = false;

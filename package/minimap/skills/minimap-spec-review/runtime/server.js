@@ -61,7 +61,7 @@ export { matchRoute };
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const launchMode = process.send ? "ipc-detached-restart"
-  : path.basename(process.argv[1] || "") === "start-server.mjs" ? "foreground-start" : "direct";
+  : ["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) ? "foreground-start" : "direct";
 let lifecycleLog = createLifecycleLog({ sourcePath: __filename, launchMode });
 process.on("uncaughtExceptionMonitor", (error, origin) => {
   try { lifecycleLog("fatal", { origin, error: lifecycleError(error, __dirname) }); } catch {}

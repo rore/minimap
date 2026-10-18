@@ -7,7 +7,7 @@ const DEFAULT_LIMITS = Object.freeze({
   freshMs: 30_000,
   retainMs: 5 * 60_000,
   maxEntries: 16,
-  maxBytes: 64 * 1024 * 1024,
+  maxBytes: 96 * 1024 * 1024,
 });
 
 function snapshotError(code, status, message) {

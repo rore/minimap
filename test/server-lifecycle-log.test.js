@@ -90,7 +90,7 @@ test("bounded retention, sanitized errors, and harmless logger I/O failure", asy
 
 test("packaged foreground and detached restart share logging; both statuses retain evidence", { timeout: 25000 }, async (t) => {
   const home = await temp(t), port = await freePort();
-  const foreground = launch(home, port, roadmap, "start-server.mjs");
+  const foreground = launch(home, port, roadmap, "start-server.cjs");
   await waitStarted(home);
   for (const skill of [roadmap, spec]) {
     const healthy = await run(home, port, skill, "status.mjs");
@@ -125,7 +125,7 @@ test("fatal throw and unhandled rejection preserve nonzero default exit and stal
   for (const failure of ["throw error", "Promise.reject(error)"]) {
     const home = await temp(t), port = await freePort();
     const preload = `import fs from 'node:fs'; import path from 'node:path'; const timer=setInterval(()=>{ if (fs.existsSync(path.join(process.env.MINIMAP_HOME,'server.json'))) { clearInterval(timer); const error=new TypeError('PRIVATE_SENTINEL\\nsecret continuation'); error.code='ERR_INVALID_ARG_TYPE'; error.stack+='\\n    at PRIVATE_SENTINEL ('+${JSON.stringify(path.join(runtimeRoot, "skills/minimap-roadmap/runtime/server.js"))}+':42:3)'; ${failure}; } },20); timer.unref();`;
-    const result = await launch(home, port, roadmap, "start-server.mjs", preload).done;
+    const result = await launch(home, port, roadmap, "start-server.cjs", preload).done;
     assert.equal(result.code, 1, result.stderr);
     assert.match(result.stderr, /PRIVATE_SENTINEL/, "default fatal stderr must remain unchanged");
     const raw = await fs.readFile(lifecycleLogPath(home), "utf8");
@@ -145,7 +145,7 @@ test("signal handlers and pre-ACK parent disconnect retain shutdown reason and e
     const home = await temp(t), port = await freePort();
     const ipc = reason === "RESTART_PARENT_DISCONNECTED";
     const preload = ipc ? undefined : `import fs from 'node:fs'; import path from 'node:path'; const timer=setInterval(()=>{if(fs.existsSync(path.join(process.env.MINIMAP_HOME,'server.json'))){clearInterval(timer);process.emit(${JSON.stringify(reason)});}},20);timer.unref();`;
-    const launched = launch(home, port, roadmap, "start-server.mjs", preload, ipc);
+    const launched = launch(home, port, roadmap, "start-server.cjs", preload, ipc);
     if (ipc) launched.child.once("message", () => launched.child.disconnect());
     const result = await launched.done;
     assert.equal(result.code, code, result.stderr);
@@ -187,12 +187,12 @@ test("logger I/O failure cannot prevent packaged startup or graceful shutdown", 
 
 test("controlled startup and registry-cleanup failures leave sanitized evidence", { timeout: 15000 }, async (t) => {
   const failedHome = await temp(t);
-  const failed = await run(failedHome, "invalid", roadmap, "start-server.mjs");
+  const failed = await run(failedHome, "invalid", roadmap, "start-server.cjs");
   assert.equal(failed.code, 1);
   assert.ok((await records(failedHome)).some((e) => e.event === "startup-failed" && e.error.class === "RangeError"));
   const home = await temp(t), port = await freePort();
   const preload = `import fs from 'node:fs/promises'; const unlink=fs.unlink; fs.unlink=async function(file,...args){if(String(file).endsWith('server.json')){ const error=new Error('PRIVATE_SENTINEL');error.code='EACCES';throw error; } return unlink.call(this,file,...args);};`;
-  const foreground = launch(home, port, roadmap, "start-server.mjs", preload);
+  const foreground = launch(home, port, roadmap, "start-server.cjs", preload);
   await waitStarted(home);
   assert.equal((await run(home, port, roadmap, "stop-server.mjs")).code, 0);
   assert.equal((await foreground.done).code, 0);
