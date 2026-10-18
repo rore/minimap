@@ -5342,7 +5342,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       }
       state.worktreeLoading = false;
       await present(result.aggregate);
-      if (stillCurrent() && result.aggregate?.snapshot?.stale && cached) {
+      if (stillCurrent() && result.aggregate?.snapshot?.stale && cached && document.visibilityState === "visible") {
         state.worktreeLoading = true;
         renderBoardSourceControl();
         const fresh = await readFullSnapshot(false);
@@ -5362,7 +5362,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       if (!stillCurrent()) return;
       state.worktreeLoading = false;
       await present(options.aggregate || null, sourceWorkspace, workspace);
-      if (stillCurrent() && workspace?.snapshot?.stale && cached && !sourceWorkspace) {
+      if (stillCurrent() && workspace?.snapshot?.stale && cached && !sourceWorkspace && document.visibilityState === "visible") {
         const fresh = await readThisSnapshot(false);
         if (stillCurrent()) await present(null, null, fresh);
       }
@@ -6759,7 +6759,6 @@ function refreshVisibleRoadmap() {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    pauseWorkspaceRead();
     invalidateBoardPresence({ keepCounts: true });
   } else refreshVisibleRoadmap();
 });

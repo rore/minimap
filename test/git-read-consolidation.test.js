@@ -12,8 +12,16 @@ const originalExecFile = childProcess.execFile;
 const originalSpawn = childProcess.spawn;
 const commands = [];
 let batchReply = null;
+let graphReply = null;
+let failGraph = false;
 function observedExecFile(file, args, options, callback) {
   if (file === "git") commands.push(args);
+  if (file === "git" && args[0] === "rev-list" && failGraph) {
+    return originalExecFile(file, ["rev-list", "--invalid-option"], options, callback);
+  }
+  if (file === "git" && args[0] === "rev-list" && graphReply !== null) {
+    return originalExecFile(file, args, options, (error, stdout, stderr) => callback(error, graphReply, stderr));
+  }
   if (file === "git" && args.includes("--path-format=absolute") && batchReply) {
     return originalExecFile(file, args.filter((arg) => arg !== "--path-format=absolute"), options,
       (error, stdout, stderr) => callback(error, batchReply(stdout), stderr));
@@ -69,6 +77,8 @@ async function fixture(count = 2, sourceCount = 1) {
 
 afterEach(async () => {
   batchReply = null;
+  graphReply = null;
+  failGraph = false;
   commands.length = 0;
   for (const dir of owned.splice(0)) {
     assert.equal(path.dirname(dir), os.tmpdir());
@@ -155,6 +165,99 @@ test("four-source aggregation reduces Git work while repeated reads retain sourc
     assert.equal(commands.filter((args) => args[0] === "merge-base").length, 0);
     assert.equal(commands.length, 12);
   }
+});
+
+test("complete ancestry graph replaces pair Git reads and preserves native fallback results", async () => {
+  const { root, roots } = await fixture(2, 4);
+  for (const [index, source] of roots.entries()) {
+    await write(source, `notes/branch-${index}.txt`, String(index));
+    git(source, "add", "."); git(source, "commit", "-m", `branch ${index}`);
+  }
+  commands.length = 0;
+  const optimized = await loadWorktreeAggregate(root);
+  assert.equal(optimized.partial, false);
+  assert.equal(optimized.coverage.loaded, 4);
+  assert.equal(optimized.features[0].versions.length, 4);
+  assert.equal(commands.filter((args) => args[0] === "rev-list" && args.includes("--parents")).length, 1);
+  assert.equal(commands.filter((args) => args[0] === "merge-base").length, 0);
+  assert.equal(commands.filter((args) => args[0] === "log" && args.includes("--diff-filter=D")).length, 1);
+
+  failGraph = true;
+  commands.length = 0;
+  const native = await loadWorktreeAggregate(root);
+  assert.deepEqual(native, optimized);
+  assert.equal(commands.filter((args) => args[0] === "merge-base").length, 6);
+  assert.ok(commands.filter((args) => args[0] === "log" && args.includes("--diff-filter=D")).length > 1);
+});
+
+test("malformed and capped ancestry graphs fall back to native pair reads", async () => {
+  const { root, roots } = await fixture(2, 2);
+  for (const [index, source] of roots.entries()) {
+    await write(source, `notes/branch-${index}.txt`, String(index));
+    git(source, "add", "."); git(source, "commit", "-m", `branch ${index}`);
+  }
+  const native = await loadWorktreeAggregate(root);
+  const cases = ["invalid graph", Array.from({ length: 8192 }, (_, index) => `${index.toString(16).padStart(40, "0")}`).join("\n")];
+  for (const response of cases) {
+    graphReply = response;
+    commands.length = 0;
+    const result = await loadWorktreeAggregate(root);
+    assert.deepEqual(result, native);
+    assert.equal(commands.filter((args) => args[0] === "merge-base").length, 1);
+  }
+  graphReply = null;
+  failGraph = true;
+  commands.length = 0;
+  assert.deepEqual(await loadWorktreeAggregate(root), native);
+  assert.equal(commands.filter((args) => args[0] === "merge-base").length, 1);
+});
+
+test("deletions before pair bases prove empty ranges without changing the exact fallback", async () => {
+  const { root, dir } = await fixture(2);
+  await fs.rename(path.join(root, "roadmap"), path.join(root, "planning"));
+  await write(root, "roadmap.config.json", JSON.stringify({ roadmapPath: "planning" }));
+  await write(root, "planning/ideas/retired.md", "retired\n");
+  git(root, "add", "."); git(root, "commit", "-m", "add retired idea");
+  git(root, "rm", "planning/ideas/retired.md"); git(root, "commit", "-m", "delete retired idea");
+  const roots = [root];
+  for (let index = 1; index < 4; index += 1) {
+    const source = path.join(dir, `after-delete-${index}`);
+    git(root, "worktree", "add", "-b", `after-delete-${index}`, source);
+    await write(source, `notes/branch-${index}.txt`, String(index));
+    git(source, "add", "."); git(source, "commit", "-m", `branch ${index}`);
+    roots.push(source);
+  }
+  await write(root, "notes/branch-0.txt", "0");
+  git(root, "add", "."); git(root, "commit", "-m", "branch 0");
+  commands.length = 0;
+  const result = await loadWorktreeAggregate(root);
+  assert.equal(result.partial, false);
+  assert.equal(result.features[0].versions.length, 4);
+  const deletionReads = commands.filter((args) => args[0] === "log" && args.includes("--diff-filter=D"));
+  assert.equal(deletionReads.length, 1, JSON.stringify(deletionReads));
+  assert.ok(deletionReads[0].includes("--full-history"));
+});
+
+test("custom roadmap deletion after the base keeps the exact pair query", async () => {
+  const { root, dir } = await fixture(2);
+  await fs.rename(path.join(root, "roadmap"), path.join(root, "planning"));
+  await write(root, "roadmap.config.json", JSON.stringify({ roadmapPath: "planning" }));
+  git(root, "add", "."); git(root, "commit", "-m", "configure planning root");
+  const sibling = path.join(dir, "planning-sibling");
+  git(root, "worktree", "add", "-b", "planning-sibling", sibling);
+  git(root, "rm", "planning/features/alpha.md"); git(root, "commit", "-m", "delete alpha");
+  await write(root, "planning/features/alpha.md", item("alpha"));
+  git(root, "add", "."); git(root, "commit", "-m", "recreate alpha");
+  await write(sibling, "notes/sibling.txt", "sibling\n");
+  git(sibling, "add", "."); git(sibling, "commit", "-m", "advance sibling");
+  commands.length = 0;
+  const result = await loadWorktreeAggregate(root);
+  assert.equal(result.partial, false);
+  assert.equal(result.features.filter((feature) => feature.id === "alpha").length, 2);
+  const deletionReads = commands.filter((args) => args[0] === "log" && args.includes("--diff-filter=D"));
+  assert.equal(deletionReads.length, 2, JSON.stringify(commands));
+  assert.ok(deletionReads.some((args) => args.includes("--full-history") && args.includes("planning/features")));
+  assert.ok(deletionReads.some((args) => !args.includes("--full-history") && args.includes("planning/features")));
 });
 
 test("indexed assembly preserves first appearances, duplicate membership and independent same-ID items", async () => {
