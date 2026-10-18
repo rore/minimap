@@ -2392,7 +2392,7 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     const afterOrder = (await fs.readFile(boardPath, "utf8")).match(/^- (.+)$/gm).map((line) => line.slice(2));
     expect(afterOrder.indexOf(movedId)).toBe(afterOrder.indexOf(anchorId) + 1);
     expect(afterOrder.filter((id) => id !== movedId)).toEqual(beforeOrder.filter((id) => id !== movedId));
-    await page.goto(`/?qa=dense-list#repo=${encodeURIComponent(fixture)}`);
+    await page.goto(`/?qa=dense-list#repo=${encodeURIComponent(fixture)}&boardView=1`);
     await expect(page.locator("#board-view-toggle")).toContainText("By lane");
     await expect(page.locator("#board-search")).toHaveValue("");
     await expect(page.locator(`[data-item-id="${movedId}"]`)).toBeVisible();

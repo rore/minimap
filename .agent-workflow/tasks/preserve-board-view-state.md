@@ -57,6 +57,12 @@ Fresh Redline verdict was generated from `git diff origin/main` including this w
 
 ## Result review
 
+Human result review, 2026-10-18: user answered **"Approve merge after CI"** to the concrete PR #53 result covering board settings/scroll, checkout exclusions, the badge timeout fix, focused tests and desktop/narrow visual checks, and the Related-work metadata gap. Merge is authorized once full CI passes. Live restart and installation changes were explicitly excluded.
+
+Full browser CI then reached an older dense-board stress test whose bare navigation expected the query to reset. Updated that intentional reset route with `boardView=1`, preserving all existing query, ordering, and geometry assertions. Independent reviewer `/root/related_work_result_review` PASSed this test-only correction; product code is unchanged.
+
+Correction validation: focused stress test 1/1 and stress-plus-later board/navigation tests 9/9 passed. A full isolated Windows roadmap suite was not a pass: its checkout-name assertion expects `minimap`, and a subsequent run excluding that stopped on Windows EBUSY fixture cleanup after 16 passes. Linux full CI remains the final suite gate; no failed run is counted as successful.
+
 Agent technical review: `/root/related_work_result_review` independently PASSed the final UI diff on 2026-10-18 with no remaining product or test blocker.
 
 Reviewed revision: planning HEAD `de22d97` plus frozen top-level `app.js` SHA-256 `3B0557364538426F2E9FAE3395B895548D843DBB14E7D8ECAD070B8BFA8288CC` (both runtime mirrors identical) and browser tests SHA-256 `8BDEB5B399AEB09BB39A1949B1B6341F2D34B2F09DB1C2F6004EDD8ADE3B99D1` / `C5FB9DC24D1DC322464054EF8873EF669473AD28FB77E6EBD6B31446DDAB5BF6`.
