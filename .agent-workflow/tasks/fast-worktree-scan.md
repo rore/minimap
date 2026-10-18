@@ -29,10 +29,14 @@ Isolated owner checkout: `.local/fast-worktree-scan`, branch `feat/fast-worktree
 
 ## Verification evidence
 
-UI lifecycle regression run: 17 existing/updated cases passed; after correcting changed-content fixture identities, all six focused hidden completion/stale response/cold failure/timeout cases passed in 19.5 seconds. Root inspected rendered Across List and Columns screenshots at desktop and narrow widths. Backend qualification and full CI remain pending.
+UI lifecycle regression run: 17 existing/updated cases passed; after correcting changed-content fixture identities, all six focused hidden completion/stale response/cold failure/timeout cases passed in 19.5 seconds. Root inspected rendered Across List and Columns screenshots at desktop and narrow widths. Final qualification results follow; full CI remains a merge gate.
 
 Same-state read-only Pallium comparison (UV_THREADPOOL_SIZE=8): optimized aggregate 7.53 seconds, forced-native 32.62 seconds. Deep equality passed for workspace, features, groups, coverage, partial state, exclusions and unavailable state: 25 loaded checkouts, 162 features, no exclusions or identity uncertainties. Earlier optimized sample was 6.85 seconds; observed pre-fix sample was 37.623 seconds. Aggregate timing excludes final HTTP enrichment/transport and browser rendering. Native fallback remains slower for incomplete or oversized graphs.
 
 Focused backend verification: node --test test/git-read-consolidation.test.js test/worktree-aggregate.test.js passed 45/45. Additional test/worktree-ancestry-proof.test.js passed 6/6; revised non-root shallow boundary and unknown deletion hash cases passed again. Coverage includes native parity, custom roots, deletion/recreation, squash and merge resolution, criss-cross multiple bases, shallow/replaced histories, invalid/truncated/capped evidence, cancellation, fresh identity races and unchanged concurrency limits.
 
 Final complete snapshot-refresh Playwright suite: 20/20 passed in 53.2 seconds against the isolated packaged runtime. Desktop/narrow List and Columns captures retained under artifacts/fast-worktree-scan; root visually inspected both layouts. No live environment changes.
+
+## Independent result review
+
+Independent scan_review approved exact implementation revision 4229da9e86378705c46d32f21af06ca655a2aed5 against base 4352c08167efbeed1304676bbf15bb2db98d6aa3. Reviewed backend proof and fallback logic, edge cases, UI lifecycle and timeout tests, contract docs, Work Record and mirror hashes. No blocking findings; prior review requests resolved. Full CI and PR checks remain required before merge. The user explicitly authorized this scoped result through merge without repeated approval prompts; no live deployment is covered.

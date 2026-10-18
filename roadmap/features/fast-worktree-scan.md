@@ -21,7 +21,7 @@ Pallium's 25-worktree aggregate took 37.6 seconds despite only 162 distinct feat
 
 ## Delivery
 
-Work Record: `.agent-workflow/tasks/fast-worktree-scan.md`. Discovery in progress in the isolated owner checkout. Prior completion/fairness work remains delivered; this item addresses the measured real-history bottleneck and interrupted scans.
+Work Record: `.agent-workflow/tasks/fast-worktree-scan.md`. Implementation and independent technical review are complete. Full CI and merge are the remaining delivery gates. No live deployment is included.
 
 ## Implementation and qualification
 
