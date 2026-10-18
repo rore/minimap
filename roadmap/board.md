@@ -1,5 +1,4 @@
 # Now
-- nonblocking-performance-pass
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -14,6 +13,7 @@
 - idea-timeline-view
 
 # Done
+- nonblocking-performance-pass
 - preserve-board-view-state
 - consolidate-roadmap-refresh
 - restore-worktree-participant-badges
