@@ -29,3 +29,7 @@ Requested 2026-10-18. Discovery and plan review in `feat/recent-worktrees-and-bl
 ## Qualification status
 
 The 25-source selection and blocked filter are implemented in the isolated branch, with focused discovery tests and rendered This/Across List/Columns checks passing. The 25x100 performance cell passed; two concurrent cold 25x1000 snapshots exceeded the existing 30-second request deadline. A single-stage probe measured about 10 seconds in 75 serial Git identity checks out of 23 seconds total. A bounded identity-check batching correction is under review; freshness checks and deadlines must remain unchanged. Delivery remains pending this qualification issue.
+
+Draft delivery: https://github.com/rore/minimap/pull/57. Bounded identity batching is implemented at `70c711a`; concurrent qualification and independent result review remain pending.
+
+After batching, cold full loading improved from 26.3s to 18.2s. Requalification still returned one 503 at 30.1s for two concurrent 25x1000 projects; PR #57 remains draft and performance acceptance is blocked. Next diagnostic isolates final-validation parsing cost; no further product change or live restart is authorized by this result.
