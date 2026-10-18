@@ -596,22 +596,48 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
   expect(participantRequests).toEqual(["feature-setup-guidance"]);
 
-  await details.locator("summary").click();
+  await details.locator(":scope > summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
   await expect(page.locator("#item-participants-list .item-participant")).toHaveCount(3);
-  await expect(page.locator("#item-participants-list")).toContainText("codex");
-  await expect(page.locator("#item-participants-list .badge")).toHaveText([
-    "codex", "Session: active", "Lifecycle: recent", "Destination: active",
-    "claude-code", "Session: active", "Lifecycle: dormant", "Destination: active",
-    "codex", "Session: active", "Lifecycle: closed", "Destination: active",
-  ]);
-  await expect(page.locator("#item-participants-list")).toContainText("Recent");
-  await expect(page.locator("#item-participants-list .item-participant-group")).toHaveCount(3);
-  for (const [index, lifecycle] of ["Recent", "Dormant", "Closed"].entries()) {
-    await expect(page.locator("#item-participants-list .item-participant-group").nth(index)).toContainText(lifecycle);
-  }
-  await expect(page.locator(".item-participant-freshness").first()).toContainText("Session last seen");
-  await page.screenshot({ path: test.info().outputPath("participant-detail-desktop.png") });
+  await expect(page.locator("#item-participants-list .item-participant:visible")).toHaveCount(1);
+  await expect(page.locator("#item-participants-list .item-participant:visible").first()).toContainText("codex");
+  await expect(page.locator(".item-participant-freshness").first()).toContainText("Last seen");
+  await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath("participant-detail-list-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath("participant-detail-list-narrow.png") });
+  await page.setViewportSize({ width: 1440, height: 820 });
+  const participantDetails = page.locator(".item-participant-details").first();
+  await participantDetails.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(participantDetails).toHaveAttribute("open", "");
+  await expect(participantDetails).toContainText("session-0");
+  await expect(participantDetails).toContainText("Container");
+  await expect(participantDetails).toContainText("Session: active");
+  await expect(participantDetails).toContainText("Lifecycle: recent");
+  await expect(participantDetails).toContainText("Destination: active");
+  await expect(participantDetails).toContainText("git:github.com/rore/minimap");
+  await expect(participantDetails).toContainText("Association updated");
+  const lifecycleDetails = page.locator(".item-participant-lifecycle");
+  await expect(lifecycleDetails).toHaveCount(2);
+  await expect(lifecycleDetails.nth(0).locator(":scope > summary")).toContainText("Dormant sessions");
+  await expect(lifecycleDetails.nth(1).locator(":scope > summary")).toContainText("Closed sessions");
+  await lifecycleDetails.nth(0).locator(":scope > summary").click();
+  await expect(lifecycleDetails.nth(0)).toContainText("worker-1");
+  await expect(lifecycleDetails.nth(0)).toContainText("claude-code");
+  await lifecycleDetails.nth(1).locator(":scope > summary").click();
+  await expect(lifecycleDetails.nth(1)).toContainText("worker-2");
+  await expect(lifecycleDetails.nth(1)).toContainText("codex");
+  const referenceDetails = page.locator("#item-participants-reference");
+  await referenceDetails.locator(":scope > summary").click();
+  await expect(referenceDetails).toHaveAttribute("open", "");
+  await expect(referenceDetails).toContainText("Scope");
+  await expect(referenceDetails).toContainText("Last seen measures session activity, not work on this feature or staffing.");
+  await expect(referenceDetails).toContainText("Use a linked Pallium session to remove explicit associations");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.locator("#item-participants-copy").click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText().then((text) => text.replaceAll("\r", "")))).toBe("scope_ref: roadmap:v1:git:github.com/rore/minimap#roadmap\nlocal_ref: item:v1:feature-setup-guidance");
   await expect(page.locator("#item-participants-list")).toContainText("git:github.com/rore/minimap");
   const sessionLink = page.locator("#item-participants-list a").first();
   await expect(sessionLink).toHaveAttribute("href", "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000");
@@ -620,17 +646,43 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(sessionLink).toHaveAttribute("aria-label", "Open minimap-dev session in Pallium");
   await expect(sessionLink).toHaveAttribute("title", "Open session in Pallium");
   await expect(page.locator("#item-participants-scope")).toHaveText("roadmap:v1:git:github.com/rore/minimap#roadmap");
+  await expect(page.locator("#item-participants-copy")).toBeEnabled();
+  for (const section of await lifecycleDetails.all()) {
+    if (await section.evaluate((element) => element.open)) await section.locator(":scope > summary").click();
+  }
+  await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath("participant-detail-expanded-reference.png") });
 
+  for (const section of await lifecycleDetails.all()) {
+    if (!(await section.evaluate((element) => element.open))) await section.locator(":scope > summary").click();
+  }
   currentAlias = "renamed-session";
+  await page.locator("#item-participants-refresh").click();
+  await expect(page.locator(".item-participant:visible").first()).toContainText("renamed-session");
+  await expect(page.locator(".item-participant-details").first()).toHaveAttribute("open", "");
+  await expect(page.locator(".item-participant-lifecycle").first()).toHaveAttribute("open", "");
+  await expect(page.locator("#item-participants-reference")).toHaveAttribute("open", "");
+  await participantDetails.locator("summary").click();
+  for (const section of await lifecycleDetails.all()) {
+    await section.locator(":scope > summary").click();
+  }
+  await referenceDetails.locator(":scope > summary").click();
+  await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
   await expect(page.locator("#editor-overlay")).toBeVisible();
   await expect(page.locator("#item-participants-list")).toContainText("renamed-session");
   await expect(page.locator("#item-participants-list a").first()).toHaveAttribute("href", "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000");
-  await page.setViewportSize({ width: 760, height: 740 });
+  await page.setViewportSize({ width: 1440, height: 820 });
+  await expect(page.locator(".item-participant-details").first()).not.toHaveAttribute("open", "");
+  await expect(page.locator(".item-participant-lifecycle[open]")).toHaveCount(0);
+  await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath("participant-detail-columns-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
-  await page.screenshot({ path: test.info().outputPath("participant-detail-narrow.png") });
-  expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
+  await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: test.info().outputPath("participant-detail-columns-narrow.png") });
+  expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance", "feature-setup-guidance"]);
 });
 
 test("escapes linked participant names and keeps unlinked participants as plain text", async ({ page }) => {
@@ -639,17 +691,18 @@ test("escapes linked participant names and keeps unlinked participants as plain 
     const payload = participantPayload(itemId, "<unsafe participant>", 2);
     delete payload.participants[1].session_url;
     payload.participants[1].alias = null;
-    payload.participants[1].title = "Title fallback";
+    payload.participants[1].title = null;
+    payload.participants[1].session_ref = "fallback-session";
     await route.fulfill({ json: payload });
   });
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
-  await page.locator("#item-participants summary").click();
+  await page.locator("#item-participants > summary").click();
   const cards = page.locator(".item-participant");
   await expect(cards.nth(0).locator("a")).toHaveText("<unsafe participant>");
   await expect(cards.nth(0).locator("unsafe")).toHaveCount(0);
   await expect(cards.nth(1).locator("a")).toHaveCount(0);
-  await expect(cards.nth(1).locator("strong")).toHaveText("Title fallback");
+  await expect(cards.nth(1).locator("strong")).toHaveText("fallback-session");
 });
 test("keeps participants usable for selected items on dense List and Columns boards", async ({ page }) => {
   test.setTimeout(60_000);
@@ -706,7 +759,7 @@ test("keeps participants usable for selected items on dense List and Columns boa
           await expect(details).toBeVisible();
           if (scenario.badges) await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(scenario.badges);
           else await expect(page.locator("#item-participants-status")).toHaveText(scenario.status);
-          await details.locator("summary").click();
+          await details.locator(":scope > summary").click();
           await expect(page.locator("#item-participants-list")).toContainText(scenario.message);
           const participantBox = await page.locator(".item-participants-body").boundingBox();
           expect(participantBox?.width).toBeGreaterThan(120);
@@ -742,7 +795,12 @@ test("keeps the item pane usable with 200 participant records", async ({ page })
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
   await expect(details.locator("summary .badge").filter({ hasText: /^Partial$/ })).toHaveText("Partial");
-  await details.locator("summary").click();
+  await details.locator(":scope > summary").click();
+  for (const section of await page.locator(".item-participant-lifecycle").all()) {
+    if (!(await section.evaluate((element) => element.open))) {
+      await section.locator(":scope > summary").click();
+    }
+  }
   await expect(page.locator(".item-participant")).toHaveCount(200);
   await page.locator(".item-participant").last().scrollIntoViewIfNeeded();
   await expect(page.locator(".item-participant").last()).toBeVisible();
@@ -758,6 +816,11 @@ test("keeps the item pane usable with 200 participant records", async ({ page })
   await page.locator("#board-layout-columns").click();
   await page.locator('[data-item-open="feature-setup-guidance"]').click();
   await expect(page.locator("#editor-overlay")).toBeVisible();
+  for (const section of await page.locator(".item-participant-lifecycle").all()) {
+    if (!(await section.evaluate((element) => element.open))) {
+      await section.locator(":scope > summary").click();
+    }
+  }
   await expect(page.locator(".item-participant")).toHaveCount(200);
   await page.locator(".item-participant").last().scrollIntoViewIfNeeded();
   await expect(page.locator(".item-participant").last()).toBeVisible();
@@ -777,12 +840,15 @@ test("avoids a scrollbar when one-participant details fit", async ({ page }) => 
     await route.fulfill({ json: participantPayload(itemId) });
   });
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
-  await page.locator("#item-participants summary").click();
+  await page.locator("#item-participants > summary").click();
   const geometry = await page.locator(".item-participants-body").evaluate((body) => ({
     clientHeight: body.clientHeight,
     scrollHeight: body.scrollHeight,
   }));
+  const participantPanelHeight = await page.locator("#item-participants").evaluate((element) => element.getBoundingClientRect().height);
   expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.clientHeight + 1);
+  expect(participantPanelHeight).toBeGreaterThanOrEqual(150);
+  expect(participantPanelHeight).toBeLessThanOrEqual(200);
 });
 test("keeps participant lookup invisible and ordinary editing usable when Pallium is not configured", async ({ page }) => {
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
@@ -833,7 +899,7 @@ test("does not let an in-flight participant response replace the latest selectio
   await page.locator('[data-item-id="feature-search-and-filters"]').click();
   await expect(page.locator("#editor-title")).toContainText("Search");
   await expect(page.locator("#item-participants")).toBeVisible();
-  await page.locator("#item-participants summary").click();
+  await page.locator("#item-participants > summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("current-session");
   await page.waitForTimeout(400);
   await expect(page.locator("#item-participants-list")).not.toContainText("stale-session");
