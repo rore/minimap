@@ -15,7 +15,7 @@ function responseHold() {
   return { pending, release };
 }
 
-async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true } = {}) {
+async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true, openItem = false } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-snapshot-ui-"));
   owned.push(root);
   await fs.mkdir(path.join(root, "roadmap", "features"), { recursive: true });
@@ -52,7 +52,7 @@ async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true } =
       : interval(callback, delay, ...args);
   });
   if (beforeOpen) await beforeOpen({ root, payload });
-  await page.goto(`/#repo=${encodeURIComponent(root)}&sources=${mode}&layout=${layout}`);
+  await page.goto(`/#repo=${encodeURIComponent(root)}&sources=${mode}&layout=${layout}${openItem ? "&item=alpha" : ""}`);
   if (waitForBoard) await expect(page.locator("#board-groups")).toContainText("Alpha");
   return { root, payload, setRecent: (value) => { recent = value; }, fail: () => { fail = true; }, observations: () => observations, reads: () => reads, requests,
     setSpec: () => {
@@ -63,6 +63,20 @@ async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true } =
     expire: () => { payload.snapshot = { ...payload.snapshot, stale: true, validatedAt: new Date(Date.now() - 31_000).toISOString() }; } };
 }
 
+function detailParticipantPayload(alias) {
+  return {
+    status: "ok",
+    reference: { scope_ref: "roadmap:v1:fixture", local_ref: "item:v1:alpha" },
+    partial: false,
+    participants: [{
+      alias, title: alias, runtime: "codex", lifecycle: "recent", state: "active", destination_health: "active",
+      session_ref: `relay-session-${alias.toLowerCase().replaceAll(" ", "-")}`,
+      session_url: "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000",
+      last_seen_at: new Date().toISOString(), association: { origins: ["fixture"], updated_at: new Date().toISOString() },
+    }],
+  };
+}
+
 test.afterEach(async () => {
   for (const release of releases.splice(0)) release();
   for (const root of owned.splice(0)) {
@@ -70,6 +84,215 @@ test.afterEach(async () => {
     expect(path.basename(root)).toMatch(/^minimap-snapshot-ui-/);
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
+});
+
+for (const mode of ["this", "across"]) for (const layout of ["list", "columns"]) {
+  test(`${mode} ${layout} reuses feature-detail reads through reopen and short hide-resume, then refreshes at expiry`, async ({ page }, testInfo) => {
+    const heldParticipantRead = responseHold();
+    let participantReads = 0, relatedReads = 0, holdNextParticipant = false, participantHeld = false;
+    const data = await fixture(page, mode, layout, async ({ payload }) => {
+      const selected = mode === "across" ? payload.sources[0] : null;
+      const relatedSource = selected ? {
+        repoRoot: selected.repoRoot, sourceKey: selected.sourceKey, headCommit: selected.git.headCommit,
+      } : undefined;
+      await page.route(/\/api\/(?:source\/)?items\/alpha\/participants(?:\?|$)/, async (route) => {
+        participantReads++;
+        if (holdNextParticipant) {
+          holdNextParticipant = false;
+          participantHeld = true;
+          await heldParticipantRead.pending;
+        }
+        await route.fulfill({ json: detailParticipantPayload(participantHeld ? "Fresh Session" : "Old Session") });
+      });
+      await page.route(/\/api\/(?:source\/)?items\/alpha\/related-work(?:\?|$)/, async (route) => {
+        relatedReads++;
+        await route.fulfill({ json: {
+          status: "ok", records: [{ id: "agent-workflow:delivery", title: "Clarify feature task records", recordedState: "Ready for review", pullRequests: ["https://github.com/example/project/pull/12"] }], total: 1, generation: "detail-generation", nextOffset: null,
+          source: relatedSource,
+        } });
+      });
+    }, { openItem: true });
+
+    await expect(page.locator("#item-preview")).toContainText("Generic feature.");
+    await expect.poll(() => participantReads).toBe(1);
+    await expect.poll(() => relatedReads).toBe(1);
+    await expect(page.locator("#item-participants-list")).toContainText("Old Session");
+    await expect(page.locator("#related-work > summary")).toContainText("Tasks linked to this feature");
+    await page.locator("#related-work > summary").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#related-work")).toHaveAttribute("open", "");
+    const itemButton = page.getByRole("button", { name: "Open Alpha", exact: true }).first();
+    const reopenSameItem = async () => {
+      if (await page.locator("#editor-overlay").isVisible()) await page.keyboard.press("Escape");
+      await itemButton.click();
+      await expect(page.locator("#item-preview")).toContainText("Generic feature.");
+    };
+    await reopenSameItem();
+    await expect.poll(() => participantReads).toBe(1);
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(participantReads).toBe(1);
+    expect(relatedReads).toBe(1);
+
+    await page.locator("#item-participants > summary").click();
+    holdNextParticipant = true;
+    await page.locator("#item-participants-refresh").click();
+    await expect.poll(() => participantHeld).toBe(true);
+    await reopenSameItem();
+    expect(participantReads).toBe(2);
+    heldParticipantRead.release();
+    await expect(page.locator("#item-participants-list")).toContainText("Fresh Session");
+    await expect(page.locator(".item-participants-refresh-error")).toHaveCount(0);
+
+    await page.locator("#related-work").evaluate((details) => { details.open = true; });
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-feature-detail-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+    expect(await page.locator("#related-work-content").evaluate((content) => content.scrollWidth - content.clientWidth)).toBeLessThanOrEqual(2);
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-feature-detail-narrow.png`) });
+    await page.locator("#related-work").screenshot({ path: testInfo.outputPath(`${mode}-${layout}-tasks-narrow.png`) });
+
+    const beforeExpiry = { participantReads, relatedReads };
+    await page.evaluate(() => {
+      const now = Date.now();
+      Date.now = () => now + 31_000;
+      window.__refreshTicks.forEach((tick) => tick());
+    });
+    await expect.poll(() => participantReads).toBe(beforeExpiry.participantReads + 1);
+    await expect.poll(() => relatedReads).toBe(beforeExpiry.relatedReads + 1);
+    expect(data.reads()).toBeGreaterThan(0);
+
+    const beforeManual = { participantReads, relatedReads };
+    await page.locator("#refresh-button").evaluate((button) => button.click());
+    await expect.poll(() => participantReads).toBe(beforeManual.participantReads + 1);
+    await expect.poll(() => relatedReads).toBe(beforeManual.relatedReads + 1);
+  });
+}
+
+test("detail reads completing while the overlay is closed remain reusable", async ({ page }) => {
+  const held = responseHold();
+  let participantReads = 0, relatedReads = 0;
+  await fixture(page, "this", "columns", async () => {
+    await page.route(/\/api\/items\/alpha\/participants(?:\?|$)/, async (route) => {
+      participantReads++;
+      await held.pending;
+      await route.fulfill({ json: detailParticipantPayload("Closed Session") });
+    });
+    await page.route(/\/api\/items\/alpha\/related-work(?:\?|$)/, async (route) => {
+      relatedReads++;
+      await held.pending;
+      await route.fulfill({ json: { status: "partial", records: [], total: 0, generation: "closed-generation", nextOffset: null, coverage: { legacy: 1 } } });
+    });
+  }, { openItem: true });
+  await expect.poll(() => participantReads).toBe(1);
+  await expect.poll(() => relatedReads).toBe(1);
+  await page.keyboard.press("Escape");
+  const settled = Promise.all([
+    page.waitForResponse((response) => response.url().includes("/participants")).then((response) => response.finished()),
+    page.waitForResponse((response) => response.url().includes("/related-work")).then((response) => response.finished()),
+  ]);
+  held.release();
+  await settled;
+  await page.getByRole("button", { name: "Open Alpha", exact: true }).click();
+  await expect(page.locator("#item-participants-list")).toContainText("Closed Session");
+  await expect(page.locator("#related-work > summary")).toContainText("List may be incomplete");
+  expect(participantReads).toBe(1);
+  expect(relatedReads).toBe(1);
+});
+
+test("manual Refresh supersedes pending automatic detail reads", async ({ page }) => {
+  const held = responseHold();
+  let participantReads = 0, relatedReads = 0;
+  await fixture(page, "this", "list", async () => {
+    await page.route(/\/api\/items\/alpha\/participants(?:\?|$)/, async (route) => {
+      const read = ++participantReads;
+      if (read === 1) await held.pending;
+      await route.fulfill({ json: detailParticipantPayload(read === 1 ? "Obsolete Session" : "Manual Session") });
+    });
+    await page.route(/\/api\/items\/alpha\/related-work(?:\?|$)/, async (route) => {
+      const read = ++relatedReads;
+      if (read === 1) await held.pending;
+      await route.fulfill({ json: { status: "ok", records: [], total: read === 1 ? 99 : 0, generation: `generation-${read}`, nextOffset: null } });
+    });
+  }, { openItem: true });
+  await expect.poll(() => participantReads).toBe(1);
+  await expect.poll(() => relatedReads).toBe(1);
+  await page.locator("#refresh-button").click();
+  await expect.poll(() => participantReads).toBe(2);
+  await expect.poll(() => relatedReads).toBe(2);
+  await expect(page.locator("#item-participants-list")).toContainText("Manual Session");
+  held.release();
+  await expect(page.locator("#item-participants-list")).not.toContainText("Obsolete Session");
+  await expect(page.locator("#related-work > summary")).toContainText("None");
+});
+
+test("detail reads retain partial coverage, recover failures, and isolate rapid item and uncommitted revision changes", async ({ page }) => {
+  const held = responseHold();
+  const failedRefresh = responseHold();
+  const reads = { alpha: 0, beta: 0 };
+  let failNext = false;
+  const data = await fixture(page, "this", "columns", async ({ root, payload }) => {
+    await fs.writeFile(path.join(root, "roadmap", "features", "beta.md"), "---\nid: beta\ntitle: Beta\nstatus: queued\npriority: medium\ncommitment: committed\n---\n\n## Summary\n\nBeta feature.\n");
+    await fs.writeFile(path.join(root, "roadmap", "board.md"), "# Now\n- alpha\n- beta\n");
+    Object.assign(payload, await loadWorkspace(root));
+    await page.route(/\/api\/items\/(alpha|beta)\/participants(?:\?|$)/, async (route) => {
+      const id = new URL(route.request().url()).pathname.split("/")[3];
+      reads[id]++;
+      if (id === "beta") await held.pending;
+      if (failNext) {
+        failNext = false;
+        await failedRefresh.pending;
+        await route.fulfill({ status: 503, json: { error: { message: "Temporary participant failure" } } });
+      } else await route.fulfill({ json: { ...detailParticipantPayload(`${id} Session ${reads[id]}`), partial: true } });
+    });
+    await page.route(/\/api\/items\/(alpha|beta)\/related-work(?:\?|$)/, async (route) => {
+      await route.fulfill({ json: { status: "partial", records: [], total: 0, generation: "partial-generation", nextOffset: null, coverage: { unreadable: 1 } } });
+    });
+  }, { openItem: true });
+  const close = () => page.keyboard.press("Escape");
+  const open = (title) => page.getByRole("button", { name: `Open ${title}`, exact: true }).first().click();
+  await expect(page.locator("#item-participants-list")).toContainText("alpha Session 1");
+  await page.locator("#item-participants > summary").click();
+  failNext = true;
+  await page.locator("#item-participants-refresh").click();
+  await expect.poll(() => reads.alpha).toBe(2);
+  await page.getByRole("button", { name: "Open Alpha", exact: true }).evaluate((button) => button.click());
+  expect(reads.alpha).toBe(2);
+  failedRefresh.release();
+  await expect(page.locator(".item-participants-refresh-error")).toContainText("last successful results");
+  await expect(page.locator("#item-participants-list")).toContainText("alpha Session 1");
+  await page.locator("#item-participants-refresh").click();
+  await expect(page.locator("#item-participants-list")).toContainText("alpha Session 3");
+  await expect(page.locator(".item-participants-refresh-error")).toHaveCount(0);
+  await close();
+  await open("Alpha");
+  await expect(page.locator("#item-participants-list")).toContainText("alpha Session 3");
+  expect(reads.alpha).toBe(3);
+  await expect(page.locator("#item-participants-status")).toContainText("Partial");
+  await expect(page.locator("#related-work > summary")).toContainText("List may be incomplete");
+  await page.locator("#related-work > summary").click();
+  await expect(page.locator("#related-work-content")).toContainText("some records could not be checked");
+  await expect(page.locator("#related-work-content")).not.toContainText("older task records");
+
+  await close();
+  await fs.appendFile(path.join(data.root, "roadmap", "features", "alpha.md"), "\nUncommitted update.\n");
+  await open("Alpha");
+  await expect(page.locator("#item-preview")).toContainText("Uncommitted update.");
+  await expect(page.locator("#item-participants-list")).toContainText("alpha Session 4");
+  await close();
+  await open("Beta");
+  await expect.poll(() => reads.beta).toBe(1);
+  await close();
+  await open("Alpha");
+  held.release();
+  await expect(page.locator("#item-participants-list")).toContainText("alpha Session 4");
+  await expect(page.locator("#item-participants-list")).not.toContainText("beta Session");
+  expect(reads.alpha).toBe(4);
 });
 
 for (const mode of ["this", "across"]) for (const layout of ["list", "columns"]) {

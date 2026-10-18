@@ -12,6 +12,8 @@ labels:
 
 ## Summary
 
+2026-10-18 UI follow-up (implementation and qualification in `feat/clear-task-details`, pending merge): feature detail names linked development task records explicitly, explains missing legacy links separately from records that could not be checked, and retains partial warnings with valid results. Participant and task reads reuse exact-scope successful results for at most 30 seconds and share pending reads across brief reopen/visibility cycles; manual Refresh forces fresh reads. This slice does not complete the deferred rollout below.
+
 Delivery update (2026-10-17): [PR #49](https://github.com/rore/minimap/pull/49) is merged and verified in the restarted shared service. Personal Spec Review and Dictation's roadmap skill are updated. The feature remains in progress for rollout reconciliation: Pallium's canonical and stable copies are deferred at its manager's request during wake-delivery diagnosis. Implementation and installed UI acceptance are complete; do not repeat them because of delayed messages.
 
 Open a feature and see the Work Records and pull requests that cite it. Derive this view from authoritative Work Record references; neither agents nor Minimap maintain a reverse list on the feature. Updates appear while Minimap runs, without holding up startup, board reads, editing, or Refresh.
