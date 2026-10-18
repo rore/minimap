@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -30,7 +33,92 @@ async function fixture(ancestorText = item("shared"), extra = 0) {
   git(main, "worktree", "add", "-b", "feature/sibling", sibling);
   return { main, sibling };
 }
-afterEach(async () => { for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
+
+test("overlapping lineage pairs share in-flight Git evidence within one scan", async () => {
+  const { main, sibling } = await fixture();
+  for (const [root, name] of [[main, "main"], [sibling, "sibling"]]) {
+    await write(root, `notes/${name}.txt`, name);
+    git(root, "add", `notes/${name}.txt`); git(root, "commit", "-m", name);
+  }
+  const source = (root) => ({ repoRoot: root, git: { headCommit: git(root, "rev-parse", "HEAD") },
+    workspace: { items: { shared: { filePath: path.join(root, "roadmap/features/shared.md") } } } });
+  const left = source(main), right = source(sibling);
+  const writes = { bases: 0, trees: 0, deletions: 0 };
+  const cache = { histories: new Map(), historyLoads: 0, historyChanges: 0 };
+  for (const name of Object.keys(writes)) {
+    cache[name] = new Map();
+    cache[name].set = function (key, value) { writes[name]++; return Map.prototype.set.call(this, key, value); };
+  }
+  const results = await Promise.all(Array.from({ length: 8 }, () => sharedPaths(left, right, "roadmap", cache)));
+  for (const result of results) {
+    assert.equal(result.paths.get("roadmap/features/shared.md"), "shared");
+    assert.equal(result.uncertainty, null);
+  }
+  assert.deepEqual(writes, { bases: 1, trees: 1, deletions: 2 });
+  assert.ok([...cache.bases.values(), ...cache.trees.values(), ...cache.deletions.values()].every((value) => value instanceof Promise));
+});
+
+test("real aggregate reads keep four lineage children per scan and eight across opened checkouts", async () => {
+  const { main, sibling } = await fixture();
+  for (const [index, root] of [main, sibling].entries()) {
+    await write(root, `notes/initial-${index}.txt`, `${index}`);
+    git(root, "add", "."); git(root, "commit", "-m", `initial ${index}`);
+  }
+  for (let index = 0; index < 4; index++) {
+    const linked = path.join(path.dirname(main), `extra-${index}`);
+    git(main, "worktree", "add", "-b", `feature/extra-${index}`, linked);
+    await write(linked, `notes/extra-${index}.txt`, `${index}`);
+    git(linked, "add", "."); git(linked, "commit", "-m", `extra ${index}`);
+  }
+  const originalExecFile = childProcess.execFile, originalSpawn = childProcess.spawn;
+  let running = 0, maximum = 0;
+  let abortController, cancelledStarts = 0, startedAfterAbort = false;
+  const track = (child, file) => {
+    if (file === "git") {
+      maximum = Math.max(maximum, ++running);
+      child.once("close", () => { running--; });
+      if (abortController) {
+        startedAfterAbort ||= abortController.signal.aborted;
+        if (++cancelledStarts === 4) abortController.abort(new Error("cancelled real scan"));
+      }
+    }
+    return child;
+  };
+  function observed(file, args, ...rest) { return track(originalExecFile(file, args, ...rest), file); }
+  observed[promisify.custom] = (...args) => new Promise((resolve, reject) => observed(...args, (error, stdout, stderr) => {
+    if (error) { error.stdout = stdout; error.stderr = stderr; reject(error); }
+    else resolve({ stdout, stderr });
+  }));
+  try {
+    childProcess.execFile = observed;
+    childProcess.spawn = (file, ...args) => track(originalSpawn(file, ...args), file);
+    syncBuiltinESMExports();
+    const { loadWorktreeAggregate: measuredAggregate } = await import("../package/minimap/src/worktree-aggregate.js?concurrency-regression");
+    const single = await measuredAggregate(main);
+    assert.equal(single.coverage.loaded, 6);
+    assert.ok(maximum > 1 && maximum <= 4, `single scan used ${maximum} lineage children`);
+    assert.equal(running, 0);
+    maximum = 0;
+    const results = await Promise.all([measuredAggregate(main), measuredAggregate(sibling)]);
+    assert.ok(maximum > 4 && maximum <= 8, `concurrent scans used ${maximum} lineage children`);
+    assert.equal(running, 0);
+    for (const result of results) {
+      assert.equal(result.coverage.loaded, 6);
+      assert.equal(result.features.length, 1);
+      assert.equal(result.features[0].versions.length, 6);
+      assert.equal(result.coverage.identityUncertain.length, 0);
+    }
+    abortController = new AbortController();
+    await assert.rejects(measuredAggregate(main, { signal: abortController.signal }), /cancelled real scan/);
+    assert.equal(running, 0, "failed batches must drain their owned children before rejecting");
+    assert.equal(startedAfterAbort, false, "cancelled scans must not launch more Git children");
+  } finally {
+    childProcess.execFile = originalExecFile;
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
+  }
+});
 
 test("shared ancestor merges divergent revisions, retains exact source values, and orders opened cards first", async () => {
   const { main, sibling } = await fixture();

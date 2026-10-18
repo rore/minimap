@@ -71,6 +71,8 @@ const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
 const SCOPE_WIDTH_STORAGE_KEY = "roadmap-ui.scope-width";
 const BOARD_WIDTH_STORAGE_KEY = "roadmap-ui.board-width";
+const BOARD_VIEW_STORAGE_PREFIX = "roadmap-ui.board-view:v1:";
+const BOARD_COLLAPSE_STORAGE_PREFIX = "roadmap-ui.group-collapse:v1:";
 const SPEC_FILES_COLLAPSED_STORAGE_KEY = "spec-sessions.files-collapsed";
 // Stored as a fraction of the spec-doc width (e.g. 0.62 = body is 62% of the
 // pane, margin gets the rest). Migrated from a legacy pixel-width key on read.
@@ -99,6 +101,10 @@ const BOARD_LAYOUTS = new Set(["list", "columns"]);
 const UNASSIGNED_GROUP_KEY = "__unassigned__";
 const UNASSIGNED_GROUP_LABEL = "Unassigned";
 const EDITOR_MODES = new Set(["preview", "structured", "raw"]);
+const loadedCollapseScopes = new Set();
+let renderedBoardViewKey = "";
+let boardPageScrollBeforeEditor = null;
+let activeLensFromPreference = false;
 
 function loadStoredScopePreference() {
   try {
@@ -716,6 +722,7 @@ function renderBoardSourceControl() {
   const placements = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
   const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} roadmap checkouts loaded; ${escapeHtml(String(aggregate?.excluded?.length || 0))} excluded. Feature counts cover loaded local worktrees only.</p><p>${escapeHtml(String(placements))} placements in ${groups.length} groups. A feature can appear in multiple groups when its versions differ.</p>` : `<p>${total} items on this checkout's board. ${escapeHtml(String(shown))} match the current view.</p>`;
   const exclusions = (aggregate?.excluded || []).map((entry) => `<li>${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}</li>`).join("");
+  const sourceLimitReached = aggregate?.excluded?.some((entry) => entry.reason === "source-limit");
   const missingRows = missing.slice(0, 20).map((entry) => `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId} (missing file)`)}</li>`).join("");
   const sessions = (boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session information has partial coverage." : "Session information is available for the loaded items.") : boardParticipantCounts.size ? "Showing last-known session information; lookup is currently unavailable." : "Session information is unavailable; status-based matches still apply.")
     + (boardParticipantAsOf ? ` Last observed ${new Date(boardParticipantAsOf).toLocaleString()}.` : "");
@@ -723,6 +730,7 @@ function renderBoardSourceControl() {
   boardSourceStatusDetailsElement.innerHTML = coverage
     + (aggregate?.provisional ? `<p>Only the opened checkout is shown. Other worktrees and session information ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; feature totals and In play are incomplete.</p>` : state.worktreeLoading ? "<p>Updating worktrees. The previous board remains available until the refresh finishes.</p>" : "")
     + (state.workspaceStale ? "<p>These are the last-known results; fresh validation is pending or unavailable.</p>" : "")
+    + (sourceLimitReached ? "<p>Checkout discovery intentionally inspects at most 16 worktrees, including the opened checkout. Unavailable or prunable entries use inspection slots; later checkouts were not inspected or loaded.</p>" : "")
     + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
     + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
 }
@@ -731,7 +739,7 @@ function sourceExclusionReason(entry) {
   if (entry.reason === "workspace-load-failed") return entry.message || "Roadmap workspace could not be loaded";
   return ({ "incompatible-roadmap-config": "Roadmap location differs from the opened checkout",
     "missing-or-unavailable": "Checkout path is missing or unreadable",
-    prunable: "Git worktree is prunable", "source-limit": "Checkout limit reached",
+    prunable: "Git worktree is prunable", "source-limit": "16-worktree safety limit reached",
     "different-common-git-dir": "Not part of this Git worktree family" })[entry.reason] || entry.reason;
 }
 
@@ -766,14 +774,16 @@ function renderBoardSourceMenu(inventory) {
     ...sources.filter((source) => !isOpenedSource(source))
       .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(sourceDisplayName(inventory, source.sourceKey))}<small>${escapeHtml(source.repoRoot)}</small></button>`),
   ];
-  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">Unavailable: ${escapeHtml(`${entry.repoRoot.split(/[\\/]/).filter(Boolean).at(-1) || entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
+  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">${entry.reason === "source-limit" ? "Not inspected" : "Excluded"}: ${escapeHtml(`${entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
   const aggregate = state.worktreeMode === "across" ? state.worktreeData : null;
   const missing = aggregate?.coverage?.missingBoardRefs || [];
   const missingRows = missing.slice(0, 20).map((entry) => {
     return `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId}`)}</li>`;
   }).join("");
   const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
-  const status = inventory?.error ? "Discovery unavailable · showing last-known choices" : inventory?.loading ? "Checking local checkouts…" : inventory?.partial ? "Partial discovery · some checkouts are unavailable" : inventory?.unavailable ? "Worktree discovery unavailable" : "";
+  const status = inventory?.error ? "Discovery unavailable · showing last-known choices" : inventory?.loading ? "Checking local checkouts…"
+    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Partial discovery · at most 16 worktrees inspected, including this checkout; later checkouts were not inspected"
+    : inventory?.partial ? "Partial discovery · some checkouts are unavailable" : inventory?.unavailable ? "Worktree discovery unavailable" : "";
   boardSourceMenuElement.innerHTML = `${choices.join("")}${status ? `<p class="source-menu-status" role="status">${escapeHtml(status)}</p>` : ""}${excluded}${missingNotice}`;
   if (focusedChoice) [...boardSourceMenuElement.querySelectorAll("[data-source-choice]")]
     .find((button) => button.dataset.sourceChoice === focusedChoice)?.focus({ preventScroll: true });
@@ -847,12 +857,14 @@ function applyLensRouteChoice(workspace, route) {
   if (route.lensSpecified && available.some((lens) => lens.key === requested)) {
     state.activeLens = requested;
     state.lensExplicit = true;
+    activeLensFromPreference = Boolean(route.lensFromPreference);
     return;
   }
 
   state.activeLens = normalizeLensKey(workspace.defaultLens, workspace);
   state.lensExplicit = false;
-  if (route.lensSpecified) {
+  activeLensFromPreference = false;
+  if (route.lensSpecified && !route.lensFromPreference) {
     workspace.warnings.push({
       code: "unknown_url_lens",
       lens: requested,
@@ -1381,6 +1393,55 @@ function rememberPreferredVersion(itemId, source) {
   state.preferredVersions.set(itemId, { sourceKey: source.sourceKey, gitRef: sourceRef(source) });
 }
 
+function boardPreferenceScope(repoPath = state.repoPath, mode = state.worktreeMode) {
+  const path = String(repoPath || "");
+  const normalized = /^[a-z]:[\\/]/i.test(path) ? normalizeSpecUiPath(path) : path.replaceAll("\\", "/");
+  return JSON.stringify([normalized, mode === "across" ? "across" : "this"]);
+}
+
+function loadBoardViewPreference(repoPath, mode) {
+  try {
+    const raw = window.localStorage.getItem(BOARD_VIEW_STORAGE_PREFIX + boardPreferenceScope(repoPath, mode));
+    if (!raw || raw.length > 8192) return null;
+    const saved = JSON.parse(raw);
+    if (saved?.version !== 1 || typeof saved.lens !== "string" || typeof saved.query !== "string"
+      || typeof saved.inPlay !== "boolean" || !BOARD_LAYOUTS.has(saved.layout)
+      || !saved.filters || Array.isArray(saved.filters) || typeof saved.filters !== "object") return null;
+    return { lens: saved.lens.slice(0, 120), lensSpecified: true, lensFromPreference: true, layout: saved.layout,
+      query: normalizeSearchQuery(saved.query.slice(0, 500)), inPlay: saved.inPlay,
+      filters: normalizeFilterMap(Object.fromEntries(Object.entries(saved.filters).slice(0, 24)
+        .filter(([key, values]) => key.length <= 120 && Array.isArray(values))
+        .map(([key, values]) => [key, values.filter((value) => typeof value === "string").slice(0, 24).map((value) => value.slice(0, 120))]))) };
+  } catch { return null; }
+}
+
+function saveBoardViewPreference() {
+  if (!state.repoPath || state.appMode !== "roadmap") return;
+  try {
+    const value = JSON.stringify({ version: 1, lens: state.activeLens, layout: normalizeBoardLayout(state.boardLayout),
+      query: state.searchQuery, inPlay: state.inPlay, filters: normalizeFilterMap(state.activeFilters) });
+    if (value.length <= 8192) window.localStorage.setItem(BOARD_VIEW_STORAGE_PREFIX + boardPreferenceScope(), value);
+  } catch { /* Storage is optional; the URL still carries the current view. */ }
+}
+
+function boardRouteForScope(route, repoPath, mode) {
+  if (route.boardViewSpecified) return route;
+  return { ...route, ...(loadBoardViewPreference(repoPath, mode) || {}) };
+}
+
+function selectBoardViewForScope() {
+  const saved = loadBoardViewPreference(state.repoPath, state.worktreeMode);
+  state.activeLens = saved?.lens || DEFAULT_LENS_KEY;
+  state.lensExplicit = Boolean(saved);
+  activeLensFromPreference = Boolean(saved);
+  state.boardLayout = saved?.layout || DEFAULT_BOARD_LAYOUT;
+  state.searchQuery = saved?.query || "";
+  state.inPlay = saved?.inPlay || false;
+  state.activeFilters = saved?.filters || {};
+  state.filtersExpanded = Object.keys(state.activeFilters).length > 0;
+  return { preferredLens: saved?.lens || "", routeLensSpecified: Boolean(saved), routeLensFromPreference: Boolean(saved), preferredLayout: state.boardLayout };
+}
+
 function readRouteState() {
   const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
   const params = new URLSearchParams(rawHash);
@@ -1397,6 +1458,7 @@ function readRouteState() {
     query: normalizeSearchQuery(params.get("q") || ""),
     inPlay: params.get("inPlay") === "1",
     filters: parseRouteFilters(params),
+    boardViewSpecified: ["boardView", "lens", "layout", "q", "inPlay", "f"].some((key) => params.has(key)),
     repo: params.get("repo") || "",
     sources: params.get("sources") || "",
     bound: params.get("bound") === "1",
@@ -1421,6 +1483,8 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
     }
     return `#${params.toString()}`;
   }
+
+  params.set("boardView", "1");
 
   const persistSelectedItem = !shouldUseEditorOverlay() || state.editorOverlayOpen;
 
@@ -1459,6 +1523,7 @@ function buildRouteHash(itemId = state.selectedItemId, mode = state.editorMode) 
 }
 
 function syncRouteState({ replace = false } = {}) {
+  saveBoardViewPreference();
   const nextHash = buildRouteHash();
   if (window.location.hash === nextHash) {
     return;
@@ -1536,11 +1601,13 @@ function closeEditorOverlay(force = false) {
     return false;
   }
 
+  const closingItemId = state.selectedItemId;
   state.editorOverlayOpen = false;
   resetEditor();
   syncWorkspaceChrome();
   renderBoard();
   syncRouteState({ replace: true });
+  if (closingItemId) boardGroupsElement.querySelector(`[data-item-open="${CSS.escape(closingItemId)}"]`)?.focus({ preventScroll: true });
   return true;
 }
 
@@ -1642,6 +1709,7 @@ function renderLensControls() {
     button.addEventListener("click", () => {
       state.activeLens = button.dataset.lensKey || DEFAULT_LENS_KEY;
       state.lensExplicit = true;
+      activeLensFromPreference = false;
       state.lensesExpanded = false;
       void syncVisibleSelection({ replaceRoute: true });
     });
@@ -2025,8 +2093,36 @@ function beginBoardEditorResize(event) {
   window.addEventListener("pointercancel", stop);
 }
 
+function collapseScope() {
+  return `${boardPreferenceScope()}\n${normalizeLensKey(state.activeLens)}`;
+}
+
+function ensureCollapseScopeLoaded() {
+  const scope = collapseScope();
+  if (loadedCollapseScopes.has(scope)) return;
+  loadedCollapseScopes.add(scope);
+  try {
+    const raw = window.localStorage.getItem(BOARD_COLLAPSE_STORAGE_PREFIX + scope);
+    if (!raw || raw.length > 8192) return;
+    const names = JSON.parse(raw);
+    if (!Array.isArray(names)) return;
+    for (const name of names.slice(0, 200)) {
+      if (typeof name === "string" && name.length <= 500) state.collapsedGroups.add(`${scope}\n${name}`);
+    }
+  } catch { /* Invalid or unavailable storage falls back to current-page state. */ }
+}
+
 function collapsedGroupKey(name) {
-  return `${state.repoPath}\n${normalizeLensKey(state.activeLens)}\n${name}`;
+  ensureCollapseScopeLoaded();
+  return `${collapseScope()}\n${name}`;
+}
+
+function persistCollapsedGroups() {
+  const scope = collapseScope();
+  const prefix = `${scope}\n`;
+  const names = [...state.collapsedGroups].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length)).slice(0, 200);
+  try { window.localStorage.setItem(BOARD_COLLAPSE_STORAGE_PREFIX + scope, JSON.stringify(names)); }
+  catch { /* Collapse still works for this page. */ }
 }
 
 function isGroupCollapsed(name) {
@@ -2042,6 +2138,7 @@ function toggleGroup(name) {
     state.collapsedGroups.add(key);
   }
 
+  persistCollapsedGroups();
   renderBoard();
 }
 
@@ -3414,18 +3511,42 @@ function renderBoardEditMode() {
   }
 }
 
+function currentBoardViewKey() {
+  return JSON.stringify([boardPreferenceScope(), normalizeLensKey(state.activeLens), normalizeBoardLayout(state.boardLayout),
+    state.searchQuery, state.inPlay, normalizeFilterMap(state.activeFilters),
+    state.boundRequired ? state.pinnedSource?.sourceKey || "pending" : ""]);
+}
+
+function boardPageOffset() {
+  return window.scrollY - (boardPanelElement.getBoundingClientRect().top + window.scrollY);
+}
+
+function restoreBoardPageOffset(offset, behavior = "instant") {
+  window.scrollTo({ top: boardPanelElement.getBoundingClientRect().top + window.scrollY + offset, behavior });
+}
+
 function renderBoard(preserveInteraction = false) {
-  if (!preserveInteraction) return renderBoardContents();
-  const scrollLeft = captureColumnScrollState();
-  const scrollTop = boardGroupsElement.scrollTop;
+  const viewKey = currentBoardViewKey();
+  const sameView = renderedBoardViewKey === viewKey && Boolean(state.workspace);
+  const scrollLeft = sameView ? captureColumnScrollState() : 0;
+  const scrollTop = sameView ? boardGroupsElement.scrollTop : 0;
+  const pageScrollOffset = sameView && isStackedLayout() ? boardPageOffset() : null;
+  if (!sameView && !preserveInteraction) {
+    renderedBoardViewKey = viewKey;
+    return renderBoardContents();
+  }
   const focused = document.activeElement;
   const focusedCard = focused?.closest(".board-item[data-item-id], .board-column-card-main[data-item-dblopen]");
   const focusedItemId = focusedCard?.dataset.itemId || focusedCard?.dataset.itemDblopen;
   const focusedOpenItemId = focused?.getAttribute("data-item-open");
   const focusedGroup = focused?.getAttribute("data-group-toggle");
   renderBoardContents();
-  restoreColumnScrollState(scrollLeft);
-  boardGroupsElement.scrollTop = scrollTop;
+  renderedBoardViewKey = viewKey;
+  if (sameView) {
+    restoreColumnScrollState(scrollLeft);
+    boardGroupsElement.scrollTop = scrollTop;
+    if (pageScrollOffset != null) restoreBoardPageOffset(pageScrollOffset);
+  }
   if (focused && !focused.isConnected && document.activeElement === document.body) {
     const selector = focusedOpenItemId ? `[data-item-open="${CSS.escape(focusedOpenItemId)}"]`
       : focusedItemId ? `.board-item[data-item-id="${CSS.escape(focusedItemId)}"], .board-column-card-main[data-item-dblopen="${CSS.escape(focusedItemId)}"]`
@@ -4812,13 +4933,14 @@ async function applyRouteStateFromLocation() {
     return;
   }
   if (discardDraft) resetAncillaryEditModes();
-  const route = readRouteState();
+  let route = readRouteState();
   if ((route.view === "spec" ? "spec" : "roadmap") !== state.appMode) specLoadGeneration += 1;
   if (route.itemId && route.sourceKey && route.sources === "across") {
     state.preferredVersions.set(route.itemId, { sourceKey: route.sourceKey, gitRef: route.sourceRef });
   }
   const repoChanged = route.repo && route.repo !== state.repoPath;
   const requestedWorktreeMode = route.sources === "across" ? "across" : route.sources === "this" ? "this" : loadWorktreePreference(route.repo || state.repoPath);
+  route = boardRouteForScope(route, route.repo || state.repoPath, requestedWorktreeMode);
   const worktreeModeChanged = requestedWorktreeMode !== state.worktreeMode;
   const boundChanged = (requestedWorktreeMode === "this" && route.bound) !== state.boundRequired;
   const exitedSpecMode = state.appMode === "spec" && route.view !== "spec";
@@ -4867,6 +4989,7 @@ async function applyRouteStateFromLocation() {
       syncRoute: false,
       preferredLens: route.lens,
       routeLensSpecified: route.lensSpecified,
+      routeLensFromPreference: route.lensFromPreference,
       preferredLayout: route.layout,
       fresh: exitedSpecMode && specMetadataDirty,
       discardDraft,
@@ -4876,7 +4999,7 @@ async function applyRouteStateFromLocation() {
 
   clearTransientBanner();
   await syncVisibleSelection({
-    preferredItemId: route.itemId || state.selectedItemId,
+    preferredItemId: route.itemId || (shouldUseEditorOverlay() ? "" : state.selectedItemId),
     replaceRoute: true,
     preserveDirtyItem: !discardDraft,
     forceReloadItem: discardDraft || Boolean(route.sourceKey && (route.sourceKey !== state.selectedSource?.sourceKey
@@ -5082,16 +5205,18 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       boardParticipantAsOf = presence?.asOf || null;
     }
     if (reconcile) {
-      if (state.lensExplicit) applyLensRouteChoice(workspace, { lens: state.activeLens, lensSpecified: true });
+      if (state.lensExplicit) applyLensRouteChoice(workspace, { lens: state.activeLens, lensSpecified: true, lensFromPreference: activeLensFromPreference });
       else state.activeLens = normalizeLensKey(state.activeLens, workspace);
     } else if (aggregate?.provisional && options.routeLensSpecified) {
       // A requested grouping may exist only in worktrees that have not loaded yet.
       state.activeLens = options.preferredLens || DEFAULT_LENS_KEY;
       state.lensExplicit = true;
+      activeLensFromPreference = Boolean(options.routeLensFromPreference);
     } else if (Object.hasOwn(options, "routeLensSpecified")) {
       applyLensRouteChoice(workspace, {
         lens: options.preferredLens,
         lensSpecified: options.routeLensSpecified,
+        lensFromPreference: options.routeLensFromPreference,
       });
     } else {
       state.activeLens = normalizeLensKey(options.preferredLens ?? state.activeLens, workspace);
@@ -5319,6 +5444,9 @@ async function openBoardItemPreview(itemId) {
   }
 
   const useOverlay = shouldUseEditorOverlay();
+  if (!useOverlay && isStackedLayout()) {
+    boardPageScrollBeforeEditor = { viewKey: currentBoardViewKey(), offset: boardPageOffset() };
+  }
   if (itemId === state.selectedItemId && state.currentItem) {
     state.editorOverlayOpen = useOverlay;
     void loadItemParticipants(itemId);
@@ -6445,8 +6573,9 @@ boardSourceMenuElement.addEventListener("click", async (event) => {
     state.boundRequired = false;
     state.worktreeModeExplicit = true;
     saveWorktreePreference();
+    const viewOptions = selectBoardViewForScope();
     resetEditor();
-    await loadWorkspace("", { replaceRoute: true });
+    await loadWorkspace("", { ...viewOptions, replaceRoute: true });
   } else {
     if (choice === "this") await refreshSourceInventory();
     if (choiceRepoPath !== state.repoPath || choiceGeneration !== workspaceLoadGeneration || choiceMode !== state.worktreeMode || choiceBoundRequired !== state.boundRequired) return;
@@ -6462,8 +6591,9 @@ boardSourceMenuElement.addEventListener("click", async (event) => {
     state.pinnedSource = null;
     state.selectedSource = null;
     saveWorktreePreference();
+    const viewOptions = selectBoardViewForScope();
     resetEditor();
-    await loadWorkspace("", { sourceCandidate: selected, replaceRoute: true });
+    await loadWorkspace("", { ...viewOptions, sourceCandidate: selected, replaceRoute: true });
   }
   renderBoardSourceControl();
 });
@@ -6484,7 +6614,11 @@ boardClearFiltersButton.addEventListener("click", () => {
 });
 
 jumpToBoardButton.addEventListener("click", () => {
-  scrollPanelIntoView(boardPanelElement);
+  if (boardPageScrollBeforeEditor?.viewKey === currentBoardViewKey()) {
+    restoreBoardPageOffset(boardPageScrollBeforeEditor.offset, "smooth");
+  } else {
+    scrollPanelIntoView(boardPanelElement);
+  }
 });
 
 jumpToEditorButton.addEventListener("click", () => {
@@ -6628,7 +6762,9 @@ window.setInterval(() => {
 }, SPEC_REVIEW_REFRESH_MS);
 
 resetEditor();
-const initialRoute = readRouteState();
+const initialRouteRaw = readRouteState();
+const initialRoute = boardRouteForScope(initialRouteRaw, initialRouteRaw.repo || "",
+  initialRouteRaw.sources === "across" ? "across" : initialRouteRaw.sources === "this" ? "this" : loadWorktreePreference(initialRouteRaw.repo || ""));
 state.repoPath = initialRoute.repo || "";
 state.worktreeMode = initialRoute.sources === "across" ? "across" : initialRoute.sources === "this" ? "this" : loadWorktreePreference(state.repoPath);
 state.worktreeModeExplicit = Boolean(initialRoute.sources);
@@ -6653,6 +6789,7 @@ applyAppMode();
 renderSpecCommentAnchorMode();
 state.activeLens = initialRoute.lens || DEFAULT_LENS_KEY;
 state.lensExplicit = initialRoute.lensSpecified;
+activeLensFromPreference = Boolean(initialRoute.lensFromPreference);
 state.boardLayout = initialRoute.layout;
 state.editorMode = state.worktreeMode === "across" ? "preview" : initialRoute.mode;
 state.searchQuery = initialRoute.query;
@@ -6664,6 +6801,7 @@ applyEditorMode();
 const initialWorkspaceLoad = loadWorkspace(state.appMode === "spec" ? "" : (initialRoute.itemId || state.selectedItemId), {
   preferredLens: initialRoute.lens,
   routeLensSpecified: initialRoute.lensSpecified,
+  routeLensFromPreference: initialRoute.lensFromPreference,
   preferredLayout: initialRoute.layout,
   syncRoute: false,
 });

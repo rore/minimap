@@ -2,34 +2,72 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import { loadWorkspace, parseItemText } from "./roadmap.js";
 import { discoverWorktreeSources, readWorktreeIdentity } from "./worktree-sources.js";
 import { requireRoadmapInSource } from "./source-bound.js";
 
-const execFileAsync = promisify(execFile);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const relative = (root, file) => path.relative(root, path.isAbsolute(file) ? file : path.resolve(root, file)).replaceAll("\\", "/");
+
+const pendingGitReads = [];
+let runningGitReads = 0;
+
+// Shared across scans so overlapping repositories cannot multiply Git children.
+export async function runLineageGitRead(read, signal) {
+  if (signal?.aborted) throw signal.reason;
+  if (runningGitReads >= 8) {
+    await new Promise((resolve, reject) => {
+      const waiter = { resolve: () => {
+        signal?.removeEventListener("abort", abort);
+        resolve();
+      } };
+      const abort = () => {
+        pendingGitReads.splice(pendingGitReads.indexOf(waiter), 1);
+        reject(signal.reason);
+      };
+      pendingGitReads.push(waiter);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+  } else runningGitReads += 1;
+  try {
+    if (signal?.aborted) throw signal.reason;
+    return await read();
+  } finally {
+    const next = pendingGitReads.shift();
+    if (next) next.resolve();
+    else runningGitReads -= 1;
+  }
+}
+
+function cachedRead(cache, key, read) {
+  if (!cache.has(key)) cache.set(key, Promise.resolve().then(read));
+  return cache.get(key);
+}
 
 async function git(root, ...argsAndOptions) {
   const last = argsAndOptions.at(-1);
   const options = last && typeof last === "object" && Object.hasOwn(last, "signal") ? argsAndOptions.pop() : {};
   const args = argsAndOptions;
-  return (await execFileAsync("git", args, {
-    cwd: root, windowsHide: true, shell: false, timeout: 5000,
-    maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal: options.signal,
-  })).stdout.trim();
+  return (await runLineageGitRead(() => new Promise((resolve, reject) => {
+    let result;
+    const child = execFile("git", args, {
+      cwd: root, windowsHide: true, shell: false, timeout: 5000,
+      maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal: options.signal,
+    }, (error, stdout) => { result = { error, stdout }; });
+    child.once("close", () => result.error ? reject(result.error) : resolve(result.stdout));
+  }), options.signal)).trim();
 }
 
 async function ancestorBlobs(root, objects, signal) {
   if (objects.length > 500) throw new Error("ancestor item limit");
-  const output = await new Promise((resolve, reject) => {
+  const output = await runLineageGitRead(() => new Promise((resolve, reject) => {
     const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false, signal });
     const chunks = [];
     let size = 0;
     const timer = setTimeout(() => child.kill(), 5000);
-    child.on("error", reject);
-    child.stdin.on("error", reject);
+    let failure;
+    child.on("error", (error) => { failure = error; });
+    child.stdin.on("error", (error) => { failure = error; child.kill(); });
     child.stdout.on("data", (chunk) => {
       size += chunk.length;
       if (size > 8 * 1024 * 1024) { child.kill(); return; }
@@ -38,11 +76,12 @@ async function ancestorBlobs(root, objects, signal) {
     child.stderr.resume();
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0 || size > 8 * 1024 * 1024) reject(new Error("ancestor batch unavailable"));
+      if (failure) reject(failure);
+      else if (code !== 0 || size > 8 * 1024 * 1024) reject(new Error("ancestor batch unavailable"));
       else resolve(Buffer.concat(chunks));
     });
     child.stdin.end(objects.map((entry) => entry.oid).join("\n") + "\n");
-  });
+  }), signal);
   const ids = new Map();
   let invalid = false;
   let offset = 0;
@@ -139,20 +178,16 @@ async function squashPaths(left, right, base, candidates, cache, signal) {
 // Shared ancestry or exact whole-change squash equivalence establishes display identity.
 // Git cannot distinguish an independently reproduced identical complete change.
 // Missing Git evidence cannot create a direct proof; other proven links may still connect versions.
-export async function sharedPaths(left, right, roadmapPath, cache, signal) {
+async function ancestryPaths(left, right, roadmapPath, cache, signal) {
   const breaks = new Set();
   try {
     const heads = [left.git.headCommit, right.git.headCommit].sort().join(":");
-    let base = cache.bases.get(heads);
-    if (base === undefined) {
-      base = await git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit, { signal });
-      cache.bases.set(heads, base);
-    }
+    const base = left.git.headCommit === right.git.headCommit ? left.git.headCommit
+      : await cachedRead(cache.bases, heads, () => git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit, { signal }));
     if (!/^[0-9a-f]{40,64}$/i.test(base)) throw new Error("invalid merge base");
     const dirs = [path.posix.join(roadmapPath, "features"), path.posix.join(roadmapPath, "ideas")];
     const treeKey = `${base}:${roadmapPath}`;
-    let tree = cache.trees.get(treeKey);
-    if (!tree) {
+    const tree = await cachedRead(cache.trees, treeKey, async () => {
       const records = (await git(left.repoRoot, "ls-tree", "-r", "-z", "--long", base, "--", ...dirs, { signal }))
         .split("\0").filter(Boolean).map((record) => {
           const match = record.match(/^[0-7]{6} blob ([0-9a-f]{40,64}) +\d+\t([\s\S]*)$/i);
@@ -167,13 +202,11 @@ export async function sharedPaths(left, right, roadmapPath, cache, signal) {
         if (signal?.aborted) throw signal.reason || error;
         if (error.message !== "ancestor item limit") throw error;
         // This fixed tree exceeds the cap for every pair in this request.
-        cache.trees.set(treeKey, { ids: new Map(), uncertainty: "ancestor-item-limit" });
-        throw error;
+        return { ids: new Map(), uncertainty: "ancestor-item-limit" };
       }
-      tree = { ids: parsed.ids, uncertainty: parsed.invalid || records.length !== objects.length && records.some((entry) => /[\r\n]/.test(entry.file))
+      return { ids: parsed.ids, uncertainty: parsed.invalid || records.length !== objects.length && records.some((entry) => /[\r\n]/.test(entry.file))
         ? "ancestor-item-or-path-invalid" : null };
-      cache.trees.set(treeKey, tree);
-    }
+    });
     if (tree.uncertainty === "ancestor-item-limit") return { paths: new Map(), breaks: new Set(), uncertainty: tree.uncertainty };
     for (const [id, summary] of Object.entries(left.workspace.items)) {
       const file = relative(left.repoRoot, summary.filePath);
@@ -183,13 +216,11 @@ export async function sharedPaths(left, right, roadmapPath, cache, signal) {
     }
     for (const source of [left, right]) {
       const key = `${base}:${source.git.headCommit}`;
-      let paths = cache.deletions.get(key);
-      if (!paths) {
+      const paths = await cachedRead(cache.deletions, key, async () => {
         const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames",
           "--diff-merges=first-parent", `${base}..${source.git.headCommit}`, "--", ...dirs, { signal });
-        paths = new Set(output.split("\0").filter(Boolean));
-        cache.deletions.set(key, paths);
-      }
+        return new Set(output.split("\0").filter(Boolean));
+      });
       for (const file of paths) breaks.add(file);
     }
     const paths = new Map([...tree.ids].filter(([file]) => !breaks.has(file)));
@@ -200,22 +231,31 @@ export async function sharedPaths(left, right, roadmapPath, cache, signal) {
       if (!tree.ids.has(file) && !breaks.has(file) && other
         && relative(right.repoRoot, other.filePath) === file) candidates.set(file, id);
     }
-    let uncertainty = tree.uncertainty;
-    if (candidates.size) {
-      try {
-        const squash = await squashPaths(left, right, base, candidates, cache, signal);
-        for (const [file, id] of squash.paths) paths.set(file, id);
-        uncertainty ||= squash.uncertainty;
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason || error;
-        uncertainty ||= error.message === "squash-evidence-limit" ? error.message : "squash-evidence-unavailable";
-      }
-    }
-    return { paths, breaks, uncertainty };
+    return { paths, breaks, uncertainty: tree.uncertainty, base, candidates };
   } catch (error) {
     if (signal?.aborted) throw signal.reason || error;
     return { paths: new Map(), breaks, uncertainty: error.message === "ancestor item limit" ? "ancestor-item-limit" : "git-evidence-unavailable" };
   }
+}
+
+async function completeSharedPaths(left, right, evidence, cache, signal) {
+  const { paths, breaks, base, candidates } = evidence;
+  let uncertainty = evidence.uncertainty;
+  if (candidates?.size) {
+    try {
+      const squash = await squashPaths(left, right, base, candidates, cache, signal);
+      for (const [file, id] of squash.paths) paths.set(file, id);
+      uncertainty ||= squash.uncertainty;
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+      uncertainty ||= error.message === "squash-evidence-limit" ? error.message : "squash-evidence-unavailable";
+    }
+  }
+  return { paths, breaks, uncertainty };
+}
+
+export async function sharedPaths(left, right, roadmapPath, cache, signal) {
+  return completeSharedPaths(left, right, await ancestryPaths(left, right, roadmapPath, cache, signal), cache, signal);
 }
 
 // A chain of positive proofs identifies the same feature. Explicit identity breaks
@@ -344,10 +384,17 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
   const lineage = new Map();
   const evidenceCache = { bases: new Map(), trees: new Map(), deletions: new Map(),
     histories: new Map(), historyLoads: 0, historyChanges: 0 };
-  for (let i = 0; i < loaded.length; i += 1) {
-    for (let j = i + 1; j < loaded.length; j += 1) {
+  const pairs = loaded.flatMap((left, i) => loaded.slice(i + 1).map((right, offset) => ({ i, j: i + 1 + offset, left, right })));
+  for (let offset = 0; offset < pairs.length; offset += 4) {
+    const batch = pairs.slice(offset, offset + 4);
+    const reads = await Promise.allSettled(batch.map(({ left, right }) => ancestryPaths(left, right,
+      relative(left.repoRoot, left.workspace.resolvedPath), evidenceCache, signal)));
+    const failed = reads.find((read) => read.status === "rejected");
+    if (failed) throw failed.reason;
+    for (const [index, { i, j, left, right }] of batch.entries()) {
       if (signal?.aborted) throw signal.reason;
-      const evidence = await sharedPaths(loaded[i], loaded[j], relative(loaded[i].repoRoot, loaded[i].workspace.resolvedPath), evidenceCache, signal);
+      // Keep shared squash budgets deterministic even when ancestry reads overlap.
+      const evidence = await completeSharedPaths(left, right, reads[index].value, evidenceCache, signal);
       lineage.set(`${i}:${j}`, evidence);
       if (evidence.uncertainty) {
         result.partial = true;
