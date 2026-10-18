@@ -88,7 +88,7 @@ Configured metadata group order lives at `lenses.fields.<field>.order` and is in
 
 Filters are intentionally curated. Common planning fields (`status`, `priority`, `commitment`, `kind`, `milestone`, `lane`, and `labels`) appear when they have two to eight distinct values. Add repo-specific frontmatter keys with `filters.fields`; fields configured under `lenses.fields` also remain filterable. Explicitly configured fields are not subject to the eight-value limit. `id` and `title` cannot become facets because search already covers them.
 
-`defaultLens` is optional. A valid URL `lens` wins, including explicit `lens=board`; otherwise a valid configured default is used, then Board. Unknown URL or config values fall back safely and should be reported as warnings. Across defers validation of an explicit URL grouping until the full snapshot, since it may be absent from the provisional opened checkout; a newer grouping choice takes precedence.
+`defaultLens` is optional. An explicit board-view URL wins, including `lens=board`; otherwise a remembered grouping for this repository and This/Across mode wins, then a valid configured default, then Board. A URL with board-view controls is complete: omitted layout, query, and filters mean their defaults, rather than saved values. Unknown URL or config values fall back safely with a warning; a removed remembered grouping falls back quietly. Across defers validation of an explicit URL grouping until the full snapshot, since it may be absent from the provisional opened checkout; a newer grouping choice takes precedence.
 
 ## Optional live participants
 

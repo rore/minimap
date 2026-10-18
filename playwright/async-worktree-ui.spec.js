@@ -248,6 +248,52 @@ function gate() {
   };
 }
 
+test("remembers the unlisted group and explains source-limit exclusions", async ({ page }) => {
+  test.setTimeout(90_000);
+  const { owned, root } = await fixture(4);
+  const images = path.join(process.cwd(), "artifacts", "board-view-state");
+  await fs.mkdir(images, { recursive: true });
+  const full = await loadWorktreeAggregate(root);
+  const limitedPath = path.join(owned, "later", "feature-checkout");
+  full.excluded.push({ repoRoot: limitedPath, reason: "source-limit" });
+  full.partial = true;
+  full.coverage.excluded = full.excluded.length;
+  await page.route("**/api/worktree-workspace**", (route) => new URL(route.request().url()).searchParams.has("openedOnly")
+    ? route.continue() : route.fulfill({ json: full }));
+  await page.route("**/api/worktree-sources", (route) => route.fulfill({ json: {
+    sources: full.sources, excluded: full.excluded, partial: true, unavailable: null,
+  } }));
+  try {
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
+    const unlisted = page.locator('[data-group-toggle="unlisted:Not on a board"]');
+    await expect(unlisted).toHaveAttribute("aria-expanded", "false");
+    await unlisted.click();
+    await expect(unlisted).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Partial coverage");
+    await page.locator("#board-source-status").evaluate((details) => { details.open = true; });
+    await expect(page.locator("#board-source-status-details")).toContainText("at most 16 worktrees, including the opened checkout");
+    await expect(page.locator("#board-source-status-details")).toContainText(limitedPath);
+    await page.locator("#board-source-status").evaluate((details) => { details.open = false; });
+    await page.locator(".board-source-control > button").first().click();
+    await expect(page.locator("#board-source-menu")).toContainText(`Not inspected: ${limitedPath}`);
+    await page.screenshot({ path: path.join(images, "source-limit-menu-desktop.png"), fullPage: false });
+
+    await page.locator("#board-source-toggle").click();
+    await page.reload();
+    await expect(unlisted).toHaveAttribute("aria-expanded", "true");
+    await page.locator("#board-layout-columns").click();
+    await expect(unlisted).toHaveAttribute("aria-expanded", "true");
+    await page.locator(".board-columns").evaluate((columns) => { columns.scrollLeft = columns.scrollWidth - columns.clientWidth; });
+    await page.screenshot({ path: path.join(images, "unlisted-expanded-after-reload.png"), fullPage: false });
+    await page.locator("#board-source-toggle").click();
+    await page.locator('[data-source-choice="this"]').click();
+    await expect(page.locator("#board-layout-list")).toHaveClass(/is-active/);
+  } finally {
+    if (!page.isClosed()) await page.goto("about:blank");
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
 async function holdFullRoute(page, behavior = "continue") {
   const held = gate();
   let fullRequests = 0;

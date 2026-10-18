@@ -1616,6 +1616,181 @@ test("switches to columns layout, keeps the lens, and restores from the URL", as
   await expect(page.locator("#editor-overlay")).toBeHidden();
 });
 
+test("remembers board controls and collapse per repository while explicit routes and Clear win", async ({ page }) => {
+  test.setTimeout(120_000);
+  const fixture = await makeLargeRoadmapFixture();
+  const other = await makeDragRoadmapFixture();
+  try {
+    await page.goto(repoUrlFor(fixture, "/#lens=board&layout=columns"));
+    await expect(page.locator(".board-columns")).toBeVisible();
+    await page.getByRole("button", { name: "Collapse Backlog column", exact: true }).click();
+    await page.locator("#board-search").fill("large-item-01");
+    await expect(page).toHaveURL(/boardView=1/);
+
+    await page.goto(repoUrlFor(fixture));
+    await expect(page.locator("#board-layout-columns")).toHaveClass(/is-active/);
+    await expect(page.locator("#board-search")).toHaveValue("large-item-01");
+    await expect(page.locator(".board-column-collapsed")).toHaveCount(1);
+
+    await page.goto(repoUrlFor(other));
+    await expect(page.locator("#board-layout-list")).toHaveClass(/is-active/);
+    await expect(page.locator("#board-search")).toHaveValue("");
+    await page.goto(repoUrlFor(fixture, "/#lens=board&boardView=1"));
+    await expect(page.locator("#board-layout-list")).toHaveClass(/is-active/);
+    await expect(page.locator("#board-search")).toHaveValue("");
+    await page.locator("#board-search").fill("large-item-01");
+    await page.locator("#board-clear-filters").click();
+    await expect(page).toHaveURL(/boardView=1/);
+    await page.reload();
+    await expect(page.locator("#board-search")).toHaveValue("");
+    await page.goBack();
+    await expect(page.locator("#board-search")).toHaveValue("");
+
+    const scope = JSON.stringify([fixture.replaceAll("\\", "/").toLowerCase(), "this"]);
+    await page.evaluate((key) => window.localStorage.setItem(key, JSON.stringify({
+      version: 1, lens: "retired-lane", layout: "list", query: "", inPlay: false, filters: {},
+    })), `roadmap-ui.board-view:v1:${scope}`);
+    await page.goto(repoUrlFor(fixture));
+    await expect(page.locator("#board-view-toggle")).toContainText("By lane");
+    await expect(page.locator("#status-banner")).not.toContainText(/URL grouping.*unavailable/i);
+    await page.evaluate((key) => window.localStorage.setItem(key, "{broken"), `roadmap-ui.board-view:v1:${scope}`);
+    await page.goto(repoUrlFor(fixture));
+    await expect(page.locator("#board-layout-list")).toHaveClass(/is-active/);
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (String(key).startsWith("roadmap-ui.board-view:v1:")) throw new DOMException("Storage unavailable", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    });
+    await page.locator("#board-layout-columns").click();
+    await expect(page).toHaveURL(/layout=columns/);
+    await page.reload();
+    await expect(page.locator("#board-layout-columns")).toHaveClass(/is-active/);
+  } finally {
+    await page.goto("about:blank");
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+    await fs.rm(other, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+  }
+});
+
+test("keeps column and list positions when opening an item and refreshing the same view", async ({ page }) => {
+  test.setTimeout(120_000);
+  const fixture = await makeLargeRoadmapFixture();
+  const images = path.join(process.cwd(), "artifacts", "board-view-state");
+  try {
+    await fs.mkdir(images, { recursive: true });
+    await page.setViewportSize({ width: 1240, height: 680 });
+    await page.goto(repoUrlFor(fixture, "/#lens=status&layout=columns"));
+    await expect(page.locator(".board-columns")).toBeVisible();
+    await page.screenshot({ path: path.join(images, "columns-desktop.png"), fullPage: false });
+    await page.locator(".board-columns").evaluate((root) => {
+      root.scrollLeft = 150;
+      root.querySelector(".board-column-list").scrollTop = 180;
+      root.querySelectorAll(".board-column-list")[1].scrollTop = 95;
+    });
+    const before = await page.locator(".board-columns").evaluate((root) => ({
+      x: root.scrollLeft,
+      y: [...root.querySelectorAll(".board-column-list")].slice(0, 2).map((list) => list.scrollTop),
+    }));
+    expect(before.x).toBeGreaterThan(0);
+    expect(before.y[0]).toBeGreaterThan(0);
+    await page.locator('[data-item-open="large-item-20"]').evaluate((button) => button.click());
+    await expect(page.locator("#editor-overlay")).toBeVisible();
+    const afterOpen = await page.locator(".board-columns").evaluate((root) => ({
+      x: root.scrollLeft, y: [...root.querySelectorAll(".board-column-list")].slice(0, 2).map((list) => list.scrollTop),
+    }));
+    expect(afterOpen).toEqual(before);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await page.locator('[data-item-open="large-item-20"]').click();
+    await expect(page.locator("#editor-overlay")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-item-open="large-item-20"]')).toBeFocused();
+    await page.locator("#refresh-button").click();
+    await expect(page.locator(".board-columns")).toBeVisible();
+    await expect.poll(() => page.locator(".board-columns").evaluate((root) => ({
+      x: root.scrollLeft, y: [...root.querySelectorAll(".board-column-list")].slice(0, 2).map((list) => list.scrollTop),
+    }))).toEqual(before);
+    const afterRefresh = await page.locator(".board-columns").evaluate((root) => ({
+      x: root.scrollLeft, y: [...root.querySelectorAll(".board-column-list")].slice(0, 2).map((list) => list.scrollTop),
+    }));
+
+    await page.locator("#board-layout-list").click();
+    await expect(page.locator(".board-group").first()).toBeVisible();
+    await page.screenshot({ path: path.join(images, "list-desktop.png"), fullPage: false });
+    await page.locator("#board-groups").evaluate((root) => { root.scrollTop = 230; });
+    const listBefore = await page.locator("#board-groups").evaluate((root) => root.scrollTop);
+    expect(listBefore).toBeGreaterThan(0);
+    await page.locator('[data-item-id="large-item-01"]').evaluate((button) => button.click());
+    await expect(page.locator("#editor-title")).toContainText("large-item-01");
+    await expect(page.locator("#related-work > summary")).not.toContainText("Loading");
+    await page.screenshot({ path: path.join(images, "list-desktop.png"), fullPage: false });
+    await expect.poll(() => page.locator("#board-groups").evaluate((root) => root.scrollTop)).toBe(listBefore);
+    await page.locator("#refresh-button").click();
+    await expect.poll(() => page.locator("#board-groups").evaluate((root) => root.scrollTop)).toBe(listBefore);
+    const listAfterRefresh = await page.locator("#board-groups").evaluate((root) => root.scrollTop);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(repoUrlFor(fixture, "/#lens=board&boardView=1&item=large-item-02"));
+    await expect(page.locator("#editor-title")).toContainText("large-item-02");
+    await expect(page.locator(".board-group").first()).toBeVisible();
+    await page.locator('[data-item-id="large-item-01"]').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(images, "list-narrow.png"), fullPage: false });
+    const position = () => page.evaluate(() => {
+      const board = document.querySelector("#board-panel");
+      const boardTop = board.getBoundingClientRect().top + scrollY;
+      return { boardTop, offset: scrollY - boardTop };
+    });
+    await page.evaluate(() => {
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest('[data-item-id="large-item-01"]')) return;
+        const board = document.querySelector("#board-panel");
+        const boardTop = board.getBoundingClientRect().top + scrollY;
+        window.__boardClickPosition = { boardTop, offset: scrollY - boardTop };
+      }, { capture: true, once: true });
+    });
+    await page.locator('[data-item-id="large-item-01"]').click();
+    const pageBefore = await page.evaluate(() => window.__boardClickPosition);
+    await expect(page.locator("#editor-title")).toContainText("large-item-01");
+    await page.locator("#jump-to-board").click();
+    await expect.poll(async () => (await position()).offset).toBeGreaterThanOrEqual(pageBefore.offset - 5);
+    const pageAfterReturn = await position();
+    expect(Math.abs(pageAfterReturn.offset - pageBefore.offset)).toBeLessThan(8);
+    expect(Math.abs(pageAfterReturn.boardTop - pageBefore.boardTop)).toBeGreaterThan(60);
+    const changedItem = path.join(fixture, "roadmap", "features", "large-item-03.md");
+    await fs.writeFile(changedItem, (await fs.readFile(changedItem, "utf8"))
+      .replace("Large project item large-item-03 — usable title", "Updated by background refresh"), "utf8");
+    await page.waitForTimeout(1100);
+    const backgroundRead = page.waitForResponse((response) => response.url().includes("/api/workspace") && response.ok());
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await backgroundRead;
+    await expect(page.locator('[data-item-id="large-item-03"]')).toContainText("Updated by background refresh");
+    await expect.poll(async () => (await position()).offset).toBeGreaterThanOrEqual(pageBefore.offset - 5);
+    const pageAfterRefresh = await position();
+    expect(Math.abs(pageAfterRefresh.offset - pageBefore.offset)).toBeLessThan(8);
+
+    await page.goto(repoUrlFor(fixture, "/#lens=status&layout=columns"));
+    await page.reload();
+    await expect(page.locator(".board-columns")).toBeVisible();
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await page.screenshot({ path: path.join(images, "columns-narrow.png"), fullPage: false });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+    await fs.writeFile(path.join(images, "scroll-values.json"), JSON.stringify({
+      columns: { before, afterOpen, afterRefresh }, list: { before: listBefore, afterRefresh: listAfterRefresh },
+      narrowListPage: { before: pageBefore, afterReturn: pageAfterReturn, afterRefresh: pageAfterRefresh },
+    }, null, 2));
+  } finally {
+    await page.goto("about:blank");
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+  }
+});
+
 test("dragging between board columns rewrites the canonical board groups", async ({ page }) => {
   await page.goto(repoUrl());
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
