@@ -1,4 +1,5 @@
 # Now
+- fast-worktree-scan
 
 # Next
 - fix-shared-server-registry-test-isolation
