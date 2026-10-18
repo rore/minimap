@@ -979,6 +979,31 @@ function getVisibleBoardGroups(workspace = state.workspace) {
   });
 }
 
+function sameVisibleBoardGroups(before, after) {
+  if (before.length !== after.length) return false;
+  for (let index = 0; index < before.length; index += 1) {
+    const left = before[index];
+    const right = after[index];
+    for (const key of ["name", "groupKey", "kind", "originalIndex", "dropValue", "isDerived", "draggable"]) {
+      if (left[key] !== right[key]) return false;
+    }
+    if (left.items.length !== right.items.length) return false;
+    for (let itemIndex = 0; itemIndex < left.items.length; itemIndex += 1) {
+      const oldItem = left.items[itemIndex];
+      const newItem = right.items[itemIndex];
+      if (state.worktreeMode !== "across") {
+        if (oldItem !== newItem) return false;
+        continue;
+      }
+      if (oldItem.id !== newItem.id || oldItem.missing !== newItem.missing
+        || oldItem.sourceVersion !== newItem.sourceVersion
+        || oldItem.matchingVersions?.length !== newItem.matchingVersions?.length
+        || oldItem.matchingVersions?.some((version, versionIndex) => version !== newItem.matchingVersions[versionIndex])) return false;
+    }
+  }
+  return true;
+}
+
 function getVisibleBoardItemIds(workspace = state.workspace) {
   return getVisibleBoardGroups(workspace).flatMap((group) => group.items.filter((item) => !item.missing).map((item) => item.id));
 }
@@ -4865,7 +4890,8 @@ async function syncVisibleSelection(options = {}) {
   const useOverlay = shouldUseEditorOverlay();
 
   syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
-  renderBoard(options.preserveBoardControls === true);
+  if (options.skipInitialBoardRender) renderedBoardViewKey = currentBoardViewKey();
+  else renderBoard(options.preserveBoardControls === true);
   if (state.currentItem && state.worktreeMode === "across") renderEditorSourceSelect();
 
   if (options.preserveDirtyItem !== false && state.currentItem && hasUnsavedCurrentItemChanges()) {
@@ -4886,9 +4912,11 @@ async function syncVisibleSelection(options = {}) {
 
   if (!shouldShowItem) {
     if (useOverlay) {
+      const keepUnchangedBoard = options.skipInitialBoardRender
+        && !state.currentItem && !state.selectedItemId && !state.editorOverlayOpen;
       resetEditor();
       syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
-      renderBoard(options.preserveBoardControls === true);
+      if (!keepUnchangedBoard) renderBoard(options.preserveBoardControls === true);
     } else if (state.selectedItemId && !visibleItemIds.includes(state.selectedItemId)) {
       resetEditor();
       syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
@@ -6391,15 +6419,17 @@ scopeResizerElement.addEventListener("pointerdown", beginScopeResize);
 boardEditorResizerElement.addEventListener("pointerdown", beginBoardEditorResize);
 
 boardSearchInput.addEventListener("input", () => {
+  const previousGroups = state.workspace && renderedBoardViewKey === currentBoardViewKey() ? getVisibleBoardGroups() : null;
+  const wasSearchActive = isSearchActive();
   state.searchQuery = normalizeSearchQuery(boardSearchInput.value);
-  void syncVisibleSelection({ replaceRoute: true });
+  const skipInitialBoardRender = previousGroups && wasSearchActive === isSearchActive()
+    && sameVisibleBoardGroups(previousGroups, getVisibleBoardGroups());
+  void syncVisibleSelection({ replaceRoute: true, skipInitialBoardRender });
 });
 
 boardLayoutListButton?.addEventListener("click", () => {
   state.boardLayout = DEFAULT_BOARD_LAYOUT;
   state.lensesExpanded = false;
-  syncWorkspaceChrome();
-  renderBoard();
   void syncVisibleSelection({ replaceRoute: true });
 });
 
