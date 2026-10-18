@@ -32,4 +32,6 @@ The 25-source selection and blocked filter are implemented in the isolated branc
 
 Draft delivery: https://github.com/rore/minimap/pull/57. Bounded identity batching is implemented at `70c711a`; concurrent qualification and independent result review remain pending.
 
-After batching, cold full loading improved from 26.3s to 18.2s. Requalification still returned one 503 at 30.1s for two concurrent 25x1000 projects; PR #57 remains draft and performance acceptance is blocked. Next diagnostic isolates final-validation parsing cost; no further product change or live restart is authorized by this result.
+After batching, cold full loading improved from 26.3s to 18.2s. Requalification still returned one 503 at 30.1s for two concurrent 25x1000 projects; PR #57 remains draft and performance acceptance is blocked. The user requested renewed investigation rather than accepting this limitation.
+
+Renewed review found quadratic feature lookups in card rendering and metadata grouping, hidden-card DOM creation for collapsed groups, and payload expansion before the stale-request guard. The 500-item ancestry evidence bound also leaves the large fixture as 25,000 distinct features with a 33.5 MB response; it must not be bypassed by guessing identity. A synthetic 32 MB snapshot publication delayed a timer by 56.4 ms. Hash-only validation and alternative read APIs showed no useful improvement in bounded diagnostics. Further correction must preserve identity, fresh rereads, cancellation and deadlines; no live environment change is included.
