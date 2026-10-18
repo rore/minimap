@@ -118,3 +118,127 @@ test("concurrent restarts with different configurations leave one registered ser
     await fs.rm(installRoot, { recursive: true, force: true });
   }
 });
+
+test("a stale-lock reclaimer cannot remove a concurrently published owner", { timeout: 30_000 }, async () => {
+  const installRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-stale-reclaimer-"));
+  const skillRoot = path.join(installRoot, "minimap-reclaimer-race");
+  await fs.cp(path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap"), skillRoot, { recursive: true });
+  const restartPath = path.join(skillRoot, "scripts", "restart-server.mjs");
+  let restartSource = await fs.readFile(restartPath, "utf8");
+  restartSource = restartSource
+    .replace("const SWEEP_PORTS_FROM = 4312;", "const SWEEP_PORTS_FROM = 47900;")
+    .replace("const SWEEP_PORTS_TO = 4320;", "const SWEEP_PORTS_TO = 47900;");
+  const legacyUnlink = '    try { await fs.unlink(restartLockPath); return true; }';
+  assert.ok(restartSource.includes(legacyUnlink));
+  restartSource = restartSource.replace(legacyUnlink, `    if (process.env.MINIMAP_TEST_STALE_READY && !globalThis.__minimapStalePaused) {
+      globalThis.__minimapStalePaused = true;
+      await fs.writeFile(process.env.MINIMAP_TEST_STALE_READY, "ready");
+      while (true) {
+        try { await fs.access(process.env.MINIMAP_TEST_STALE_RELEASE); break; }
+        catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+      }
+    }
+${legacyUnlink}`);
+  const staleObservation = '    if (observed.kind !== "unknown") mayPublish = await removeStaleLock(observed);';
+  assert.ok(restartSource.includes(staleObservation));
+  restartSource = restartSource.replace(staleObservation, `${staleObservation}
+    if (process.env.MINIMAP_TEST_STALE_RESUMED && globalThis.__minimapStalePaused) await fs.writeFile(process.env.MINIMAP_TEST_STALE_RESUMED, "resumed");`);
+  const acquisitionHook = 'process.once("exit", () => {';
+  assert.ok(restartSource.includes(acquisitionHook));
+  restartSource = restartSource.replace(acquisitionHook, `if (process.env.MINIMAP_TEST_LOCK_READY) {
+  await fs.writeFile(process.env.MINIMAP_TEST_LOCK_READY, "ready");
+  while (true) {
+    try { await fs.access(process.env.MINIMAP_TEST_LOCK_RELEASE); break; }
+    catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+  }
+}
+${acquisitionHook}`);
+  await fs.writeFile(restartPath, restartSource, "utf8");
+
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
+  const readyA = path.join(installRoot, "stale-ready");
+  const releaseA = path.join(installRoot, "stale-release");
+  const resumedA = path.join(installRoot, "stale-resumed");
+  const readyB = path.join(installRoot, "owner-ready");
+  const releaseB = path.join(installRoot, "owner-release");
+  const lockPath = path.join(home, "restart.lock");
+  await fs.writeFile(lockPath, JSON.stringify({ pid: 99999999, token: "crashed" }), "utf8");
+
+  const launch = (port, extraEnv) => {
+    const proc = spawn(process.execPath, [restartPath], {
+      cwd: projectRoot,
+      env: { ...process.env, PORT: String(port), MINIMAP_HOME: home, ...extraEnv },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    proc.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    const done = new Promise((resolve) => proc.on("exit", (code) => resolve({ code, stdout, stderr })));
+    return { proc, done };
+  };
+  const waitForFile = async (file) => {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try { await fs.access(file); return; }
+      catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+    }
+    assert.fail(`Timed out waiting for ${path.basename(file)}`);
+  };
+  const settle = async (run) => {
+    if (!run) return;
+    const finished = await Promise.race([run.done, new Promise((resolve) => setTimeout(() => resolve(null), 5_000))]);
+    if (finished === null) {
+      run.proc.kill();
+      await Promise.race([run.done, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+    }
+  };
+
+  const stale = launch(47800, {
+    MINIMAP_TEST_STALE_READY: readyA,
+    MINIMAP_TEST_STALE_RELEASE: releaseA,
+    MINIMAP_TEST_STALE_RESUMED: resumedA,
+  });
+  let owner;
+  try {
+    await waitForFile(readyA);
+    owner = launch(47825, { MINIMAP_TEST_LOCK_READY: readyB, MINIMAP_TEST_LOCK_RELEASE: releaseB });
+    await waitForFile(readyB);
+
+    const winnerEntries = await fs.readdir(lockPath);
+    assert.equal(winnerEntries.length, 1);
+    const winnerName = winnerEntries[0];
+    const winner = JSON.parse(await fs.readFile(path.join(lockPath, winnerName), "utf8"));
+    assert.equal(winnerName, `${winner.token}.json`);
+
+    await fs.writeFile(releaseA, "release");
+    await waitForFile(resumedA);
+    assert.deepEqual(await fs.readdir(lockPath), [winnerName]);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(lockPath, winnerName), "utf8")), winner);
+    assert.equal(stale.proc.exitCode, null, "the resumed contender must wait while the winner owns the lock");
+
+    await fs.writeFile(releaseB, "release");
+    const results = await Promise.all([stale.done, owner.done]);
+    assert.deepEqual(results.map((result) => result.code), [0, 0], JSON.stringify(results));
+
+    const health = async (port) => fetch(`http://127.0.0.1:${port}/health`).then((response) => response.json()).catch(() => null);
+    const live = [];
+    for (const port of [...Array(20)].map((_, index) => 47800 + index).concat([...Array(20)].map((_, index) => 47825 + index))) {
+      if ((await health(port))?.ok) live.push(port);
+    }
+    const registry = JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8"));
+    assert.deepEqual(live, [registry.port], JSON.stringify({ results, live, registry }));
+    await assert.rejects(() => fs.access(lockPath), { code: "ENOENT" });
+  } finally {
+    await fs.writeFile(releaseA, "release").catch(() => {});
+    await fs.writeFile(releaseB, "release").catch(() => {});
+    await Promise.all([settle(stale), settle(owner)]);
+    for (const port of [...Array(20)].map((_, index) => 47800 + index).concat([...Array(20)].map((_, index) => 47825 + index))) {
+      if (await fetch(`http://127.0.0.1:${port}/health`).then(() => true).catch(() => false)) {
+        await fetch(`http://127.0.0.1:${port}/api/shutdown`, { method: "POST" }).catch(() => {});
+      }
+    }
+    await fs.rm(installRoot, { recursive: true, force: true });
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
