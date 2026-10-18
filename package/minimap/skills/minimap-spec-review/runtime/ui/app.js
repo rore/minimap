@@ -3864,9 +3864,6 @@ function renderItemParticipants() {
     const availability = [["Session", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
     const origins = participant.association?.origins || [];
     const associationUpdatedAt = participant.association?.updated_at || "";
-    const associationUpdated = associationUpdatedAt
-      ? `<time datetime="${escapeHtml(associationUpdatedAt)}" title="Association updated at ${escapeHtml(associationUpdatedAt)}">${escapeHtml(formatParticipantTime(associationUpdatedAt))}</time>`
-      : "unknown";
 
     return `
       <article class="item-participant" role="listitem">
@@ -3881,7 +3878,7 @@ function renderItemParticipants() {
             <div class="item-participant-reference-row"><span class="muted">Session</span><code>${escapeHtml(participant.session_ref)}</code></div>
             <div class="item-participant-reference-row"><span class="muted">Container</span><code>${escapeHtml(participant.container_ref)}</code></div>
             <div class="item-participant-badges">${availability.map(([label, value]) => `<span class="badge">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}</div>
-            <p class="muted item-participant-association-meta">Association updated ${associationUpdated}${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}</p>
+            <p class="muted item-participant-association-meta" title="Association updated at ${escapeHtml(associationUpdatedAt)}">Association updated ${escapeHtml(formatParticipantTime(associationUpdatedAt))}${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}</p>
           </div>
         </details>
       </article>
@@ -3895,7 +3892,7 @@ function renderItemParticipants() {
     const group = grouped[lifecycle];
     if (!group.length) return "";
     const label = lifecycle[0].toUpperCase() + lifecycle.slice(1);
-    return `<details class="item-participant-lifecycle" data-participant-disclosure="lifecycle:${lifecycle}"><summary>${label} sessions <span class="muted">${group.length}</span></summary><div class="item-participant-group-list" role="list">${group.map(renderParticipant).join("")}</div></details>`;
+    return `<details class="item-participant-lifecycle" data-participant-disclosure="lifecycle:${escapeHtml(lifecycle)}"><summary>${label} sessions <span class="muted">${group.length}</span></summary><div class="item-participant-group-list" role="list">${group.map(renderParticipant).join("")}</div></details>`;
   }).join("");
   const partial = result.partial ? '<p class="muted item-participants-partial">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "";
   const refreshing = result.status === "loading" ? '<p class="muted item-participants-refreshing">Refreshing participant associations…</p>' : "";

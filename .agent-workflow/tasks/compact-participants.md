@@ -62,3 +62,5 @@ Verification adequacy: adequate for the UI change based on focused List/Columns,
 ## Discovery update
 
 `renderItemParticipants` emits guidance and session/container/state metadata ahead of the participant rows. The existing lazy-load test already covers both List and Columns plus session links, lifecycle labels, and request scoping; it can be extended rather than duplicated. Existing summary selectors will need to target the outer disclosure explicitly once native per-person disclosures are added.
+
+CI correction: replaced prebuilt association timestamp HTML with inline escaped text and a raw timestamp title; escaped the lifecycle disclosure key. HTML-escaping and promise lints pass (2/2). Initial full CI also encountered an unrelated ENOENT while a lifecycle test loaded a runtime file concurrently rewritten by mirror sync; no lifecycle behavior or test gate was changed.
