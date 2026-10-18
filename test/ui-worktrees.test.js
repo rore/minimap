@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { countDistinctWorktreeFeatures, projectWorktreeGroups, versionDifferences } from "../package/minimap/ui/worktrees.js";
+import { countDistinctWorktreeFeatures, createWorktreeProjector, projectWorktreeGroups, versionDifferences } from "../package/minimap/ui/worktrees.js";
 
 function fixture(versions, { availableLenses = [] } = {}) {
   const features = versions.map(({ key, id, entries }) => ({ key, id, versions: entries, conflicts: [] }));
@@ -48,6 +48,18 @@ test("board group shows a sibling's in-progress version and keeps conflicts", ()
   assert.deepEqual(group.items[0].versions.map((entry) => entry.sourceKey), ["sibling"]);
 });
 
+test("Across In play includes a blocked version without participants and composes filters per version", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "A", { id: "x", title: "opened", searchText: "opened", metadata: { status: "queued", milestone: "v1" } }),
+    version("sibling", "A", { id: "x", title: "blocked sibling", searchText: "blocked sibling", metadata: { status: " BLOCKED ", milestone: "v2" } }),
+  ] }]);
+  const [group] = projectWorktreeGroups(aggregate, { inPlay: true, participantCounts: new Map() });
+  assert.deepEqual(group.items[0].matchingVersions.map((entry) => entry.sourceKey), ["sibling"]);
+  assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, searchQuery: "opened" }), []);
+  assert.deepEqual(projectWorktreeGroups(aggregate, { inPlay: true, activeFilters: { milestone: ["v1"] } }), []);
+  assert.equal(projectWorktreeGroups(aggregate, { inPlay: true, activeFilters: { milestone: ["v2"] } })[0].items.length, 1);
+});
+
 test("the same feature in separate groups counts once", () => {
   const aggregate = fixture([{ key: "f", id: "x", entries: [
     version("opened", "A", { id: "x", title: "x", searchText: "", metadata: {} }),
@@ -80,6 +92,37 @@ test("derived lens merges same feature appearances across board groups", () => {
   assert.equal(groups[0].items.length, 1);
   assert.deepEqual(groups[0].items[0].matchingVersions.map((entry) => entry.sourceKey), ["opened", "sibling"]);
   assert.equal(groups[0].items[0].sourceVersion.sourceKey, "opened");
+});
+
+test("derived groups preserve feature order and merging without scanning the growing card list", () => {
+  const aggregate = fixture(Array.from({ length: 128 }, (_, index) => ({ key: `feature-${index}`, id: `item-${index}`, entries: [
+    version("opened", "A", { id: `item-${index}`, title: `Item ${index}`, metadata: { status: "queued" } }),
+    version("sibling", "B", { id: `item-${index}`, title: `Item ${index}`, metadata: { status: "queued" } }),
+  ] })), { availableLenses: [{ key: "status", values: ["queued"] }] });
+  const original = Array.prototype.find;
+  let scannedCards = 0, groups;
+  try {
+    Array.prototype.find = function (...args) {
+      if (this[0]?.featureKey) scannedCards += this.length;
+      return original.apply(this, args);
+    };
+    groups = projectWorktreeGroups(aggregate, { lens: "status" });
+  } finally { Array.prototype.find = original; }
+  assert.equal(scannedCards, 0);
+  assert.deepEqual(groups[0].items.map((card) => card.featureKey), aggregate.features.map((feature) => feature.key));
+  assert.ok(groups[0].items.every((card) => card.matchingVersions.length === 2 && card.sourceVersion.sourceKey === "opened"));
+});
+
+test("the cached projector indexes full features for group cues and replaces the index with the aggregate", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [version("opened", "A", { id: "x", metadata: {} })] }]);
+  aggregate.features[0].groups = [{ kind: "board", name: "A" }, { kind: "board", name: "B" }];
+  const project = createWorktreeProjector();
+  const first = project(aggregate);
+  assert.equal(first.features.get("f"), aggregate.features[0]);
+  assert.equal(project(aggregate), first);
+  const next = { ...aggregate, features: [{ ...aggregate.features[0], groups: [{ kind: "board", name: "C" }] }] };
+  assert.equal(project(next).features.get("f"), next.features[0]);
+  assert.notEqual(project(next).features, first.features);
 });
 
 test("derived merge keeps conflicts and opened-first source when sibling group comes first", () => {

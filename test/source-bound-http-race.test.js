@@ -90,7 +90,7 @@ test("bound HTTP apply rejects a spec path redirected outside after validation",
     { by: "tester", kind: "replace", quote: "Replace this sentence.", content: "unexpected outside edit" }, { minimapHome: home });
   const context = (await loadWorktreeAggregate(root)).sources[0];
 
-  child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  child = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

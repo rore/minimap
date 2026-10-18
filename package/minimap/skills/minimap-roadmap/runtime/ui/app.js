@@ -730,7 +730,7 @@ function renderBoardSourceControl() {
   boardSourceStatusDetailsElement.innerHTML = coverage
     + (aggregate?.provisional ? `<p>Only the opened checkout is shown. Other worktrees and session information ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; feature totals and In play are incomplete.</p>` : state.worktreeLoading ? "<p>Updating worktrees. The previous board remains available until the refresh finishes.</p>" : "")
     + (state.workspaceStale ? "<p>These are the last-known results; fresh validation is pending or unavailable.</p>" : "")
-    + (sourceLimitReached ? "<p>Checkout discovery intentionally inspects at most 16 worktrees, including the opened checkout. Unavailable or prunable entries use inspection slots; later checkouts were not inspected or loaded.</p>" : "")
+    + (sourceLimitReached ? "<p>Checkout discovery selects at most 25 worktrees, including this checkout and up to 24 recent eligible siblings. Other checkouts outside that selection were not loaded. Recency uses local Git events; uncommitted edits do not affect it.</p>" : "")
     + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
     + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
 }
@@ -739,7 +739,7 @@ function sourceExclusionReason(entry) {
   if (entry.reason === "workspace-load-failed") return entry.message || "Roadmap workspace could not be loaded";
   return ({ "incompatible-roadmap-config": "Roadmap location differs from the opened checkout",
     "missing-or-unavailable": "Checkout path is missing or unreadable",
-    prunable: "Git worktree is prunable", "source-limit": "16-worktree safety limit reached",
+    prunable: "Git worktree is prunable", "source-limit": "Outside the 25-checkout recent selection",
     "different-common-git-dir": "Not part of this Git worktree family" })[entry.reason] || entry.reason;
 }
 
@@ -774,7 +774,7 @@ function renderBoardSourceMenu(inventory) {
     ...sources.filter((source) => !isOpenedSource(source))
       .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(sourceDisplayName(inventory, source.sourceKey))}<small>${escapeHtml(source.repoRoot)}</small></button>`),
   ];
-  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">${entry.reason === "source-limit" ? "Not inspected" : "Excluded"}: ${escapeHtml(`${entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
+  const excluded = (inventory?.excluded || []).map((entry) => `<div class="board-source-badge">${entry.reason === "source-limit" ? "Not selected" : "Excluded"}: ${escapeHtml(`${entry.repoRoot} · ${sourceExclusionReason(entry).slice(0, 160)}`)}</div>`).join("");
   const aggregate = state.worktreeMode === "across" ? state.worktreeData : null;
   const missing = aggregate?.coverage?.missingBoardRefs || [];
   const missingRows = missing.slice(0, 20).map((entry) => {
@@ -782,7 +782,7 @@ function renderBoardSourceMenu(inventory) {
   }).join("");
   const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
   const status = inventory?.error ? "Discovery unavailable · showing last-known choices" : inventory?.loading ? "Checking local checkouts…"
-    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Partial discovery · at most 16 worktrees inspected, including this checkout; later checkouts were not inspected"
+    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Partial discovery · at most 25 recent worktrees selected, including this checkout; other checkouts were not loaded"
     : inventory?.partial ? "Partial discovery · some checkouts are unavailable" : inventory?.unavailable ? "Worktree discovery unavailable" : "";
   boardSourceMenuElement.innerHTML = `${choices.join("")}${status ? `<p class="source-menu-status" role="status">${escapeHtml(status)}</p>` : ""}${excluded}${missingNotice}`;
   if (focusedChoice) [...boardSourceMenuElement.querySelectorAll("[data-source-choice]")]
@@ -2609,7 +2609,7 @@ function getBoardCardStatus(item) {
   return "";
 }
 
-function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
+function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", feature = null) {
   const metaParts = [];
   if (activeLensKey !== "kind") {
     metaParts.push(`<span class="board-item-kind">${escapeHtml(item.kind)}</span>`);
@@ -2644,9 +2644,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "") {
     return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
   }).join("\n");
   const conflictBadge = differingFields.length ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(conflictDetail)}" aria-label="${escapeHtml(conflictDetail)}">${escapeHtml(differingFields.filter((field) => field !== "revision").map((field) => `${humanizeFilterKey(field)} differs`).join(" · ") || "Versions differ")}</span>` : "";
-  const feature = activeLensKey === "board" && item.featureKey
-    ? state.worktreeData?.features.find((entry) => entry.key === item.featureKey) : null;
-  const otherGroups = [...new Set((feature?.groups || []).filter((group) => group.kind === "board" && group.name !== item.sourceVersion?.group).map((group) => group.name))];
+  const otherGroups = [...new Set((activeLensKey === "board" ? feature?.groups || [] : []).filter((group) => group.kind === "board" && group.name !== item.sourceVersion?.group).map((group) => group.name))];
   const groupCue = otherGroups.length ? `<span class="board-source-badge" role="note" title="${escapeHtml(otherGroups.join("\n"))}">${escapeHtml(`Also in ${otherGroups[0]}${otherGroups.length > 1 ? ` +${otherGroups.length - 1}` : ""}`)}</span>` : "";
 
   return `
@@ -2961,6 +2959,7 @@ function renderBoardColumnsMode() {
 
   const activeLens = getActiveLensDefinition();
   const visibleGroups = getVisibleBoardGroups();
+  const features = state.worktreeMode === "across" ? getWorktreeProjection().features : null;
   const allowColumnDrag = canDragItemsInColumnLayout();
   const allowColumnReorder = canReorderColumnsInColumnLayout();
   const boardGrouping = activeLens?.key === DEFAULT_LENS_KEY;
@@ -2990,7 +2989,7 @@ function renderBoardColumnsMode() {
       : "";
     const reorderAttributes = allowColumnReorder ? `data-board-column-drop-index="${group.originalIndex}"` : "";
 
-    const cardsHtml = group.items.map((item, itemIndex) => {
+    const cardsHtml = collapsed ? "" : group.items.map((item, itemIndex) => {
       if (isMissingBoardItem(item)) {
         return renderMissingBoardCardColumn(item);
       }
@@ -3015,7 +3014,7 @@ function renderBoardColumnsMode() {
       return `
         <article class="board-column-card${activeClass}${getBoardCardStatus(item) ? ` board-card-status-${getBoardCardStatus(item)}` : ""}${placementAttributes ? " board-column-dropzone" : ""}" title="${escapeHtml(item.title)}" ${placementAttributes} ${itemOrderDropAttributes}>
           <div class="board-column-card-main" data-item-dblopen="${escapeHtml(item.id)}" title="${escapeHtml(item.title)}">
-            ${buildBoardCardBodyMarkup(item, activeLens?.key)}
+            ${buildBoardCardBodyMarkup(item, activeLens?.key, "", features?.get(item.featureKey))}
           </div>
           <div class="board-column-card-actions">
             <button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" ${orderAttributes}>Open</button>
@@ -3262,6 +3261,7 @@ function renderBoardReadMode() {
 
   const activeLens = getActiveLensDefinition();
   const visibleGroups = getVisibleBoardGroups();
+  const features = state.worktreeMode === "across" ? getWorktreeProjection().features : null;
   const filtered = isSearchActive();
   const allowGroupReorder = state.worktreeMode !== "across" && activeLens?.key === DEFAULT_LENS_KEY && !filtered;
   const allowDerivedDrag = canDragItemsInActiveLens();
@@ -3288,7 +3288,7 @@ function renderBoardReadMode() {
   const html = visibleGroups.map((group) => {
     const collapseKey = state.worktreeMode === "across" ? group.groupKey : group.name;
     const collapsed = isGroupCollapsed(collapseKey);
-    const items = group.items.map((item, itemIndex) => {
+    const items = collapsed ? "" : group.items.map((item, itemIndex) => {
       if (isMissingBoardItem(item)) {
         return renderMissingBoardCardRead(item);
       }
@@ -3309,7 +3309,7 @@ function renderBoardReadMode() {
       return `
         <div class="board-item-row">
           <button class="board-item${active}${getBoardCardStatus(item) ? ` board-card-status-${getBoardCardStatus(item)}` : ""}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
-            ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle)}
+            ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle, features?.get(item.featureKey))}
           </button>
         </div>
       `;
@@ -5152,12 +5152,14 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   workspaceLoadController?.abort();
   const controller = new AbortController();
   workspaceLoadController = controller;
-  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
   const cached = options.fresh !== true;
   lastWorkspaceAttemptAt = Date.now();
   const generation = ++workspaceLoadGeneration;
   const repoPath = state.repoPath;
   const worktreeMode = state.worktreeMode;
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(worktreeMode === "across" ? 60_000 : 30_000)]);
+  const openedSignal = worktreeMode === "across"
+    ? AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]) : signal;
   const stillCurrent = () => !controller.signal.aborted && generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode;
   const sameScope = state.workspaceScope?.repoPath === repoPath && state.workspaceScope?.mode === worktreeMode
     && (!state.boundRequired || (state.workspaceScope.sourceKey === state.pinnedSource?.sourceKey
@@ -5322,7 +5324,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       const opened = !sameScope ? (async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         if (fullReady || !stillCurrent()) return { opened: true };
-        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, compact: true, participants: false, signal }), opened: true }; }
+        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, compact: true, participants: false, signal: openedSignal }), opened: true }; }
         catch (error) { return { error, opened: true }; }
       })() : null;
       const first = opened ? await Promise.race([completed, opened]) : await completed;

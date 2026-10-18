@@ -26,7 +26,7 @@ $MINIMAP_HOME/server.json   # default: ~/.minimap/server.json
 
 That file looks like `{ "port": 4312, "pid": 12345, "version": "..." }`. You can also call `node <skill>/scripts/status.mjs` which reads the same file and prints the port.
 
-If you don't have a server running yet, start it with `node <skill>/scripts/start-server.mjs` first.
+If you don't have a server running yet, start it with `node <skill>/scripts/start-server.cjs` first.
 
 ## Posting JSON from a shell
 

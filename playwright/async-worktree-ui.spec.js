@@ -271,11 +271,12 @@ test("remembers the unlisted group and explains source-limit exclusions", async 
     await expect(unlisted).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator("#board-source-status-summary")).toContainText("Partial coverage");
     await page.locator("#board-source-status").evaluate((details) => { details.open = true; });
-    await expect(page.locator("#board-source-status-details")).toContainText("at most 16 worktrees, including the opened checkout");
+    await expect(page.locator("#board-source-status-details")).toContainText("at most 25 worktrees, including this checkout and up to 24 recent eligible siblings");
     await expect(page.locator("#board-source-status-details")).toContainText(limitedPath);
     await page.locator("#board-source-status").evaluate((details) => { details.open = false; });
     await page.locator(".board-source-control > button").first().click();
-    await expect(page.locator("#board-source-menu")).toContainText(`Not inspected: ${limitedPath}`);
+    await expect(page.locator("#board-source-menu")).toContainText(`Not selected: ${limitedPath}`);
+    await expect(page.locator("#board-source-menu")).toContainText("Outside the 25-checkout recent selection");
     await page.screenshot({ path: path.join(images, "source-limit-menu-desktop.png"), fullPage: false });
 
     await page.locator("#board-source-toggle").click();
@@ -314,6 +315,14 @@ async function statusFiltersInHash(page) {
 
 test("opened-only board is interactive while the full worktree request is pending", async ({ page }, testInfo) => {
   const { owned, root } = await fixture(64);
+  await page.addInitScript(() => {
+    window.__readBudgets = [];
+    const timeout = AbortSignal.timeout;
+    AbortSignal.timeout = function (milliseconds) {
+      window.__readBudgets.push(milliseconds);
+      return timeout.call(AbortSignal, milliseconds);
+    };
+  });
   const full = await holdFullRoute(page);
   const reads = [];
   const participantRequests = [];
@@ -324,6 +333,7 @@ test("opened-only board is interactive while the full worktree request is pendin
   try {
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
     await full.started;
+    expect(await page.evaluate(() => window.__readBudgets)).toContain(60_000);
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
     await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
     await expect(page.locator("#board-source-status")).toContainText("Loading other worktrees");
@@ -375,6 +385,12 @@ test("opened-only board is interactive while the full worktree request is pendin
     await page.screenshot({ path: testInfo.outputPath("opened-only-settled-columns-390.png"), fullPage: true });
     await page.locator("#board-layout-list").click();
     expect(reads).not.toContain("POST");
+    await page.goto("about:blank");
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=this`);
+    await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
+    const checkoutBudgets = await page.evaluate(() => window.__readBudgets);
+    expect(checkoutBudgets).toContain(30_000);
+    expect(checkoutBudgets).not.toContain(60_000);
   } finally {
     full.release();
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

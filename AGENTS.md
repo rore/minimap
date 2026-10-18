@@ -9,10 +9,12 @@ This repo dogfoods the packaged minimap app. Minimap exposes two capabilities, e
 
 All server interaction goes through scripts in `<skill>/scripts/`:
 
-- `start-server.mjs` — start (or detect + reuse a running instance)
+- `start-server.cjs` — start (or detect + reuse a running instance)
 - `status.mjs` — print status; exit 0 running, 1 stale, 3 not running
 - `stop-server.mjs` — graceful shutdown via `POST /api/shutdown`; cleans stale registry
 - `restart-server.mjs` — compose stop + start
+
+The canonical `start-server.cjs` bootstrap defaults `UV_THREADPOOL_SIZE` to 8 only when absent, before importing the existing launcher in the same process. Restart applies the same default to its new child. Explicit overrides are retained; reused servers are unchanged. The legacy `start-server.mjs` entrypoint remains supported without this bootstrap default.
 
 **Do not** curl the server directly, send signals to it (`process.kill`, `taskkill`), poke `$MINIMAP_HOME/server.json` by hand, or invoke `node package/minimap/server.js` directly. The scripts handle every state (running, stale registry, port busy, race with another launcher) and stay correct on Windows where signal-based stop is unreliable.
 

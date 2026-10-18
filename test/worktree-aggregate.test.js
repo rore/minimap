@@ -661,3 +661,28 @@ test("a checkout moving during the scan cannot publish mixed branch and file evi
     fs.readFile = originalReadFile;
   }
 });
+
+test("final identity failures drain their batch and report the first source, not the fastest failure", async () => {
+  const { main, sibling } = await fixture();
+  const originalReadFile = fs.readFile;
+  const reads = new Map();
+  let pending = 0, completed = 0;
+  fs.readFile = async (file, ...args) => {
+    if (path.basename(String(file)) !== "HEAD") return originalReadFile(file, ...args);
+    const key = String(file);
+    reads.set(key, (reads.get(key) || 0) + 1);
+    if (reads.get(key) !== 2) return originalReadFile(file, ...args);
+    pending++;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, key.includes(`${path.sep}worktrees${path.sep}`) ? 5 : 70));
+      throw new Error("delayed identity failure");
+    } finally { pending--; completed++; }
+  };
+  try {
+    const result = await loadWorktreeAggregate(main);
+    assert.equal(result.unavailable.reason, "source-identity-unavailable");
+    assert.equal(result.coverage.identityUncertain.at(-1).sourceKey, result.sources[0].sourceKey);
+    assert.equal(completed, 2, "Both failed reads finish before the ordered failure is returned");
+    assert.equal(pending, 0);
+  } finally { fs.readFile = originalReadFile; }
+});

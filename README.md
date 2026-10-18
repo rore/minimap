@@ -50,7 +50,7 @@ Ask your agent:
 The agent starts or reuses the local server and gives you a browser URL. You can also start it yourself using either installed skill:
 
 ```bash
-node <path-to-skill>/scripts/start-server.mjs
+node <path-to-skill>/scripts/start-server.cjs
 ```
 
 Use the port printed by the launcher; the default is 4312. Roadmap URLs identify the repository explicitly:
@@ -69,7 +69,7 @@ Use forward slashes for Windows paths and URL-encode the path when necessary. Sp
 
 The board reads markdown files in your repository. **List** and **Columns** show the same items; grouping can follow the board or metadata such as milestone or lane. Editing an item or dragging it in an editable checkout writes back to those files. Agents edit the same files directly.
 
-**Unfinished** narrows the board to unfinished statuses. **In play** includes items with status `active` or `in-progress`, or confirmed attached, nonclosed agent sessions—including dormant sessions. It combines with the other filters, so those can still hide matching items. When participant information is unavailable, known active and in-progress items remain visible with an incomplete-results notice.
+**Unfinished** narrows the board to unfinished statuses. **In play** includes items with status `active`, `in-progress`, or `blocked`, or confirmed attached, nonclosed agent sessions—including dormant sessions. It combines with the other filters, so those can still hide matching items. When participant information is unavailable, known active, in-progress, and blocked items remain visible with an incomplete-results notice.
 
 Columns can be collapsed to give other groups more room:
 
@@ -89,7 +89,11 @@ Across combines local checkout versions into one read-only board. It uses Git an
 
 The opened checkout appears first while other worktrees load. Feature totals and **In play** results remain provisional until full feature identity is resolved. In both board modes, session badges refresh independently of roadmap loading. Automatic reads reuse a validated snapshot for up to 30 seconds; while the board is visible, an expired snapshot is validated again. **Refresh** always requests fresh validation and keeps the board and drafts usable. Hidden or superseded refreshes are cancelled. Returning to the board reuses a current snapshot; returning after an interrupted read or tracked Spec change validates it again. Failed refreshes retain the last usable view and badges with a stale or unavailable notice and a Refresh retry.
 
-Only local linked Git worktrees are included, not separate clones or remote branches. The combined view currently loads at most **16 checkouts**. **Partial coverage** means some sources were excluded—for example, because of that limit or an unreadable roadmap. Expand the board summary for the reasons. Counts describe loaded sources, and a feature can appear in multiple groups when its versions differ.
+Only local linked Git worktrees are included, not separate clones or remote branches.
+
+The combined view selects up to **25 checkouts**: the opened checkout, then the 24 most recent eligible siblings. Recency uses the latest recorded local HEAD Git event (such as checkout, commit, reset, or rebase); plain uncommitted edits do not affect it. Missing activity timestamps sort last, with path order breaking ties. Stale or missing checkouts do not consume slots. Selection updates on fresh validation; cached reads retain their existing selection.
+
+**Partial coverage** means some sources were excluded—for example, because of that limit or an unreadable roadmap. Expand the board summary for the reasons. Counts describe loaded sources, and a feature can appear in multiple groups when its versions differ.
 
 ### File layout and configuration
 
@@ -176,10 +180,12 @@ Both skills expose these scripts under `scripts/`. Use them for lifecycle operat
 
 | Script | Purpose |
 |---|---|
-| `start-server.mjs` | Start or reuse a compatible running server. |
+| `start-server.cjs` | Start or reuse a compatible running server. |
 | `status.mjs` | Report live identity, participant settings, and lifecycle diagnostics; exits 0 running, 1 stale, 3 not running. |
 | `stop-server.mjs` | Gracefully stop the server or clean a stale registry. |
 | `restart-server.mjs [--replace-runtime]` | Restart; replacing a different or unknown runtime requires explicit opt-in. |
+
+Packaged start and restart default the new server's filesystem worker pool to 8 (`UV_THREADPOOL_SIZE`) only when unset. Explicit overrides remain authoritative. The legacy `start-server.mjs` and direct development entrypoints retain Node's caller-configured/default pool; a reused server is unchanged. See the lifecycle reference for preloads and startup details.
 
 The server is shared across repositories and both modes. Coordinate before replacing it: replacement interrupts all clients and can downgrade the running version. Updating an installed skill's files does not restart the server. See [server lifecycle](package/minimap/skills/minimap-roadmap/references/server.md) for compatibility, configuration, and diagnostics.
 

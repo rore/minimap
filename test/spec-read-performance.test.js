@@ -155,7 +155,7 @@ test("HTTP health and an independent workspace progress while Spec anchors are u
   const env = { ...process.env, MINIMAP_HOME: data.home, PORT: String(port),
     MINIMAP_PALLIUM_ENDPOINT: "", MINIMAP_PALLIUM_DASHBOARD_ENDPOINT: "",
     NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import=${pathToFileURL(preloadPath).href}`.trim() };
-  const child = spawn(process.execPath, [path.join(skill, "scripts/start-server.mjs")], {
+  const child = spawn(process.execPath, [path.join(skill, "scripts/start-server.cjs")], {
     cwd: data.owned, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   try {

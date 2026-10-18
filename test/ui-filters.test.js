@@ -48,7 +48,7 @@ test("itemMatchesFilters: returns false for null item", () => {
   assert.equal(itemMatchesFilters(null, {}), false);
 });
 
-test("In play matches normalized active/in-progress or a confirmed attached participant total", () => {
+test("In play matches normalized active/in-progress/blocked or a confirmed attached participant total", () => {
   const participantCounts = new Map([
     ["dormant", { participantCount: 2, recentParticipantCount: 0, dormantParticipantCount: 2 }],
     ["zero", { participantCount: 0 }],
@@ -58,11 +58,11 @@ test("In play matches normalized active/in-progress or a confirmed attached part
   const ctx = { inPlay: true, participantCounts };
   assert.equal(itemMatchesFilters({ id: "progress", metadata: { status: " IN-PROGRESS " } }, ctx), true);
   assert.equal(itemMatchesFilters({ id: "fallback", status: "in-progress" }, ctx), true);
-  for (const status of ["active", " ACTIVE ", "Active", "in-progress", " IN-PROGRESS ", "In-Progress"]) {
+  for (const status of ["active", " ACTIVE ", "Active", "in-progress", " IN-PROGRESS ", "In-Progress", "blocked", " BLOCKED ", "Blocked"]) {
     assert.equal(itemMatchesFilters({ id: "status", metadata: { status } }, { inPlay: true }), true, status);
   }
   assert.equal(itemMatchesFilters({ id: "dormant", metadata: { status: "done" } }, ctx), true);
-  for (const status of ["in progress", "blocked", "queued", "done", "shipped", "superseded", "cancelled", "canceled"]) {
+  for (const status of ["in progress", "queued", "done", "shipped", "superseded", "cancelled", "canceled"]) {
     assert.equal(itemMatchesFilters({ id: "missing", metadata: { status } }, ctx), false, status);
   }
   for (const id of ["zero", "missing", "recent-only", "invalid"]) {
@@ -71,13 +71,15 @@ test("In play matches normalized active/in-progress or a confirmed attached part
   assert.equal(itemMatchesFilters({ id: "progress", metadata: { status: "in-progress" } }, { inPlay: true }), true);
 });
 
-test("In play retains active statuses when participant results are unavailable or partial", () => {
+test("In play retains active and blocked statuses when participant results are unavailable or partial", () => {
   const active = { id: "active", metadata: { status: "active" } };
   const inProgress = { id: "progress", status: "in-progress" };
+  const blocked = { id: "blocked", metadata: { status: " Blocked " } };
   for (const participantCounts of [undefined, new Map(), new Map([["active", { participantCount: 1, partial: true }]])]) {
     const ctx = { inPlay: true, participantCounts };
     assert.equal(itemMatchesFilters(active, ctx), true);
     assert.equal(itemMatchesFilters(inProgress, ctx), true);
+    assert.equal(itemMatchesFilters(blocked, ctx), true);
   }
 });
 
@@ -90,6 +92,10 @@ test("In play composes with search and all metadata filters using AND", () => {
   assert.equal(itemMatchesFilters(item, { ...ctx, activeFilters: { status: ["queued"] } }), false);
   assert.equal(itemMatchesFilters(item, { ...ctx, participantCounts: new Map() }), true);
   assert.equal(itemMatchesFilters(item, { ...ctx, inPlay: false, participantCounts: new Map() }), true);
+  const blocked = { ...item, metadata: { status: "blocked", milestone: "v1" } };
+  assert.equal(itemMatchesFilters(blocked, ctx), true);
+  assert.equal(itemMatchesFilters(blocked, { ...ctx, activeFilters: { status: ["active"] } }), false);
+  assert.equal(itemMatchesFilters(blocked, { ...ctx, activeFilters: { status: ["blocked"], milestone: ["v1"] } }), true);
 });
 
 test("filterBoardItemIds: with no filters returns all non-missing ids in board order", () => {

@@ -38,8 +38,12 @@ export function projectWorktreeGroups(aggregate, {
   const derived = lens !== "board" && Boolean(definition);
   const preferred = derived ? definition.values || [] : [];
   const groups = new Map();
+  const cardsByGroup = new Map();
   const addGroup = (key, name, kind, originalIndex) => {
-    if (!groups.has(key)) groups.set(key, { name, kind, groupKey: key, originalIndex, items: [] });
+    if (!groups.has(key)) {
+      groups.set(key, { name, kind, groupKey: key, originalIndex, items: [] });
+      if (derived) cardsByGroup.set(key, new Map());
+    }
     return groups.get(key);
   };
 
@@ -82,7 +86,7 @@ export function projectWorktreeGroups(aggregate, {
         const index = derived ? preferred.indexOf(entry.name) : aggregate.groups.findIndex((value) => value.kind === entry.kind && value.name === entry.name);
         const projected = addGroup(key, entry.name, entry.kind, index < 0 ? preferred.length + groups.size : index);
         const appearanceId = JSON.stringify([feature.key, entry.kind, entry.name]);
-        const existing = derived && projected.items.find((card) => card.featureKey === feature.key);
+        const existing = derived && cardsByGroup.get(key).get(feature.key);
         if (existing) {
           const sources = new Set(existing.matchingVersions.map((version) => `${version.sourceKey}\0${version.groupKind}\0${version.group}`));
           existing.matchingVersions.push(...entry.versions.filter((version) => !sources.has(`${version.sourceKey}\0${version.groupKind}\0${version.group}`)));
@@ -98,9 +102,11 @@ export function projectWorktreeGroups(aggregate, {
           });
           continue;
         }
-        projected.items.push({ ...entry.versions[0].summary, id: appearanceId, featureKey: feature.key,
+        const card = { ...entry.versions[0].summary, id: appearanceId, featureKey: feature.key,
           title: entry.versions[0].summary.title || feature.id, versions: entry.versions, matchingVersions: entry.versions,
-          conflicts: conflictsForVersions(entry.versions), sourceVersion: entry.versions[0] });
+          conflicts: conflictsForVersions(entry.versions), sourceVersion: entry.versions[0] };
+        projected.items.push(card);
+        if (derived) cardsByGroup.get(key).set(feature.key, card);
       }
     }
   }
@@ -120,7 +126,7 @@ export function createWorktreeProjector() {
     if (previous?.aggregate === aggregate && previous.signature === signature && previous.counts === options.participantCounts) return previous.result;
     const groups = projectWorktreeGroups(aggregate, options);
     const items = new Map(groups.flatMap((group) => group.items.filter((item) => !item.missing).map((item) => [item.id, item])));
-    const result = { groups, items };
+    const result = { groups, items, features: new Map((aggregate?.features || []).map((feature) => [feature.key, feature])) };
     previous = { aggregate, signature, counts: options.participantCounts, result };
     return result;
   };

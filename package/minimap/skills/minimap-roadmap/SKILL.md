@@ -16,7 +16,7 @@ When the user asks to **see** the roadmap, give them a URL. When they ask to **e
 ### 1. Make sure the server is running
 
 ```bash
-node <path-to-this-skill>/scripts/start-server.mjs
+node <path-to-this-skill>/scripts/start-server.cjs
 ```
 
 The launcher prints one line: `Minimap running at http://localhost:<port>` (just started) or `Minimap already running at http://localhost:<port>` (reused). Capture the port — default 4312, but the launcher falls forward if busy.

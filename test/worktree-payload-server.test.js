@@ -73,7 +73,7 @@ test("compact and legacy HTTP callers share retained scans, participants and sou
     env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT = "";
     const preloadPath = path.join(home, "git-counts.mjs"); await fs.writeFile(preloadPath, preload);
     env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ""} --import=${pathToFileURL(preloadPath).href}`.trim();
-    child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], { cwd: root, env,
+    child = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], { cwd: root, env,
       windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });
     await new Promise((resolve, reject) => {
       let output = ""; const timer = setTimeout(() => reject(new Error(output || "Startup timeout")), 15000);

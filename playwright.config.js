@@ -18,7 +18,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "node package/minimap/skills/minimap-roadmap/scripts/start-server.mjs",
+    command: "node package/minimap/skills/minimap-roadmap/scripts/start-server.cjs",
     port: 4315,
     reuseExistingServer: false,
     env: {

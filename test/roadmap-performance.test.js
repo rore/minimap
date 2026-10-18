@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { resolveRoadmapItemReference } from "../package/minimap/src/pallium.js";
 
 // Routine CI skips this qualification. Run it alone after mirrors are ready:
@@ -26,6 +26,9 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const runtimeRoot = process.env.MINIMAP_PERFORMANCE_RUNTIME_ROOT
   ? path.resolve(process.env.MINIMAP_PERFORMANCE_RUNTIME_ROOT) : projectRoot;
 const scripts = path.join(runtimeRoot, "package/minimap/skills/minimap-roadmap/scripts");
+// Archives from before the bootstrap remain usable for matched baselines.
+const launcherName = await fs.access(path.join(scripts, "start-server.cjs"))
+  .then(() => "start-server.cjs", () => "start-server.mjs");
 const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
 const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
@@ -41,11 +44,19 @@ import { syncBuiltinESMExports } from "node:module";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send) {
+if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) && process.send) {
+  const poolAtPreload = process.env.UV_THREADPOOL_SIZE ?? null;
   const counters = { gitExecFile: 0, gitSpawn: 0, gitExecFileSync: 0,
     fileReadAsync: 0, fileReadCallback: 0, fileReadSync: 0 };
   const gitCommands = {};
+  const worktreeScans = {};
   const serializations = [];
+  let memoryPeak = { ...process.memoryUsage() };
+  const memoryTimer = setInterval(() => {
+    const current = process.memoryUsage();
+    for (const key of Object.keys(current)) memoryPeak[key] = Math.max(memoryPeak[key] || 0, current[key]);
+  }, 50);
+  memoryTimer.unref();
   const stringify = JSON.stringify;
   if (process.env.MINIMAP_PERFORMANCE_DIAGNOSTICS === "1") JSON.stringify = function (value, ...args) {
     const result = stringify(value, ...args);
@@ -59,15 +70,19 @@ if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send)
       evidenceHash: kind === "admission-evidence" ? createHash("sha256").update(result).digest("hex") : undefined });
     return result;
   };
-  const countGit = (kind, file, args) => {
+  const countGit = (kind, file, args, options) => {
     if (path.basename(String(file)).toLowerCase().replace(/\.exe$/, "") !== "git") return;
     counters[kind]++;
     const command = args?.[0] || "(none)";
     gitCommands[command] = (gitCommands[command] || 0) + 1;
+    if (args?.[0] === "worktree" && args?.[1] === "list" && options?.cwd) {
+      const root = path.resolve(options.cwd).toLowerCase();
+      worktreeScans[root] = (worktreeScans[root] || 0) + 1;
+    }
   };
   const exec = childProcess.execFile;
   function observedExecFile(file, args, ...rest) {
-    countGit("gitExecFile", file, args);
+    countGit("gitExecFile", file, args, rest[0]);
     return exec(file, args, ...rest);
   }
   observedExecFile[promisify.custom] = (...args) => new Promise((resolve, reject) => {
@@ -80,7 +95,7 @@ if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send)
   for (const [method, kind] of [["spawn", "gitSpawn"], ["execFileSync", "gitExecFileSync"]]) {
     const original = childProcess[method];
     childProcess[method] = (file, args, ...rest) => {
-      countGit(kind, file, args); return original(file, args, ...rest);
+      countGit(kind, file, args, rest[0]); return original(file, args, ...rest);
     };
   }
   const readAsync = fsp.readFile, readCallback = fs.readFile, readSync = fs.readFileSync;
@@ -95,10 +110,12 @@ if (path.basename(process.argv[1] || "") === "start-server.mjs" && process.send)
     const count = Number(histogram.count);
     const ms = (value) => count ? Math.round(value / 10000) / 100 : null;
     process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid, serializations: serializations.splice(0),
-      counters: { ...counters }, gitCommands: { ...gitCommands },
+      poolAtPreload, childNode: process.version, poolEnvironment: process.env.UV_THREADPOOL_SIZE ?? null,
+      memoryCurrent: process.memoryUsage(), memoryPeak,
+      counters: { ...counters }, gitCommands: { ...gitCommands }, worktreeScans: { ...worktreeScans },
       eventLoopDelay: { samples: count, resolutionMs: 10, p50Ms: ms(histogram.percentile(50)),
         p95Ms: ms(histogram.percentile(95)), maxMs: ms(histogram.max), meanMs: ms(histogram.mean) } });
-    if (message.reset) histogram.reset();
+    if (message.reset) { histogram.reset(); memoryPeak = { ...process.memoryUsage() }; }
   });
 }
 `;
@@ -177,7 +194,7 @@ async function seedWorkRecords(repoRoot, count) {
 }
 
 async function start(root, env) {
-  const child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  const child = spawn(process.execPath, [path.join(scripts, launcherName)], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   const ready = new Promise((resolve, reject) => {
@@ -237,6 +254,7 @@ async function stopAndRemove(child, env, owned) {
 }
 
 async function qualify(sources, items, samples, signal, recordCount = 0) {
+  const qualifyColdFairness = !legacy && sources === 25 && items === 1000;
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-performance-"));
   let child;
   const env = { ...process.env, MINIMAP_HOME: path.join(owned, "home"),
@@ -244,11 +262,18 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     MINIMAP_PALLIUM_SETTINGS_PATH: path.join(owned, "empty-settings.json"), PORT: String(await freePort()) };
   await fs.writeFile(env.MINIMAP_PALLIUM_SETTINGS_PATH, "{}");
   await fs.mkdir(env.MINIMAP_HOME);
-  const preload = path.join(env.MINIMAP_HOME, "performance-preload.mjs");
-  await fs.writeFile(preload, performancePreload);
-  env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import=${pathToFileURL(preload).href}`;
+  // Synchronous CommonJS preload avoids initializing libuv via ESM loading
+  // before the canonical bootstrap sets its absent-only default.
+  const preload = path.join(env.MINIMAP_HOME, "performance-preload.cjs");
+  const commonjsPreload = performancePreload
+    .replace(/import (\w+) from "([^"]+)";/g, 'const $1 = require("$2");')
+    .replace(/import \{ ([^}]+) \} from "([^"]+)";/g, 'const { $1 } = require("$2");');
+  assert.ok(!commonjsPreload.includes("import "), "Performance preload must not invoke ESM before bootstrap");
+  await fs.writeFile(preload, commonjsPreload);
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --require="${preload.split(path.sep).join("/")}"`;
   const measurements = { firstUsable: [], fullSnapshot: [], warmAcross: [], healthDuringScan: [],
-    warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [],
+    warmOtherProjectDuringScan: [], openedProvisional: [], sameProjectTabs: [], independentProjects: [],
+    ...(qualifyColdFairness ? { coldThirdProjectDuringIndependentScans: [] } : {}),
     ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [], relatedCold: [], relatedWarm: [], relatedUnchangedRefresh: [], relatedShared: [], relatedOneEdit: [], healthDuringRelated: [], featureDetailDuringRelated: [] } : {}) };
   const serverScenarios = [];
   const observe = async (scenario, sample, work) => {
@@ -258,11 +283,15 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     finally {
       const after = await serverMetrics(child);
       assert.equal(after.pid, child.pid);
+      assert.equal(after.poolAtPreload, env.UV_THREADPOOL_SIZE ?? null);
+      assert.equal(after.poolEnvironment, env.UV_THREADPOOL_SIZE ?? (launcherName === "start-server.cjs" ? "8" : null));
       serverScenarios.push({ scenario, sample, durationMs: Math.round(performance.now() - begin),
         countersBefore: before.counters, countersAfter: after.counters,
         counters: Object.fromEntries(Object.keys(after.counters).map((key) => [key, after.counters[key] - before.counters[key]])),
         gitCommands: Object.fromEntries(Object.keys(after.gitCommands).map((key) => [key, after.gitCommands[key] - (before.gitCommands[key] || 0)])),
-        eventLoopDelay: after.eventLoopDelay });
+        eventLoopDelay: after.eventLoopDelay, poolAtPreload: after.poolAtPreload,
+        childNode: after.childNode, poolEnvironment: after.poolEnvironment,
+        memoryBefore: before.memoryCurrent, memoryAfter: after.memoryCurrent, memoryPeak: after.memoryPeak });
       serverScenarios.at(-1).serializations = after.serializations;
     }
   };
@@ -273,13 +302,14 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     try {
       const response = await fetch(`http://127.0.0.1:${env.PORT}${route}`, {
         headers: root ? { "X-Minimap-Repo-Encoded": encodeURIComponent(root) } : {},
-        signal: AbortSignal.any([signal, AbortSignal.timeout(legacy ? 120000 : 35000)]),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(legacy ? 120000
+          : route.startsWith("/api/worktree-workspace") && !route.includes("openedOnly=1") ? 65000 : 35000)]),
       });
       const responseText = await response.text();
       const responseBytes = Buffer.byteLength(responseText);
       const body = JSON.parse(responseText);
       return { status: response.status, ms: Math.round((performance.now() - begin) * 100) / 100,
-        responseBytes,
+        responseBytes, startedAtMs: begin, finishedAtMs: performance.now(),
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
         versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
@@ -288,7 +318,8 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         relatedBodyReads: body.coverage?.bodyReads, relatedEnumerations: body.coverage?.enumerations,
         pid: body.pid, runtime: body.runtime, code: body.code, error: response.ok ? undefined : body.error };
     } catch (error) {
-      return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100, error: error.message };
+      return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100,
+        startedAtMs: begin, finishedAtMs: performance.now(), error: error.message };
     }
   };
   const full = legacy ? "/api/worktree-workspace" : "/api/worktree-workspace?participants=0&compact=1";
@@ -349,6 +380,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         const fullResult = await across;
         measurements.fullSnapshot.push({ ...fullResult, coldSnapshot: n === 0 });
         const openedResult = await opened; await probes;
+        measurements.openedProvisional.push(openedResult);
         requireSuccessful([openedResult, fullResult, ...measurements.healthDuringScan,
           ...measurements.warmOtherProjectDuringScan], "Opened/full scan and concurrent probes");
         if (!legacy) {
@@ -452,8 +484,56 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         "Same-project tabs must coalesce into one published snapshot");
       // Record shared snapshot IDs as evidence; deterministic coalescing tests
       // separately validate exact scan counts and cancellation ownership.
-      const projects = await observe("two-independent-projects", n, () => Promise.all([read(full, a), read(full, b)]));
-      measurements.independentProjects.push(...projects);
+      const coldThird = qualifyColdFairness ? await fixture(owned, `cold-project-${n}`, 1, 1) : null;
+      const projects = await observe("two-independent-projects", n, async () => {
+        const before = qualifyColdFairness ? await serverMetrics(child) : null;
+        let finishedCount = 0;
+        const pending = [a, b].map((root) => read(full, root).finally(() => { finishedCount++; }));
+        if (!qualifyColdFairness) return Promise.all(pending);
+        const probe = async (route, root, destination, interval) => {
+          while (finishedCount < 2) {
+            const record = await read(route, root);
+            destination.push(record);
+            if (finishedCount < 2) await delay(interval);
+          }
+        };
+        const probes = Promise.all([
+          probe("/health", null, measurements.healthDuringScan, 250),
+          probe(otherRoute, b, measurements.warmOtherProjectDuringScan, 500),
+        ]);
+        const roots = [a, b].map((root) => path.resolve(root).toLowerCase());
+        const readinessStart = performance.now();
+        let bothStarted = false;
+        while (!finishedCount && performance.now() - readinessStart < 5000) {
+          const current = await serverMetrics(child);
+          bothStarted = roots.every((root) => (current.worktreeScans[root] || 0) > (before.worktreeScans[root] || 0));
+          if (bothStarted) break;
+          await delay(25);
+        }
+        const acrossFinishedAtStart = finishedCount;
+        const cold = await read("/api/workspace", coldThird);
+        cold.bothAcrossStartedBeforeRequest = bothStarted;
+        cold.acrossFinishedAtStart = acrossFinishedAtStart;
+        measurements.coldThirdProjectDuringIndependentScans.push(cold);
+        const results = await Promise.all(pending); await probes;
+        measurements.independentProjects.push(...results);
+        cold.completedBeforeBothAcross = results.every((record) => cold.finishedAtMs < record.finishedAtMs);
+        requireSuccessful([cold], "Cold third project during two active Across scans");
+        assert.equal(bothStarted, true, "Both Across scans must reach discovery before the cold request starts");
+        assert.equal(cold.acrossFinishedAtStart, 0, "Neither Across scan may finish before the cold request starts");
+        assert.equal(cold.completedBeforeBothAcross, true, "Cold This request must complete before either Across scan");
+        for (const record of results) {
+          assert.ok(record.snapshot?.id);
+          assert.equal(record.loaded, sources);
+          assert.equal(record.versions, sources * items);
+          assert.equal(record.features, sources * items);
+          assert.equal(record.partial, true);
+          assert.equal(record.identityUncertain?.length, sources * (sources - 1) / 2);
+          assert.ok(record.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+        }
+        return results;
+      });
+      if (!qualifyColdFairness) measurements.independentProjects.push(...projects);
       requireSuccessful(projects, "Two independent projects");
       if (!legacy) {
         const retained = await observe("two-independent-retained-projects", n,
@@ -478,7 +558,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
 }
 
 test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout: 60 * 60 * 1000 }, async (t) => {
-  const sources = selection("MINIMAP_PERFORMANCE_SOURCES", [1, 4, 16]);
+  const sources = selection("MINIMAP_PERFORMANCE_SOURCES", [1, 4, 16, 25]);
   const items = selection("MINIMAP_PERFORMANCE_ITEMS", [100, 1000]);
   const samples = Number(process.env.MINIMAP_PERFORMANCE_SAMPLES || 1);
   assert.ok(Number.isInteger(samples) && samples >= 1 && samples <= 20, "Samples must be 1..20");

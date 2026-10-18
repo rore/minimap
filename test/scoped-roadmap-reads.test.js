@@ -100,7 +100,7 @@ fs.readFile = async (file, ...args) => {
       await fs.rm(owned, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
-  child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], { cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  child = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], { cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   await new Promise((resolve, reject) => {
     let output = "";
     const timer = setTimeout(() => reject(new Error(`Startup timeout: ${output}`)), 10000);

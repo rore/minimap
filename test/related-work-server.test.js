@@ -47,7 +47,7 @@ test("live related-work route converges on external edits and binds cursors to g
     .replace("__RELATIONSHIPS__", `**Relationships:**\n${JSON.stringify({ schema_version: 1, sources, pull_requests: prs })}`));
   const port = await freePort();
   const env = { ...process.env, MINIMAP_HOME: home, PORT: String(port), MINIMAP_PALLIUM_ENDPOINT: "" };
-  const launcher = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], { cwd: project, env, windowsHide: true, stdio: "ignore" });
+  const launcher = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], { cwd: project, env, windowsHide: true, stdio: "ignore" });
   t.after(async () => {
     await run(process.execPath, [path.join(scripts, "stop-server.mjs")], { env, windowsHide: true, timeout: 10_000 }).catch(() => {});
     if (launcher.exitCode === null) await new Promise((resolve) => launcher.once("exit", resolve));

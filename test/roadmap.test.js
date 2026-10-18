@@ -963,7 +963,7 @@ test("legacy server tests preserve an inherited caller registry and running serv
     }
     await fs.rm(callerHome, { recursive: true, force: true });
   });
-  sentinel = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  sentinel = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: callerHome, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise((resolve, reject) => {
@@ -1009,7 +1009,7 @@ test("portable minimap package includes app, skills, and starter templates", asy
     ["package", "minimap", "skills", "minimap-spec-review", "references", "server.md"],
     ["package", "minimap", "skills", "minimap-spec-review", "references", "cli.md"],
     ["package", "minimap", "skills", "minimap-spec-review", "references", "review-workflow.md"],
-    ["package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs"],
+    ["package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs"],
     ["package", "minimap", "skills", "minimap-spec-review", "scripts", "minimap.mjs"],
     ["package", "minimap", "skills", "minimap-spec-review", "runtime", "package.json"],
     ["package", "minimap", "skills", "minimap-spec-review", "runtime", "server.js"],
@@ -1067,6 +1067,7 @@ test("portable minimap package includes app, skills, and starter templates", asy
   // and helpers; every pair must stay identical.
   const sharedScripts = [
     "health-check.mjs",
+    "start-server.cjs",
     "start-server.mjs",
     "stop-server.mjs",
     "status.mjs",
@@ -1132,7 +1133,7 @@ test("self-contained spec-review skill runs when copied outside the repo", async
   assert.equal(attach.targetFile, specPath.replaceAll("\\", "/"));
 
   const serverPort = "4722";
-  const server = spawn(process.execPath, [path.join(installedSkill, "scripts", "start-server.mjs")], {
+  const server = spawn(process.execPath, [path.join(installedSkill, "scripts", "start-server.cjs")], {
     cwd: workRoot,
     env: { ...env, PORT: serverPort },
     stdio: ["ignore", "pipe", "pipe"],
@@ -2729,7 +2730,7 @@ test("server removes registry on SIGINT as well as SIGTERM",
   await assert.rejects(() => fs.readFile(path.join(home, "server.json"), "utf8"), { code: "ENOENT" });
 });
 
-test("start-server.mjs reuses a running server instead of spawning a second one", async () => {
+test("start-server.cjs reuses a running server instead of spawning a second one", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
 
@@ -2760,7 +2761,7 @@ test("start-server.mjs reuses a running server instead of spawning a second one"
   try {
     const launcherPath = path.join(
       projectRoot,
-      "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+      "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs",
     );
     const second = spawn(process.execPath, [launcherPath], {
       cwd: repoRoot,
@@ -2792,7 +2793,7 @@ test("start-server rejects a legacy healthy server whose Participants identity i
 
   try {
     const result = await new Promise((resolve) => {
-      const proc = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs")], {
+      const proc = spawn(process.execPath, [path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs")], {
         cwd: repoRoot,
         env: { ...process.env, PORT: String(port), MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: "http://127.0.0.1:19836" },
         stdio: ["ignore", "pipe", "pipe"],
@@ -2814,7 +2815,7 @@ test("launchers racing with different Participants identities never silently reu
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
   const port = 4444;
-  const launcher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs");
+  const launcher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs");
   const launch = (endpoint) => spawn(process.execPath, [launcher], {
     cwd: repoRoot,
     env: { ...process.env, PORT: String(port), MINIMAP_HOME: home, MINIMAP_PALLIUM_ENDPOINT: endpoint },
@@ -2856,7 +2857,7 @@ test("two launchers racing for the same port: only one server ends up running", 
   const repoRoot = await makeTempRepo();
   const launcherPath = path.join(
     projectRoot,
-    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs",
   );
 
   const sharedEnv = { ...process.env, PORT: "4422", MINIMAP_HOME: home };
@@ -2908,8 +2909,8 @@ test("roadmap and spec-review launchers share a single running server via $MINIM
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-home-"));
   const repoRoot = await makeTempRepo();
 
-  const specLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs");
-  const roadmapLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "start-server.mjs");
+  const specLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs");
+  const roadmapLauncher = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "start-server.cjs");
 
   // First launcher starts the server.
   const first = spawn(process.execPath, [specLauncher], {
@@ -3189,7 +3190,7 @@ test("launcher self-heals when registry points at a dead server", async () => {
   const repoRoot = await makeTempRepo();
   const launcherPath = path.join(
     projectRoot,
-    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs",
   );
   const child = spawn(process.execPath, [launcherPath], {
     cwd: repoRoot,
@@ -3240,7 +3241,7 @@ test("launcher times out and self-heals when /health hangs forever", async () =>
   const repoRoot = await makeTempRepo();
   const launcherPath = path.join(
     projectRoot,
-    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs",
   );
   const child = spawn(process.execPath, [launcherPath], {
     cwd: repoRoot,
@@ -3298,7 +3299,7 @@ test("launcher rejects when port is held by a non-minimap HTTP server", async ()
   const repoRoot = await makeTempRepo();
   const launcherPath = path.join(
     projectRoot,
-    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.mjs",
+    "package", "minimap", "skills", "minimap-spec-review", "scripts", "start-server.cjs",
   );
   const child = spawn(process.execPath, [launcherPath], {
     cwd: repoRoot,
@@ -3573,7 +3574,7 @@ test("Participants endpoint opt-in persists safely across supported lifecycle op
     assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
     assert.deepEqual(await preference(), linkedPreference);
 
-    result = await run("start-server.mjs", otherEndpoint);
+    result = await run("start-server.cjs", otherEndpoint);
     assert.equal(result.code, 1);
     assert.match(result.stderr, /different or unknown Participants configuration/);
     assert.equal(JSON.parse(await fs.readFile(path.join(home, "server.json"), "utf8")).pid, runningRegistry.pid);
@@ -3583,7 +3584,7 @@ test("Participants endpoint opt-in persists safely across supported lifecycle op
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(await preference(), linkedPreference);
 
-    const foreground = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+    const foreground = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
       cwd: repoRoot,
       env: envFor(undefined, undefined),
       stdio: ["ignore", "pipe", "pipe"],

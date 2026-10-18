@@ -7,7 +7,7 @@ import http from "node:http";
 import { spawn, execFileSync } from "node:child_process";
 
 const projectRoot = process.cwd();
-const startScript = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "start-server.mjs");
+const startScript = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "start-server.cjs");
 const stopScript = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts", "stop-server.mjs");
 
 async function freePort() {

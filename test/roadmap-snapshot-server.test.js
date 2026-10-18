@@ -57,7 +57,7 @@ test("snapshot endpoints scope observations and invalidate after a roadmap write
     await git(other, "commit", "-m", "fixture");
     await initializeWorkspace(unborn);
     await git(unborn, "init", "--initial-branch=main");
-    launcher = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+    launcher = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
       cwd: projectRoot, env, windowsHide: true, stdio: "ignore",
     });
     let ready = false;

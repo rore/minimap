@@ -101,7 +101,7 @@ test("worktree participant counts include an accepted squash once and omit ambig
   await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
   env.MINIMAP_PALLIUM_ENDPOINT = `http://127.0.0.1:${provider.address().port}`;
 
-  child = spawn(process.execPath, [path.join(scripts, "start-server.mjs")], {
+  child = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], {
     cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
