@@ -29,6 +29,8 @@ Backend qualification reused the existing harness with four checkouts, 1,000 ite
 
 UI existing isolated checks passed: 205 groups, held participant response, Columns appearance 1,141ms including loading, List layout 176ms; 85-feature Across desktop/narrow layout samples p95 51.2ms. The broad request does not justify async wrappers around already-responsive operations. Fresh duplicate-ID-safe detail lookup remains latency debt; no persistent cache is authorized by this plan.
 
+Additional isolated 1,000-item/20-group Chromium probe: Columns click one rebuild, 37.7ms synchronous dispatch and103ms long task; List click two rebuilds,172.1ms dispatch and172ms long task. Search prefixes I/It/Ite/Item each caused one rebuild,30.4–32.5ms dispatch and77–94ms long tasks. Search/render scheduling is a measured remaining finding; requestAnimationFrame alone does not prove improvement for events on separate frames, so no speculative debounce is included in the approved-plan candidate. Reproducible probe artifacts are being retained under artifacts/nonblocking-performance.
+
 Plan-review refinements: read both comment and suggestion arrays before cooperative anchor batches; preserve resolver order/output and capture text once. Content's no-JSONL-work assertion applies to the normal path; existing journal recovery may legitimately read session state and must remain intact. Signal checks apply at batch boundaries without changing mutation recovery.
 
 ## Plan review
