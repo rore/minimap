@@ -8,6 +8,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { initializeWorkspace } from "../package/minimap/src/roadmap.js";
+import { loadWorktreeAggregate } from "../package/minimap/src/worktree-aggregate.js";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,6 +35,9 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
   await fs.writeFile(preload, [
     'import fs from "node:fs/promises";',
     'import path from "node:path";',
+    'import childProcess from "node:child_process";',
+    'import { promisify } from "node:util";',
+    'import { syncBuiltinESMExports } from "node:module";',
     "const original = AbortSignal.timeout.bind(AbortSignal);",
     "AbortSignal.timeout = (milliseconds) => original(milliseconds === 30_000 ? 2_000 : milliseconds);",
     "const readFile = fs.readFile.bind(fs);",
@@ -52,12 +56,32 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
     "  }",
     "  return readFile(file, options, ...rest);",
     "};",
+    "const execFile = childProcess.execFile;",
+    "const run = promisify(execFile);",
+    "function wrapped(...args) { return execFile.apply(this, args); }",
+    "Object.defineProperty(wrapped, promisify.custom, { value: async (...args) => {",
+    "  const [command, argv, options] = args;",
+    "  if (command === 'git' && argv?.includes('--show-toplevel') && process.env.MINIMAP_TEST_IDENTITY_DELAY_ARM && options?.signal",
+    "    && await fs.access(process.env.MINIMAP_TEST_IDENTITY_DELAY_ARM).then(() => true, () => false)) {",
+    "      await writeFile(process.env.MINIMAP_TEST_IDENTITY_DELAY_MARKER, 'started');",
+    "      await new Promise((resolve, reject) => {",
+    "        const abort = () => { options.signal.removeEventListener('abort', abort); reject(options.signal.reason || new DOMException('aborted', 'AbortError')); };",
+    "        options.signal.addEventListener('abort', abort, { once: true });",
+    "        if (options.signal.aborted) abort();",
+    "      });",
+    "    }",
+    "  return run(...args);",
+    "} });",
+    "childProcess.execFile = wrapped;",
+    "syncBuiltinESMExports();",
     "",
   ].join("\n"));
   const env = {
     ...process.env,
     MINIMAP_HOME: home,
     MINIMAP_TEST_DELAY_MARKER: path.join(root, "delayed-read-started"),
+    MINIMAP_TEST_IDENTITY_DELAY_ARM: path.join(root, "delay-identity"),
+    MINIMAP_TEST_IDENTITY_DELAY_MARKER: path.join(root, "delayed-identity-started"),
     PORT: String(port),
     MINIMAP_PALLIUM_ENDPOINT: "http://127.0.0.1:9",
     NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${pathToFileURL(preload).href}`].filter(Boolean).join(" "),
@@ -89,7 +113,7 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
   assert.equal(ready, true, "packaged server did not become ready");
 
   const headers = { "X-Minimap-Repo": repo };
-  for (const route of ["/api/items/missing/participants", "/api/board/participant-counts"]) {
+  for (const route of ["/api/items/missing/participants", "/api/board/participant-counts", "/api/workspace"]) {
     await fs.rm(env.MINIMAP_TEST_DELAY_MARKER, { force: true });
     const responsePromise = fetch(`http://127.0.0.1:${port}${route}`, { headers });
     let delayedReadStarted = false;
@@ -103,6 +127,21 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
     assert.equal((await response.json()).error.code, "snapshot_unavailable");
     assert.equal(await fs.readFile(env.MINIMAP_TEST_DELAY_MARKER, "utf8"), "started");
   }
+
+  const context = (await loadWorktreeAggregate(repo)).sources[0];
+  await fs.writeFile(env.MINIMAP_TEST_IDENTITY_DELAY_ARM, "armed");
+  const boundResponsePromise = fetch(`http://127.0.0.1:${port}/api/source/workspace`, {
+    headers: { ...headers, "X-Minimap-Source-Context": JSON.stringify(context) },
+  });
+  let identityDelayStarted = false;
+  for (let attempt = 0; attempt < 150 && !identityDelayStarted; attempt += 1) {
+    identityDelayStarted = await fs.readFile(env.MINIMAP_TEST_IDENTITY_DELAY_MARKER, "utf8").then(() => true, () => false);
+    if (!identityDelayStarted) await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(identityDelayStarted, true, "source-bound validation did not reach the delayed identity read");
+  const boundResponse = await boundResponsePromise;
+  assert.equal(boundResponse.status, 503, await boundResponse.clone().text());
+  assert.equal((await boundResponse.json()).error.code, "snapshot_unavailable");
 });
 
 test("fresh snapshots reject a Git ref change between initial and final identity reads", { timeout: 30_000 }, async (t) => {

@@ -732,7 +732,8 @@ async function handleSuggestionPreviewApply(request, response, ctx) {
 async function handleWorkspace(request, response) {
   const values = new URL(request.url, "http://localhost").searchParams.getAll("cached");
   if (values.length > 1 || values.some((value) => value !== "1")) throw new AppError("cached must be 1 and appear at most once.", 400, "bad_request");
-  const { signal, cleanup } = requestAbortSignal(request, response);
+  const inheritedBudget = request.minimapReadBudget;
+  const { signal, cleanup } = inheritedBudget || requestAbortSignal(request, response);
   try {
     const repoRoot = await resolveRoadmapRepo(request);
     const loaded = await readThisSnapshot(repoRoot, { signal, cached: values.length === 1 });
@@ -742,7 +743,7 @@ async function handleWorkspace(request, response) {
     sendJson(response, 200, loaded.value);
   } catch (error) {
     if (!response.destroyed) throw snapshotAppError(error, signal);
-  } finally { cleanup(); }
+  } finally { if (!inheritedBudget) cleanup(); }
 }
 
 async function handleWorktreeSources(request, response) {
@@ -1191,7 +1192,7 @@ async function handleApi(request, response, requestUrl) {
   if (!isTrustedLocalRequest(request)) {
     throw new AppError("Minimap API is available only from this local origin.", 403, "forbidden");
   }
-  const readBudget = bound && routedUrl.pathname === "/api/source/workspace"
+  const readBudget = bound && routedUrl.pathname === "/api/workspace"
     ? requestAbortSignal(request, response) : null;
   try {
   if (bound) {
@@ -1210,7 +1211,12 @@ async function handleApi(request, response, requestUrl) {
     request.boundExpected = expected;
     request.boundSpecRepo = routedUrl.pathname.startsWith("/api/spec-sessions") ? repoRoot : null;
     request.boundUrl = routedUrl;
-    await validateBoundRequest(request, readBudget ? { signal: readBudget.signal } : undefined);
+    try {
+      await validateBoundRequest(request, readBudget ? { signal: readBudget.signal } : undefined);
+    } catch (error) {
+      if (readBudget) throw snapshotAppError(error, readBudget.signal);
+      throw error;
+    }
   }
   const invalidatesSnapshot = ["POST", "DELETE"].includes(request.method)
     && routedUrl.pathname !== "/api/shutdown"
