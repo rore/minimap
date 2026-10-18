@@ -17,14 +17,14 @@
 test: selection and cap fixtures covering more than 25 sources, stale/missing candidates, ties, missing timestamps, opened source and cancellation.
 test: shared filter and Across projection regressions for blocked, participant failure and filter composition.
 manual: inspect List and Columns with blocked fixtures; reuse and extend isolated performance harness to 25 sources.
-**Plan review:** Pending concrete recency rule and clean-context review.
-**Approvals:** User requested "so we should do top recent 25. also, shouldn't in play also show blocked features?"; concrete recency definition remains to be confirmed.
-**State:** Blocked or returned to planning
+**Plan review:** /root/performance_plan_review independently reviewed b02da37 and passed with refinements: bounded final complete HEAD reflog timestamp; canonical admin-path confinement; fixed metadata concurrency; deterministic unknown-last ranking; authoritative identity admission and backfill; 25-source performance qualification. Refinements accepted.
+**Approvals:** User approved the concrete 25-checkout rule and blocked In play behavior on 2026-10-18: "Approve this rule". Opened checkout plus 24 eligible siblings ranked by latest recorded local Git event; plain edits do not change rank; unknown timestamps last. No live environment changes authorized.
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Recovery
 
-Discovery only; no product edits. Owner checkout `C:/Dev/rore/minimap/.local/preserve-board-view-state`, branch `feat/recent-worktrees-and-blocked`, base `609eda0`. Resolve recency semantics and obtain the required plan review before implementation. Preserve unrelated artifacts/build directories and the live service.
+Plan review and human approval complete; implementation next. Owner checkout `C:/Dev/rore/minimap/.local/preserve-board-view-state`, branch `feat/recent-worktrees-and-blocked`, base `609eda0`. Preserve unrelated artifacts/build directories and the live service.
 
 ## Proposed recency rule
 
