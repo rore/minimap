@@ -306,21 +306,30 @@
               <span id="item-participants-status" class="muted">Unavailable</span>
             </summary>
             <div class="item-participants-body">
-              <div class="item-participants-actions">
-                <button id="item-participants-refresh" class="ghost-button" type="button">Refresh</button>
-              </div>
-              <div id="item-participants-reference" class="item-participants-reference" hidden>
-                <div>
-                  <span class="muted">Scope</span>
-                  <code id="item-participants-scope"></code>
+              <div class="item-participants-toolbar">
+                <p class="muted item-participants-hint">Recent is based on session activity, not work on this feature. Dormant does not mean complete.</p>
+                <div class="item-participants-actions">
+                  <button id="item-participants-refresh" class="ghost-button" type="button">Refresh</button>
+                  <button id="item-participants-copy" class="ghost-button" type="button">Copy reference</button>
                 </div>
-                <div>
-                  <span class="muted">Item</span>
-                  <code id="item-participants-local"></code>
-                </div>
-                <button id="item-participants-copy" class="ghost-button" type="button">Copy reference</button>
               </div>
-              <div id="item-participants-list" class="item-participants-list" role="list" aria-live="polite"></div>
+              <div id="item-participants-list" class="item-participants-list" aria-live="polite"></div>
+              <details id="item-participants-reference" class="item-participants-reference" hidden>
+                <summary>Reference and guidance</summary>
+                <div class="item-participants-reference-content">
+                  <div>
+                    <span class="muted">Scope</span>
+                    <code id="item-participants-scope"></code>
+                  </div>
+                  <div>
+                    <span class="muted">Item</span>
+                    <code id="item-participants-local"></code>
+                  </div>
+                  <p class="muted">Last seen measures session activity, not work on this feature or staffing. Dormant does not mean completed.</p>
+                  <p class="muted item-participants-across-guidance" hidden>Associations belong to the logical feature, not a specific checkout version.</p>
+                  <p class="muted item-participants-session-guidance" hidden>Use a linked Pallium session to remove explicit associations; structural links update through their producer. Captured History is unchanged, but is not a complete participation record.</p>
+                </div>
+              </details>
             </div>
           </details>
 

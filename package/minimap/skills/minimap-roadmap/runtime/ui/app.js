@@ -336,6 +336,8 @@ const itemParticipantsRefreshButton = document.querySelector("#item-participants
 const itemParticipantsReferenceElement = document.querySelector("#item-participants-reference");
 const itemParticipantsScopeElement = document.querySelector("#item-participants-scope");
 const itemParticipantsLocalElement = document.querySelector("#item-participants-local");
+const itemParticipantsAcrossGuidanceElement = document.querySelector(".item-participants-across-guidance");
+const itemParticipantsSessionGuidanceElement = document.querySelector(".item-participants-session-guidance");
 const itemParticipantsCopyButton = document.querySelector("#item-participants-copy");
 const itemParticipantsListElement = document.querySelector("#item-participants-list");
 const rawTextElement = document.querySelector("#raw-text");
@@ -3781,6 +3783,38 @@ function renderItemParticipants() {
   itemParticipantsElement.hidden = quietlyHidden;
   if (quietlyHidden) return;
 
+  const disclosureScope = JSON.stringify([
+    state.worktreeMode,
+    state.repoPath,
+    state.selectedSource?.sourceKey || null,
+    result.itemId || state.selectedItemId,
+  ]);
+  const sameDisclosureScope = itemParticipantsListElement.dataset.disclosureScope === disclosureScope;
+  if (!sameDisclosureScope) itemParticipantsReferenceElement.open = false;
+  const openDisclosures = new Set(sameDisclosureScope
+    ? [...itemParticipantsListElement.querySelectorAll("details[data-participant-disclosure][open]")]
+      .map((details) => details.dataset.participantDisclosure)
+    : []);
+  const focusedDisclosure = sameDisclosureScope
+    ? document.activeElement?.closest("details[data-participant-disclosure]")?.dataset.participantDisclosure
+    : null;
+  const participantBody = itemParticipantsListElement.closest(".item-participants-body");
+  const participantScrollTop = sameDisclosureScope ? participantBody?.scrollTop : null;
+
+  const replaceParticipantList = (html) => {
+    itemParticipantsListElement.innerHTML = html;
+    itemParticipantsListElement.dataset.disclosureScope = disclosureScope;
+    for (const details of itemParticipantsListElement.querySelectorAll("details[data-participant-disclosure]")) {
+      details.open = openDisclosures.has(details.dataset.participantDisclosure);
+    }
+    if (participantBody && participantScrollTop !== null) participantBody.scrollTop = participantScrollTop;
+    if (focusedDisclosure) {
+      const summary = [...itemParticipantsListElement.querySelectorAll("details[data-participant-disclosure]")]
+        .find((details) => details.dataset.participantDisclosure === focusedDisclosure)?.querySelector("summary");
+      summary?.focus({ preventScroll: true });
+    }
+  };
+
   const hasParticipants = result.status === "ok" && result.participants?.length > 0;
   if (hasParticipants) {
     const participants = result.participants;
@@ -3796,14 +3830,17 @@ function renderItemParticipants() {
   itemParticipantsReferenceElement.hidden = !reference;
   itemParticipantsScopeElement.textContent = reference?.scope_ref || "";
   itemParticipantsLocalElement.textContent = reference?.local_ref || "";
+  itemParticipantsAcrossGuidanceElement.hidden = state.worktreeMode !== "across";
+  itemParticipantsSessionGuidanceElement.hidden = !result.participants?.some((participant) => participant.session_url);
   itemParticipantsCopyButton.disabled = !reference;
 
-  if (result.status === "loading") {
-    itemParticipantsListElement.innerHTML = '<p class="muted">Refreshing participant associations…</p>';
+  const participants = Array.isArray(result.participants) ? result.participants : [];
+  if (result.status === "loading" && participants.length === 0) {
+    replaceParticipantList('<p class="muted">Refreshing participant associations…</p>');
     return;
   }
 
-  if (result.status !== "ok") {
+  if (result.status !== "ok" && result.status !== "loading") {
     const messages = {
       "ambiguous-feature": "More than one distinct feature uses this ID across checkouts. Participant associations cannot be assigned safely to either feature.",
       "identity-unavailable": "This repository has no safe canonical Git origin, so Minimap cannot create an exact participant reference.",
@@ -3813,49 +3850,53 @@ function renderItemParticipants() {
       "invalid-response": "Pallium returned a response Minimap could not safely validate.",
       "over-limit": "The participant response exceeded Minimap's safety bounds.",
     };
-    itemParticipantsListElement.innerHTML = `<p class="muted">${escapeHtml(messages[result.status] || "Participant lookup is unavailable.")}</p>`;
+    replaceParticipantList(`<p class="muted">${escapeHtml(messages[result.status] || "Participant lookup is unavailable.")}</p>`);
     return;
   }
 
-  const participants = Array.isArray(result.participants) ? result.participants : [];
   if (participants.length === 0) {
-    itemParticipantsListElement.innerHTML = '<p class="muted">No sessions are associated with this item.</p>';
+    replaceParticipantList('<p class="muted">No sessions are associated with this item.</p>');
     return;
   }
 
   const renderParticipant = (participant) => {
-    const name = participant.alias || participant.title || participant.session_ref;
+    const name = participant.alias || participant.title || participant.session_ref || "Unknown session";
     const availability = [["Session", participant.state], ["Lifecycle", participant.lifecycle], ["Destination", participant.destination_health]].filter(([, value]) => Boolean(value));
     const origins = participant.association?.origins || [];
+    const associationUpdatedAt = participant.association?.updated_at || "";
 
     return `
       <article class="item-participant" role="listitem">
         <div class="item-participant-heading">
           <strong>${buildParticipantNameHtml(participant, name)}</strong>
-          <span class="badge">${escapeHtml(participant.runtime)}</span>
+          <span class="badge">${escapeHtml(participant.runtime || "Unknown provider")}</span>
         </div>
-        <div class="item-participant-reference-row"><span class="muted">Session</span><code>${escapeHtml(participant.session_ref)}</code></div>
-        <div class="item-participant-reference-row"><span class="muted">Container</span><code>${escapeHtml(participant.container_ref)}</code></div>
-        <div class="item-participant-badges">${availability.map(([label, value]) => `<span class="badge">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}</div>
-        <p class="muted item-participant-freshness" title="Last seen: ${escapeHtml(participant.last_seen_at)}; association updated: ${escapeHtml(participant.association?.updated_at || "")}">
-          Session last seen ${escapeHtml(formatParticipantTime(participant.last_seen_at))} · association updated ${escapeHtml(formatParticipantTime(participant.association?.updated_at))}
-          ${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}
-        </p>
+        <p class="muted item-participant-freshness" title="Last seen: ${escapeHtml(participant.last_seen_at)}">Last seen ${escapeHtml(formatParticipantTime(participant.last_seen_at))}</p>
+        <details class="item-participant-details" data-participant-disclosure="session:${escapeHtml(participant.session_ref || participant.endpoint_id || name)}">
+          <summary>Session details</summary>
+          <div class="item-participant-technical-details">
+            <div class="item-participant-reference-row"><span class="muted">Session</span><code>${escapeHtml(participant.session_ref)}</code></div>
+            <div class="item-participant-reference-row"><span class="muted">Container</span><code>${escapeHtml(participant.container_ref)}</code></div>
+            <div class="item-participant-badges">${availability.map(([label, value]) => `<span class="badge">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}</div>
+            <p class="muted item-participant-association-meta" title="Association updated at ${escapeHtml(associationUpdatedAt)}">Association updated ${escapeHtml(formatParticipantTime(associationUpdatedAt))}${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}</p>
+          </div>
+        </details>
       </article>
     `;
   };
-  const rows = ["recent", "dormant", "closed"].map((lifecycle) => {
-    const group = participants.filter((participant) => participant.lifecycle === lifecycle);
+  const grouped = Object.fromEntries(["recent", "dormant", "closed"].map((lifecycle) => [lifecycle, participants.filter((participant) => participant.lifecycle === lifecycle)]));
+  const recent = grouped.recent.length
+    ? `<section class="item-participant-group" aria-label="Recent sessions"><h4>Recent</h4><div class="item-participant-group-list" role="list">${grouped.recent.map(renderParticipant).join("")}</div></section>`
+    : '<p class="muted item-participants-no-recent">No recent sessions.</p>';
+  const otherGroups = ["dormant", "closed"].map((lifecycle) => {
+    const group = grouped[lifecycle];
     if (!group.length) return "";
     const label = lifecycle[0].toUpperCase() + lifecycle.slice(1);
-    return `<section class="item-participant-group" role="listitem" aria-label="${label} sessions"><h4>${label}</h4><div class="item-participant-group-list" role="list">${group.map(renderParticipant).join("")}</div></section>`;
+    return `<details class="item-participant-lifecycle" data-participant-disclosure="lifecycle:${escapeHtml(lifecycle)}"><summary>${label} sessions <span class="muted">${group.length}</span></summary><div class="item-participant-group-list" role="list">${group.map(renderParticipant).join("")}</div></details>`;
   }).join("");
-
-  const guidance = '<p class="muted">Last seen measures session activity, not work on this feature or staffing. Dormant does not mean completed.</p>'
-    + (state.worktreeMode === "across" ? '<p class="muted">Associations belong to the logical feature, not a specific checkout version.</p>' : '')
-    + (participants.some((participant) => participant.session_url)
-      ? '<p class="muted">Use a linked Pallium session to remove explicit associations; structural links update through their producer. Captured History is unchanged, but is not a complete participation record.</p>' : "");
-  itemParticipantsListElement.innerHTML = (result.partial ? '<p class="muted">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "") + guidance + rows;
+  const partial = result.partial ? '<p class="muted item-participants-partial">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "";
+  const refreshing = result.status === "loading" ? '<p class="muted item-participants-refreshing">Refreshing participant associations…</p>' : "";
+  replaceParticipantList(partial + refreshing + recent + otherGroups);
 }
 
 async function loadItemParticipants(itemId, generation = state.itemLoadGeneration) {

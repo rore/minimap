@@ -60,3 +60,9 @@ The next CI run passed facepile but exposed the same readiness assumption in a p
 Release evidence: Minimap PR #25 implementation head 90ee00d passed Linux CI 36336632695, including Node, all 108 browser tests, and runtime mirror verification; manager review passed. The upstream CI/deployment blocker was resolved by Pallium's owners before this live check; no duplicate upstream investigation or full-suite rerun was needed.
 
 Live witness, 2026-09-27: the exact feature reference returned status ok and partial false in both layouts, with total 2 = Recent 2 + Dormant 0 and recentSeconds 86400. List board asOf was 2026-09-27T20:49:23.312172Z; its detail asOf was 2026-09-27T20:49:23.158568Z. Columns board asOf was 2026-09-27T20:49:24.677946Z; its detail asOf was 2026-09-27T20:49:25.005167Z. Both detail records were recent and linked the exact minimap-dev and minimap-manager sessions. Rendered desktop (1440x900) and narrow (760x740) List/Columns screenshots were visually inspected; badges, reference text, session links, and the session-activity caveat remained legible. Local evidence is under artifacts/recency-live-*.png. Real dormant/mixed associations were not fabricated; those cases remain covered by the accepted generic fixtures.
+
+## Compact detail follow-up — 2026-10-18
+
+Participant detail now prioritizes the recent session name, provider and last seen. Dormant/closed sessions, technical metadata and reference/guidance remain available in native disclosures; partial/error notices stay visible. Same-item refresh preserves expanded details. The one-recent desktop panel measures 192px; desktop and 390px List/Columns captures were checked. Work Record: .agent-workflow/tasks/compact-participants.md. Independent review and focused checks passed; full CI remains the delivery gate. No live update is included.
+
+Delivery: [PR #59](https://github.com/rore/minimap/pull/59).
