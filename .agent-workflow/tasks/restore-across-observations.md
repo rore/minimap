@@ -19,7 +19,7 @@ This backend contribution belongs to the manager-owned `preserve-board-view-stat
 {"source":"user-request-2026-10-18","outcome":"Across worktrees completes within its existing deadlines so feature session observations can load.","scope":"Worktree aggregate read performance, focused backend regressions and measurement evidence, generated runtime mirrors, and investigation of missing Related work data.","constraints":"Preserve lineage proof, ambiguity handling, source confinement, source and workspace revalidation, bounded Git work, existing deadlines, and public response shapes. Do not change live services, user applications, configuration, data, inactivity cleanup, or infer Work Record relationships.","completion_criteria":"A cold Pallium aggregate completes below the existing 30-second deadline; regression tests preserve lineage and bounded work; manager verifies Across session observation loading and both UI views; missing Related work is explained from declared source data."}
 
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:preserve-board-view-state"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:preserve-board-view-state"}],"pull_requests":["https://github.com/rore/minimap/pull/53"]}
 
 **Risk:** High
 
@@ -80,5 +80,7 @@ Reviewed revision: 3f7868273a81ac79f648d962f88143fb0dcf7b43; production source S
 Verification adequacy: The independent reviewer accepted the actual child-process bound/cancellation checks, preserved lineage regressions, Related-work data findings, and cold/concurrent snapshot-plus-observation timings. Baseline and task context remain unchanged. Final focused suite passed all 70 tests; manager-owned integrated visual checks remain separate evidence.
 
 ## Recovery
+
+PR #53 CI at `25dcefc` passed 437 Node tests, skipped one and failed one stale command-count assertion in `test/git-read-consolidation.test.js`. The same-HEAD optimization legitimately removes merge-base: the test now explicitly requires zero merge-base calls and 12 total commands, retaining its coverage and repeated-read assertions. Focused suite passed 6/6. Independent delta review by `/root/related_work_result_review` passed; no production change. Full CI is rerun on the updated head before merge.
 
 Branch: `feat/restore-across-observations`. Base: `5072122c7353f7519c1aeda4fcac072682b55b26`. Backend implementation and focused regressions are complete; final verification, result review and manager integration remain. Do not push, merge, or replace any live runtime from this branch. Canonical feature reconciliation and both-view visual checks belong to the manager.

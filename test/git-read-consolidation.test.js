@@ -152,7 +152,8 @@ test("four-source aggregation reduces Git work while repeated reads retain sourc
     assert.deepEqual(result.groups[0].items.map((entry) => entry.id), ids);
     assert.ok(result.features.every((feature) => feature.versions.length === 4));
     assert.equal(commands.filter((args) => args[0] === "rev-parse").length, 8);
-    assert.equal(commands.length, 13);
+    assert.equal(commands.filter((args) => args[0] === "merge-base").length, 0);
+    assert.equal(commands.length, 12);
   }
 });
 

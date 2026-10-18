@@ -41,7 +41,7 @@ Changing roadmap files to store personal preferences; a new state framework; unb
 
 Authorized follow-up to user QA. Implementation is isolated in `feat/preserve-board-view-state` under `.local/preserve-board-view-state`; no shared service or installed settings are changed for qualification. The Work Record is `.agent-workflow/tasks/preserve-board-view-state.md`.
 
-Implementation and independent technical reviews passed on 2026-10-18; final PR review and merge are pending. Board preferences and reading-position fixes have four focused browser checks, 26 focused Node checks, and inspected desktop/narrow screenshots in both layouts.
+Implementation and independent technical reviews passed on 2026-10-18; final review and merge are pending in [PR #53](https://github.com/rore/minimap/pull/53). Board preferences and reading-position fixes have four focused browser checks, 26 focused Node checks, and inspected desktop/narrow screenshots in both layouts.
 
 Missing badges were reproduced as a full Across scan exceeding the 30-second deadline, which prevented participant observations. The integrated `restore-across-observations` contribution bounds concurrent Git reads while preserving source validation, identity evidence and history budgets. Seventy focused tests passed. Isolated full snapshot plus healthy participant observations completed in 21.5 seconds cold and 24.3/25.2 seconds for two simultaneous distinct checkout requests; all retained 16 loaded checkouts, nine cap exclusions, 162 features and no identity uncertainty. These are measured local results, not a universal latency guarantee.
 
