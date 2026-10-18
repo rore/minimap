@@ -13,7 +13,7 @@
 {"source":"work-record-initial","outcome":"Feature detail clearly distinguishes roadmap features, linked Agent Workflow task records, and participant sessions while reusing fresh read data across short reopen and visibility cycles.","scope":"Feature-detail task/participant labels and incomplete-result guidance; bounded same-scope client freshness and in-flight reuse for participants and related Work Records; focused Playwright coverage; the owning roadmap feature note; generated UI runtime mirrors.","constraints":"No backend/API semantics, heavy-scan, or global terminology changes. Preserve source and generation guards, pagination, manual-refresh freshness, errors, partial-result meaning, and scope isolation. Do not write live data or update the installed service.","completion_criteria":"When a user opens or revisits a feature, linked task records are labelled as tasks and opened as task records, incomplete coverage is explained plainly while valid records remain visible, and participant/related reads are reused for at most the existing 30-second refresh interval within the exact same item/repository/source/version. Manual Refresh forces fresh reads; scope/version changes cannot reuse stale data. Desktop and narrow List/Columns browser tests cover visibility and error/recovery paths."}
 
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:show-feature-related-work"},{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:consolidate-roadmap-refresh"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:show-feature-related-work"},{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:consolidate-roadmap-refresh"}],"pull_requests":["https://github.com/rore/minimap/pull/60"]}
 
 **Risk:** High
 
@@ -61,3 +61,7 @@ Agent technical review: `/root/scan_review`, independent non-implementer, approv
 Reviewed revision: canonical `package/minimap/ui/app.js` SHA256 `73DCA1ADBF0023270E69908DBEA343DBBE80732EC680F8A4E468EDCF99E57A8F`, matching both runtime app mirrors. The preceding implementation review covered SHA256 `66B9E51367544C1A2350204731492429138FC94023DCFF6C8BC0B2DE4B654E42`; the final delta simplifies the saved-record explanation, wraps long task-section paths, and adds focused visual assertions/screenshots.
 
 Verification adequacy: reviewer accepted the reported 29 browser and 36 unit/server checks plus the final five affected browser and three mirror/lint passes. The reviewer inspected the final diff and mirror hashes without rerunning tests. Full CI and delivery verification remain with the parent task. Redline reports RED with no boundary/API changes and a size warning; the architecture-reviewed PR checkpoint remains to be applied through the delivery workflow.
+
+## Delivery
+
+PR: https://github.com/rore/minimap/pull/60. Independent review complete; architecture-reviewed label applied. Full CI is the merge gate. The user explicitly authorized merge and local update; the parent will preserve a rollback archive before restarting the packaged live runtime.
