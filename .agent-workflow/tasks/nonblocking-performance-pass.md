@@ -6,7 +6,7 @@
 **Completion criteria:** Slow work does not unnecessarily delay independent service requests or UI interactions; before/after measurements and focused regression coverage demonstrate each fix; List and Columns are visually checked; remaining limits are explicitly recorded.
 **Requirement baseline:**
 {"source":"user:6dcc4e7b-64b8-43a7-9ef5-236c4a18e57b","outcome":"Keep Minimap service requests and UI interactions responsive while slow roadmap, worktree, participant, and related-work operations run.","scope":"Audit request and rendering paths, measure blocking and contention, fix demonstrated bottlenecks with bounded asynchronous work and existing caches, and add focused regressions.","constraints":"Preserve source identity, write safety, data freshness and explicit partial coverage. No live service or installed environment changes, new dependencies, arbitrary cap increases, or blanket async rewrites.","completion_criteria":"Slow work does not unnecessarily delay independent service requests or UI interactions; before/after measurements and focused regression coverage demonstrate each fix; List and Columns are visually checked; remaining limits are explicitly recorded."}
-**Relationships:** {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:nonblocking-performance-pass"}],"pull_requests":[]}
+**Relationships:** {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:nonblocking-performance-pass"}],"pull_requests":["https://github.com/rore/minimap/pull/55"]}
 **Risk:** High
 **Behavior changes:**
 [{"target":"repository-contract","path":"playwright/nonblocking-performance.spec.js","classification":"coverage-only","before":"No focused acceptance check measures duplicate List rebuilds or unchanged-search rendering while preserving worktree provenance.","after":"Focused browser checks cover List and Columns rebuild counts, unchanged-result DOM and scroll, drafts, routes, changed membership and matching worktree versions.","reason":"Add regression coverage for approved performance changes without weakening existing behavior assertions."}]
@@ -56,6 +56,8 @@ Plan-review refinements: read both comment and suggestion arrays before cooperat
 Clean-context reviewer `/root/performance_plan_review` inspected the authoritative Work Record, relevant source and existing tests and returned PASS on 2026-10-18. Use batches of eight and qualify HTTP progress specifically while anchors remain unresolved. Preserve dirty selections and desktop/narrow behavior. The subsequent approved refinements extend this initial plan as recorded above. One anchor call, JSONL parsing, serialization and a single board render remain synchronous; report measured limits rather than claiming all CPU work is asynchronous.
 
 ## Result review
+
+Human result review: User approved the concrete PR #55 result on 2026-10-18 with "Approve merge after CI". Merge is authorized after full CI passes. The question explicitly disclosed remaining dense-render latency and excluded live restart or installation changes.
 
 Agent technical review: /root/performance_plan_review, clean-context non-implementer, PASS 2026-10-18.
 Reviewed revision: 7550305, containing the exact reviewed implementation diff; sessions.js SHA256 d5fdafcc3f9bc3328330670dfe7a41a5915182ccc28b6a660d2f2306f1a8d130, app.js SHA256 747B431A09647F1DD98B69E9AA4ECB7371463E6F9728EA2BC06571781344DC44 and byte-identical mirrors.
