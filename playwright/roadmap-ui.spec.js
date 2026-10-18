@@ -659,6 +659,7 @@ test("shows the same lazy participant details in List and Columns without per-ca
   currentAlias = "renamed-session";
   await page.locator("#item-participants-refresh").click();
   await expect(page.locator(".item-participant:visible").first()).toContainText("renamed-session");
+  expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
   await expect(page.locator(".item-participant-details").first()).toHaveAttribute("open", "");
   await expect(page.locator(".item-participant-lifecycle").first()).toHaveAttribute("open", "");
   await expect(page.locator("#item-participants-reference")).toHaveAttribute("open", "");
@@ -682,7 +683,8 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
   await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.screenshot({ path: test.info().outputPath("participant-detail-columns-narrow.png") });
-  expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance", "feature-setup-guidance"]);
+  // Reopening the same feature in Columns reuses the fresh manual-refresh result.
+  expect(participantRequests).toEqual(["feature-setup-guidance", "feature-setup-guidance"]);
 });
 
 test("escapes linked participant names and keeps unlinked participants as plain text", async ({ page }) => {

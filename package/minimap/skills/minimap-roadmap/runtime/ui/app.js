@@ -329,6 +329,11 @@ const previewElement = document.querySelector("#item-preview");
 const relatedRecordDialog = document.querySelector("#related-record-dialog");
 let relatedWorkRequest = null;
 let relatedWorkView = { status: "loading", records: [] };
+const detailReadFreshnessMs = 30_000;
+const detailReadCacheLimit = 24;
+const relatedWorkCache = new Map();
+const participantReadCache = new Map();
+const participantReadRequests = new Map();
 let relatedRecordRequestId = 0;
 const itemParticipantsElement = document.querySelector("#item-participants");
 const itemParticipantsStatusElement = document.querySelector("#item-participants-status");
@@ -1630,7 +1635,7 @@ function closeEditorOverlay(force = false) {
 
   const closingItemId = state.selectedItemId;
   state.editorOverlayOpen = false;
-  resetEditor();
+  resetEditor({ preserveDetailReads: true });
   syncWorkspaceChrome();
   renderBoard();
   syncRouteState({ replace: true });
@@ -3699,18 +3704,23 @@ function isAbortError(error) {
   return error?.name === "AbortError";
 }
 
-function invalidateItemRequests() {
+function invalidateItemRequests({ preserveParticipantKey = null } = {}) {
   state.itemLoadGeneration += 1;
   state.itemLoadController?.abort();
-  state.itemParticipantsController?.abort();
+  const preservedRequest = preserveParticipantKey && participantReadRequests.get(preserveParticipantKey);
+  const keepParticipantRequest = state.itemParticipantsController && preservedRequest?.controller === state.itemParticipantsController;
+  if (state.itemParticipantsController && !keepParticipantRequest) {
+    state.itemParticipantsController.abort();
+  }
   state.itemLoadController = null;
-  state.itemParticipantsController = null;
+  if (!keepParticipantRequest) state.itemParticipantsController = null;
   state.itemParticipants = null;
   renderItemParticipants();
 }
 
 function beginItemLoad(itemId) {
-  invalidateItemRequests();
+  const preserveParticipantKey = itemId === state.selectedItemId ? currentDetailReadKey(itemId) : null;
+  invalidateItemRequests({ preserveParticipantKey });
   const controller = new AbortController();
   state.itemLoadController = controller;
   return {
@@ -3736,6 +3746,33 @@ function currentReadScopeKey() {
   return JSON.stringify([state.repoPath, state.worktreeMode, state.appMode,
     state.selectedSource?.sourceKey || null, sourceRef(state.selectedSource), state.selectedSource?.git?.headCommit || null,
     state.pinnedSource?.sourceKey || null, sourceRef(state.pinnedSource), state.pinnedSource?.git?.headCommit || null]);
+}
+
+function currentDetailReadKey(displayItemId = state.selectedItemId) {
+  const item = state.currentItem;
+  return JSON.stringify([
+    currentReadScopeKey(), displayItemId || null,
+    item?.id || null, item?.metadata?.id || null,
+    item?.revision || item?.metadata?.revision || null,
+  ]);
+}
+
+function readCacheGet(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.completedAt >= detailReadFreshnessMs) {
+    cache.delete(key);
+    return null;
+  }
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry.value;
+}
+
+function readCacheSet(cache, key, value) {
+  cache.delete(key);
+  cache.set(key, { value, completedAt: Date.now() });
+  while (cache.size > detailReadCacheLimit) cache.delete(cache.keys().next().value);
 }
 
 function specIntentIsCurrent(intent) {
@@ -3895,16 +3932,18 @@ function renderItemParticipants() {
     return `<details class="item-participant-lifecycle" data-participant-disclosure="lifecycle:${escapeHtml(lifecycle)}"><summary>${label} sessions <span class="muted">${group.length}</span></summary><div class="item-participant-group-list" role="list">${group.map(renderParticipant).join("")}</div></details>`;
   }).join("");
   const partial = result.partial ? '<p class="muted item-participants-partial">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "";
+  const refreshError = result.refreshError ? `<p class="muted item-participants-refresh-error" role="status">${escapeHtml(result.refreshError)}</p>` : "";
   const refreshing = result.status === "loading" ? '<p class="muted item-participants-refreshing">Refreshing participant associations…</p>' : "";
-  replaceParticipantList(partial + refreshing + recent + otherGroups);
+  replaceParticipantList(refreshError + partial + refreshing + recent + otherGroups);
 }
 
-async function loadItemParticipants(itemId, generation = state.itemLoadGeneration) {
+async function loadItemParticipants(itemId, generation = state.itemLoadGeneration, { forceFresh = false } = {}) {
   const intent = { generation, itemId, repoPath: state.repoPath, sourceKey: state.selectedSource?.sourceKey || null };
   if (!itemIntentIsCurrent(intent, { requireSelected: true })) return;
 
   if (state.worktreeData?.provisional) {
     state.itemParticipantsController?.abort();
+    state.itemParticipantsController = null;
     state.itemParticipants = { status: "loading", reference: null, participants: [], partial: true, itemId };
     renderItemParticipants();
     return;
@@ -3914,52 +3953,100 @@ async function loadItemParticipants(itemId, generation = state.itemLoadGeneratio
     const featureKey = getBoardItemById(itemId)?.featureKey;
     const feature = state.worktreeData?.features?.find((entry) => entry.key === featureKey);
     if (feature && state.worktreeData.features.filter((entry) => entry.id.normalize("NFC") === feature.id.normalize("NFC")).length > 1) {
+      state.itemParticipantsController?.abort();
+      state.itemParticipantsController = null;
       state.itemParticipants = { status: "ambiguous-feature", participants: [], itemId };
       renderItemParticipants();
       return;
     }
   }
 
-  state.itemParticipantsController?.abort();
-  const controller = new AbortController();
-  state.itemParticipantsController = controller;
   const previous = state.itemParticipants?.itemId === itemId ? state.itemParticipants : null;
+  const key = currentDetailReadKey(itemId);
+  if (forceFresh) participantReadCache.delete(key);
+  let request = participantReadRequests.get(key);
+  if (request && (request.controller.signal.aborted || forceFresh && !request.fresh)) {
+    request.controller.abort();
+    participantReadRequests.delete(key);
+    request = null;
+  }
+  const cached = forceFresh || request ? null : readCacheGet(participantReadCache, key);
+  if (cached) {
+    state.itemParticipantsController?.abort();
+    state.itemParticipantsController = null;
+    state.itemParticipants = { ...cached, itemId, refreshError: null };
+    renderItemParticipants();
+    return;
+  }
+
+  if (!request) {
+    for (const [pendingKey, pending] of participantReadRequests) {
+      if (pendingKey === key) continue;
+      pending.controller.abort();
+      participantReadRequests.delete(pendingKey);
+    }
+    state.itemParticipantsController?.abort();
+    const controller = new AbortController();
+    const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : itemId;
+    request = { key, controller, fresh: forceFresh, scope: currentReadScopeKey(), actualItemId,
+      lastSuccessful: previous?.status === "ok" ? previous : null, promise: null };
+    request.promise = api.readItemParticipants(actualItemId, { signal: controller.signal })
+      .then((result) => {
+        if (result?.status === "ok" && !controller.signal.aborted && participantReadRequests.get(key) === request
+          && request.scope === currentReadScopeKey()) readCacheSet(participantReadCache, key, result);
+        return result;
+      })
+      .finally(() => {
+        if (participantReadRequests.get(key) === request) participantReadRequests.delete(key);
+      });
+    participantReadRequests.set(key, request);
+  }
+  const lastSuccessful = request.lastSuccessful;
+  state.itemParticipantsController = request.controller;
   state.itemParticipants = {
     status: "loading",
     reference: previous?.reference || null,
     participants: previous?.participants || [],
     partial: previous?.partial || false,
     refreshedAt: previous?.refreshedAt || null,
+    refreshError: null,
     itemId,
   };
   renderItemParticipants();
 
   try {
-    const actualItemId = state.worktreeMode === "across" ? state.currentItem?.metadata?.id : itemId;
-    const result = await api.readItemParticipants(actualItemId, { signal: controller.signal });
-    if (!itemIntentIsCurrent(intent, { requireSelected: true }) || controller.signal.aborted) return;
-    state.itemParticipants = { ...result, itemId };
+    const result = await request.promise;
+    if (!itemIntentIsCurrent(intent, { requireSelected: true }) || request.controller.signal.aborted
+      || request.key !== currentDetailReadKey(itemId) || request.scope !== currentReadScopeKey()) return;
+    if (result?.status !== "ok" && lastSuccessful) {
+      state.itemParticipants = {
+        ...lastSuccessful,
+        itemId,
+        refreshError: "Could not refresh participant sessions; showing the last successful results.",
+      };
+    } else state.itemParticipants = { ...result, itemId, refreshError: null };
     renderItemParticipants();
   } catch (error) {
-    if (isAbortError(error) || controller.signal.aborted || !itemIntentIsCurrent(intent, { requireSelected: true })) return;
-    state.itemParticipants = {
-      status: "invalid-response",
-      reference: previous?.reference || null,
-      participants: [],
-      partial: false,
-      refreshedAt: null,
-      itemId,
-    };
+    if (isAbortError(error) || request.controller.signal.aborted || !itemIntentIsCurrent(intent, { requireSelected: true })
+      || request.key !== currentDetailReadKey(itemId) || request.scope !== currentReadScopeKey()) return;
+    state.itemParticipants = lastSuccessful
+      ? { ...lastSuccessful, itemId, refreshError: "Could not refresh participant sessions; showing the last successful results." }
+      : { status: "invalid-response", reference: null, participants: [], partial: false, refreshedAt: null, itemId };
     renderItemParticipants();
   } finally {
-    if (state.itemParticipantsController === controller) state.itemParticipantsController = null;
+    if (state.itemParticipantsController === request.controller) state.itemParticipantsController = null;
   }
 }
 
-function resetEditor() {
+function resetEditor({ preserveDetailReads = false } = {}) {
   loadedBoardAppearance = null;
   loadedItemSource = null;
-  invalidateItemRequests();
+  invalidateItemRequests({ preserveParticipantKey: preserveDetailReads ? currentDetailReadKey() : null });
+  if (preserveDetailReads) state.itemParticipantsController = null;
+  else {
+    relatedWorkRequest?.controller.abort();
+    relatedWorkRequest = null;
+  }
   state.currentItem = null;
   state.confirmedEditSource = null;
   editorSourceLabelElement.hidden = true;
@@ -4110,7 +4197,7 @@ function renderPreview() {
   previewElement.innerHTML = `
     ${itemTitle ? `<h1 class="preview-title">${escapeHtml(itemTitle)}</h1>` : ""}
     ${previewBadges ? `<div class="preview-meta">${previewBadges}</div>` : ""}
-    <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Related work</summary><div id="related-work-content" aria-live="polite"></div></details>
+    <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Tasks linked to this feature</summary><div id="related-work-content" aria-live="polite"></div></details>
     <div class="preview-body">${sectionHtml || '<p class="muted">This item does not have any readable sections yet.</p>'}</div>
   `;
   renderRelatedWork();
@@ -4122,19 +4209,21 @@ function renderRelatedWork() {
   const view = relatedWorkView;
   const records = view.records || [];
   const summary = previewElement.querySelector("#related-work > summary");
-  if (summary) summary.textContent = view.status === "loading" ? "Related work · Loading"
-    : view.status === "ok" ? `Related work · ${view.total || records.length || "None"}`
-      : view.status === "stale" ? "Related work · Last known"
-        : view.status === "error" || view.status === "unavailable" ? "Related work · Unavailable"
-          : "Related work · Partial";
-  const message = view.status === "loading" ? (records.length ? "Refreshing related work…" : "Loading related work…")
-    : view.status === "unavailable" ? "Related work is unavailable for this checkout."
-      : view.status === "error" ? "Could not load related work. Try Refresh."
-        : view.status === "stale" ? `Related work could not be fully verified. Showing the last successful result from ${view.staleSince ? new Date(view.staleSince).toLocaleString() : "an earlier scan"}.`
-          : view.status === "partial" ? view.coverage?.unverified
-            ? "Related work is partial; some Work Records have unverified feature references."
-            : "Related work is partial; some relationship information is unavailable."
-            : records.length ? "" : "No related Work Records found.";
+  if (summary) summary.textContent = view.status === "loading" ? "Tasks linked to this feature · Loading"
+    : view.status === "ok" ? `Tasks linked to this feature · ${view.total || records.length || "None"}`
+      : view.status === "stale" ? "Tasks linked to this feature · Last checked earlier"
+        : view.status === "error" || view.status === "unavailable" ? "Tasks linked to this feature · Unavailable"
+          : "Tasks linked to this feature · List may be incomplete";
+  const message = view.status === "loading" ? (records.length ? "Checking linked task records…" : "Loading linked task records…")
+    : view.status === "unavailable" ? "Linked task records are unavailable for this checkout."
+      : view.status === "error" ? "Could not load linked task records. Try Refresh."
+        : view.status === "stale" ? `Could not verify the latest task records. Showing the last successful result from ${view.staleSince ? new Date(view.staleSince).toLocaleString() : "an earlier check"}.`
+          : view.status === "partial" ? view.coverage?.legacy
+            ? (view.coverage?.invalid || view.coverage?.unreadable || view.coverage?.oversized || view.coverage?.overflow || view.coverage?.unsupported || view.coverage?.unverified
+              ? "Some older task records do not declare feature links, and other task links could not be checked. This list may be incomplete."
+              : "Some older task records do not declare feature links, so this list may be incomplete.")
+            : "Some task links could not be verified or some records could not be checked. This list may be incomplete."
+            : records.length ? "" : "No task records link to this feature.";
   const recordHtml = records.map((record) => {
     const urls = record.pullRequests || [];
     const repositories = new Set(urls.map((url) => new URL(url).pathname.split("/").slice(1, 3).join("/")));
@@ -4144,15 +4233,15 @@ function renderRelatedWork() {
       return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
     });
     return `<li class="related-work-row"><div class="related-work-main"><strong>${escapeHtml(record.title)}</strong>
-    <span class="muted">Recorded state: ${escapeHtml(record.recordedState)}</span></div>
-    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open record</button>
+    <span class="muted">Task record state: ${escapeHtml(record.recordedState)}</span></div>
+    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open task record</button>
     ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div></li>`;
   }).join("");
   host.innerHTML = `${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
-    ${records.length ? '<p class="muted related-work-order">Sorted by Work Record file name. PR links are recorded references.</p>' : ""}
+    ${records.length ? '<p class="muted related-work-order">Development task records for this feature. Task states and PR links reflect saved records.</p>' : ""}
     ${records.length ? `<ul>${recordHtml}</ul>` : ""}
     ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-more>More records</button>' : ""}
-    ${view.status !== "loading" ? '<button class="ghost-button related-work-refresh" type="button" data-related-refresh>Refresh related work</button>' : ""}`;
+    ${view.status !== "loading" ? '<button class="ghost-button related-work-refresh" type="button" data-related-refresh>Refresh task records</button>' : ""}`;
   if (state.worktreeMode === "across" && view.source?.repoRoot) {
     const provenance = document.createElement("p");
     provenance.className = "muted";
@@ -4163,29 +4252,58 @@ function renderRelatedWork() {
 
 async function refreshRelatedWork({ generation, offset, append = false, fresh = false } = {}) {
   if (!state.currentItem || !state.selectedItemId) return;
+  const key = currentDetailReadKey();
+  const displayItemId = state.selectedItemId;
+  const scope = currentReadScopeKey();
+  if (!append && relatedWorkRequest?.key === key && (!fresh || relatedWorkRequest.fresh)) {
+    relatedWorkRequest.consumer = { itemId: displayItemId, scope, generation: state.itemLoadGeneration, key };
+    return relatedWorkRequest.promise;
+  }
+  if (!append && !fresh) {
+    const cached = readCacheGet(relatedWorkCache, key);
+    if (cached) {
+      relatedWorkView = { ...cached };
+      renderRelatedWork();
+      return;
+    }
+  }
+  if (fresh) relatedWorkCache.delete(key);
   relatedWorkRequest?.controller.abort();
   const controller = new AbortController();
-  const intent = { controller, itemId: state.selectedItemId, scope: currentReadScopeKey(), generation: state.itemLoadGeneration };
+  const intent = {
+    controller, key, fresh, displayItemId,
+    consumer: { itemId: displayItemId, scope, generation: state.itemLoadGeneration, key },
+    promise: null,
+  };
   relatedWorkRequest = intent;
   if (!append) relatedWorkView = { ...relatedWorkView, status: "loading" };
   renderRelatedWork();
-  try {
-    const result = await api.readRelatedWork(state.currentItem.id, { generation, offset, fresh, signal: controller.signal });
-    if (relatedWorkRequest !== intent || controller.signal.aborted || intent.itemId !== state.selectedItemId
-      || intent.scope !== currentReadScopeKey() || intent.generation !== state.itemLoadGeneration) return;
-    const selected = state.worktreeMode === "across" ? state.selectedSource : state.boundRequired ? state.pinnedSource : null;
-    if (selected && result.source && (result.source.repoRoot !== selected.repoRoot || result.source.sourceKey !== selected.sourceKey
-      || result.source?.headCommit !== selected.git?.headCommit)) return;
-    relatedWorkView = { ...result, records: append ? [...relatedWorkView.records, ...result.records] : result.records };
-    renderRelatedWork();
-    if (!fresh && !append && result.status === "stale" && result.reason === "validation_due") void refreshRelatedWork({ fresh: true });
-  } catch (error) {
-    if (controller.signal.aborted || relatedWorkRequest !== intent) return;
-    relatedWorkView = { ...relatedWorkView, status: relatedWorkView.records.length ? "stale" : "error", reason: error.message };
-    renderRelatedWork();
-  } finally {
-    if (relatedWorkRequest === intent) relatedWorkRequest = null;
-  }
+  intent.promise = (async () => {
+    try {
+      const result = await api.readRelatedWork(state.currentItem.id, { generation, offset, fresh, signal: controller.signal });
+      const selected = state.worktreeMode === "across" ? state.selectedSource : state.boundRequired ? state.pinnedSource : null;
+      if (selected && (!result.source || result.source.repoRoot !== selected.repoRoot || result.source.sourceKey !== selected.sourceKey
+        || result.source?.headCommit !== selected.git?.headCommit)) return;
+      if (relatedWorkRequest === intent && !controller.signal.aborted && !append && offset == null
+        && (result.status === "ok" || result.status === "partial")
+        && scope === currentReadScopeKey()) readCacheSet(relatedWorkCache, key, { ...result, records: result.records });
+      const consumer = intent.consumer;
+      if (relatedWorkRequest !== intent || controller.signal.aborted || consumer.itemId !== state.selectedItemId
+        || consumer.scope !== currentReadScopeKey() || consumer.generation !== state.itemLoadGeneration
+        || consumer.key !== currentDetailReadKey()) return;
+      relatedWorkView = { ...result, records: append ? [...relatedWorkView.records, ...result.records] : result.records };
+      renderRelatedWork();
+      if (!fresh && !append && result.status === "stale" && result.reason === "validation_due"
+        && document.visibilityState === "visible") void refreshRelatedWork({ fresh: true });
+    } catch (error) {
+      if (controller.signal.aborted || relatedWorkRequest !== intent) return;
+      relatedWorkView = { ...relatedWorkView, status: relatedWorkView.records.length ? "stale" : "error", reason: error.message };
+      renderRelatedWork();
+    } finally {
+      if (relatedWorkRequest === intent) relatedWorkRequest = null;
+    }
+  })();
+  return intent.promise;
 }
 
 previewElement.addEventListener("click", async (event) => {
@@ -4199,7 +4317,7 @@ previewElement.addEventListener("click", async (event) => {
   const scope = currentReadScopeKey();
   const itemId = state.currentItem?.id;
   const requestId = ++relatedRecordRequestId;
-  const title = relatedWorkView.records.find((entry) => entry.id === recordId)?.title || "Work Record";
+  const title = relatedWorkView.records.find((entry) => entry.id === recordId)?.title || "Task record";
   document.querySelector("#related-record-title").textContent = title;
   document.querySelector("#related-record-meta").textContent = "";
   document.querySelector("#related-record-content").textContent = "Loading record…";
@@ -4209,7 +4327,7 @@ previewElement.addEventListener("click", async (event) => {
     if (requestId !== relatedRecordRequestId || !relatedRecordDialog.open) return;
     if (scope !== currentReadScopeKey() || itemId !== state.currentItem?.id) { relatedRecordDialog.close(); return; }
     document.querySelector("#related-record-title").textContent = result.title;
-    document.querySelector("#related-record-meta").textContent = `Recorded state: ${result.recordedState}`;
+    document.querySelector("#related-record-meta").textContent = `Task record state: ${result.recordedState}`;
     // The decoder validates relationship metadata; it is omitted from the reading view.
     const lines = result.content.replace(/\r\n?/g, "\n").split("\n");
     const visible = [];
@@ -4978,6 +5096,8 @@ async function syncVisibleSelection(options = {}) {
       openOverlay: useOverlay,
       preserveDirtyItem: options.preserveDirtyItem,
       preserveBoardControls: options.preserveBoardControls,
+      forceFreshRelated: options.forceFreshRelated === true,
+      forceFreshParticipants: options.forceFreshParticipants === true,
     });
     return;
   }
@@ -5332,9 +5452,14 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       preserveDirtyItem: preserveDirtyItem || reconcile && hasUnsavedCurrentItemChanges(),
       preserveBoardControls: reconcile,
       refreshPresence: false,
+      forceFreshRelated: options.forceFreshRelated === true,
+      forceFreshParticipants: options.forceFreshParticipants === true,
     });
     // loadItem owns freshly loaded details; only retained editors need a separate refresh.
-    if (stillCurrent() && !aggregate?.provisional && state.currentItem && state.currentItem === previousItem && !state.itemLoadController) void loadItemParticipants(state.selectedItemId);
+    if (stillCurrent() && !aggregate?.provisional && state.currentItem && state.currentItem === previousItem && !state.itemLoadController) {
+      void loadItemParticipants(state.selectedItemId, state.itemLoadGeneration, { forceFresh: options.forceFreshParticipants === true });
+      if (options.forceFreshRelated) void refreshRelatedWork({ fresh: true });
+    }
     if (stillCurrent()) void refreshBoardPresence();
   };
 
@@ -5478,7 +5603,11 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
-  relatedWorkRequest?.controller.abort();
+  if (relatedWorkRequest && (relatedWorkRequest.displayItemId !== itemId
+    || relatedWorkRequest.consumer.scope !== currentReadScopeKey())) {
+    relatedWorkRequest.controller.abort();
+    relatedWorkRequest = null;
+  }
   relatedWorkView = { status: "loading", records: [] };
   renderEditorSourceSelect();
   renderEditorChrome();
@@ -5492,7 +5621,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     loadedItemSource = state.selectedSource;
     loadedBoardAppearance = card;
     renderItem(item);
-    void refreshRelatedWork();
+    void refreshRelatedWork({ fresh: options.forceFreshRelated === true });
     applyEditorMode();
     syncWorkspaceChrome({ preserveBoardControls: options.preserveBoardControls });
     if (rerenderBoard) {
@@ -5502,7 +5631,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
       syncRouteState({ replace: options.replaceRoute === true });
     }
     clearTransientBanner();
-    void loadItemParticipants(itemId, intent.generation);
+    void loadItemParticipants(itemId, intent.generation, { forceFresh: options.forceFreshParticipants === true });
   } catch (error) {
     if (!isAbortError(error) && itemIntentIsCurrent(intent)) setBanner(error.message, "error");
   } finally {
@@ -5808,13 +5937,15 @@ refreshButton.addEventListener("click", () => {
 
   const options = {
     fresh: true,
+    forceFreshRelated: true,
+    forceFreshParticipants: true,
     forceReloadItem: Boolean(state.selectedItemId),
     replaceRoute: true,
     preserveDirtyItem: true,
   };
   const reload = async (loadOptions) => {
     await loadWorkspace(state.selectedItemId, loadOptions);
-    if (state.currentItem) await refreshRelatedWork({ fresh: true });
+    if (state.currentItem && relatedWorkRequest?.fresh) await relatedWorkRequest.promise;
   };
   if (state.boundRequired && !state.pinnedSource) {
     const repoPath = state.repoPath;
@@ -6713,7 +6844,7 @@ editorCancelButton?.addEventListener("click", () => {
 });
 
 itemParticipantsRefreshButton?.addEventListener("click", () => {
-  if (state.selectedItemId) void loadItemParticipants(state.selectedItemId);
+  if (state.selectedItemId) void loadItemParticipants(state.selectedItemId, state.itemLoadGeneration, { forceFresh: true });
 });
 
 itemParticipantsCopyButton?.addEventListener("click", () => {
@@ -6795,7 +6926,7 @@ function refreshVisibleRoadmap() {
     void loadWorkspace(state.selectedItemId, { fresh: state.workspaceStale, preserveDirtyItem: true, preserveBoardControls: true, background: true });
   }
   if (boardPresenceIsVisible()) void refreshBoardPresence();
-  if (state.currentItem && !relatedWorkRequest) void refreshRelatedWork({ fresh: true });
+  if (state.currentItem && !relatedWorkRequest) void refreshRelatedWork();
 }
 
 document.addEventListener("visibilitychange", () => {

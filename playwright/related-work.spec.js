@@ -31,6 +31,11 @@ test("feature read view shows live related records and keeps failed refresh expl
   let release;
   const held = new Promise((resolve) => { release = resolve; });
   let firstRequest = true;
+  let firstPageReads = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith("/related-work") && !url.searchParams.has("record")) firstPageReads++;
+  });
   await page.route("**/api/items/alpha/related-work**", async (route) => {
     if (firstRequest) { firstRequest = false; await held; }
     await route.continue();
@@ -42,11 +47,14 @@ test("feature read view shows live related records and keeps failed refresh expl
     await page.screenshot({ path: testInfo.outputPath("related-loading.png") });
     release();
     await expect(page.locator("#related-work > summary")).toContainText("2");
+    await expect(page.locator("#related-work > summary")).toContainText("Tasks linked to this feature");
     await page.locator("#related-work > summary").click();
-    await expect(page.locator("#related-work-content")).toContainText("Recorded state: Blocked");
+    await expect(page.locator("#related-work-content")).toContainText("Development task records for this feature. Task states and PR links reflect saved records.");
+    await expect(page.locator("#related-work-content")).toContainText("Task record state: Blocked");
     await expect(page.locator("#related-work-content a").first()).toHaveAttribute("href", "https://github.com/rore/minimap/pull/1");
     await page.locator("[data-related-record]").first().click();
-    await expect(page.locator("#related-record-dialog")).toContainText("Recorded state: Ready to implement");
+    await expect(page.locator("#related-record-dialog")).toContainText("Task record state: Ready to implement");
+    await expect(page.locator("[data-related-record]").first()).toHaveText("Open task record");
     await expect(page.locator("#related-record-content")).toContainText("Expose related work.");
     await expect(page.locator("#related-record-content")).not.toContainText("Relationships");
     await expect(page.locator("#related-record-content")).not.toContainText("agent-workflow:start");
@@ -72,7 +80,7 @@ test("feature read view shows live related records and keeps failed refresh expl
     const oldResponse = page.waitForResponse((response) => new URL(response.url()).searchParams.get("record") === "agent-workflow:first");
     releaseOldRecord();
     await (await oldResponse).finished();
-    await expect(page.locator("#related-record-dialog")).toContainText("Recorded state: Blocked");
+    await expect(page.locator("#related-record-dialog")).toContainText("Task record state: Blocked");
     await expect(page.locator("#related-record-dialog")).not.toContainText("First delivery");
     await page.locator("#related-record-close").click();
     await page.unroute("**/api/items/alpha/related-work**");
@@ -84,7 +92,7 @@ test("feature read view shows live related records and keeps failed refresh expl
     await expect(page.locator("#related-work > summary")).toContainText("1");
     await fs.writeFile(path.join(tasks, "bad.md"), "invalid");
     await page.locator("[data-related-refresh]").click();
-    await expect(page.locator("#related-work > summary")).toContainText("Last known");
+    await expect(page.locator("#related-work > summary")).toContainText("Last checked earlier");
     await expect(page.locator("#related-work-content")).toContainText("First delivery");
     await expect(page.locator("#related-work-content")).not.toContainText("related_work_partial");
     await page.screenshot({ path: testInfo.outputPath("related-list-desktop.png") });
@@ -92,6 +100,20 @@ test("feature read view shows live related records and keeps failed refresh expl
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
     await page.screenshot({ path: testInfo.outputPath("related-list-narrow.png") });
     await fs.unlink(path.join(tasks, "bad.md"));
+    await fs.writeFile(path.join(tasks, "legacy.md"), fixture.record_template
+      .replace("Fixture Work Record", "Older task record").replace("__RELATIONSHIPS__", ""));
+    // The server retains its last complete index after a partial scan; exercise the partial response contract directly.
+    await page.route("**/api/items/alpha/related-work**", async (route) => {
+      const response = await route.fetch();
+      const result = await response.json();
+      await route.fulfill({ json: { ...result, status: "partial", coverage: { ...result.coverage, legacy: 1 } } });
+    });
+    await page.locator("[data-related-refresh]").click();
+    await expect(page.locator("#related-work > summary")).toContainText("List may be incomplete");
+    await expect(page.locator("#related-work-content")).toContainText("Some older task records do not declare feature links");
+    await expect(page.locator("#related-work-content")).toContainText("First delivery");
+    await page.unroute("**/api/items/alpha/related-work**");
+    await fs.unlink(path.join(tasks, "legacy.md"));
     const manyPrs = Array.from({ length: 4 }, (_, i) => `https://github.com/rore/minimap/pull/${100 + i}`);
     const mixedPrs = [...manyPrs, ...Array.from({ length: 4 }, (_, i) => `https://github.com/example/other/pull/${200 + i}`)];
     await Promise.all(Array.from({ length: 45 }, (_, i) => write(`bulk-${String(i + 1).padStart(2, "0")}`, `Bulk ${String(i + 1).padStart(2, "0")}`, "Ready to implement", i ? manyPrs : mixedPrs)));
@@ -149,7 +171,7 @@ test("feature read view shows live related records and keeps failed refresh expl
     await expect(page.locator(".related-work-row").first().locator("a").first()).toHaveAttribute("rel", "noopener noreferrer");
     await Promise.all((await fs.readdir(tasks)).map((name) => fs.unlink(path.join(tasks, name))));
     await page.locator("[data-related-refresh]").click();
-    await expect(page.locator("#related-work-content")).toContainText("No related Work Records found.");
+    await expect(page.locator("#related-work-content")).toContainText("No task records link to this feature.");
     await page.screenshot({ path: testInfo.outputPath("related-empty.png") });
     await page.route("**/api/items/alpha/related-work**", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "Temporary failure" } }) }));
     await page.locator("[data-related-refresh]").click();
@@ -159,8 +181,10 @@ test("feature read view shows live related records and keeps failed refresh expl
     await write("new", "New delivery", "Ready to implement", ["https://github.com/rore/minimap/pull/9"]);
     const cleanFreshResponse = page.waitForResponse((response) => response.url().includes("/api/items/alpha/related-work")
       && new URL(response.url()).searchParams.get("fresh") === "1" && response.ok());
+    const readsBeforeGlobalRefresh = firstPageReads;
     await page.locator("#refresh-button").click();
     await cleanFreshResponse;
+    expect(firstPageReads).toBe(readsBeforeGlobalRefresh + 1);
     await expect(page.locator("#related-work-content")).toContainText("New delivery");
     await page.locator("#tab-structured").click();
     if (!await page.locator("#field-title").isVisible()) await page.locator("#metadata-toggle").click();
