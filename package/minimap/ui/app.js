@@ -3989,7 +3989,18 @@ async function refreshRelatedWork({ generation, offset, append = false, fresh = 
     const selected = state.worktreeMode === "across" ? state.selectedSource : state.boundRequired ? state.pinnedSource : null;
     if (selected && result.source && (result.source.repoRoot !== selected.repoRoot || result.source.sourceKey !== selected.sourceKey
       || result.source?.headCommit !== selected.git?.headCommit)) return;
-    relatedWorkView = { ...result, records: append ? [...relatedWorkView.records, ...result.records] : result.records };
+    const sameGenerationRefresh = !append && result.generation != null
+      && result.generation === relatedWorkView.generation
+      && relatedWorkView.records.length > result.records.length;
+    const refreshedRecords = sameGenerationRefresh
+      ? [...result.records, ...relatedWorkView.records.slice(result.records.length)
+        .filter((record) => !result.records.some((freshRecord) => freshRecord.id === record.id))]
+      : result.records;
+    relatedWorkView = {
+      ...result,
+      records: append ? [...relatedWorkView.records, ...result.records] : refreshedRecords,
+      ...(sameGenerationRefresh ? { nextOffset: relatedWorkView.nextOffset } : {}),
+    };
     renderRelatedWork();
     if (!fresh && !append && result.status === "stale" && result.reason === "validation_due") void refreshRelatedWork({ fresh: true });
   } catch (error) {

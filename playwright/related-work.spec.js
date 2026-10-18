@@ -126,11 +126,52 @@ test("feature read view shows live related records and keeps failed refresh expl
     await page.locator("[data-related-more]").click();
     await expect(page.locator(".related-work-row")).toHaveCount(40);
     await expect(page.locator(".related-work-row").last()).toContainText("Bulk 40");
+    await page.route("**/api/items/alpha/related-work**", async (route) => {
+      const response = await route.fetch({ url: route.request().url().replace("?fresh=1", "") });
+      const body = await response.json();
+      body.records[0].title = "Bulk 01 refreshed";
+      await route.fulfill({ status: response.status(), contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.locator("[data-related-refresh]").click();
+    await expect(page.locator(".related-work-row").first()).toContainText("Bulk 01 refreshed");
+    await expect(page.locator(".related-work-row")).toHaveCount(40);
+    const loadedIds = await page.locator("[data-related-record]").evaluateAll((buttons) => buttons.map((button) => button.dataset.relatedRecord));
+    expect(new Set(loadedIds).size).toBe(loadedIds.length);
+    await page.unroute("**/api/items/alpha/related-work**");
     await page.locator("[data-related-more]").click();
     await expect(page.locator(".related-work-row")).toHaveCount(46);
     await expect(page.locator(".related-work-row").last()).toContainText("First delivery");
     await expect(page.locator("[data-related-more]")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("related-many-all-pages.png"), fullPage: true });
+    await page.route("**/api/items/alpha/related-work**", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.generation = `changed-${body.generation}`;
+      await route.fulfill({ status: response.status(), contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.locator("[data-related-refresh]").click();
+    await expect(page.locator(".related-work-row")).toHaveCount(20);
+    await expect(page.locator(".related-work-row").last()).toContainText("Bulk 20");
+    await page.unroute("**/api/items/alpha/related-work**");
+    await page.route("**/api/items/alpha/related-work**", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.records[0].title = "Bulk 01 reset";
+      await route.fulfill({ status: response.status(), contentType: "application/json", body: JSON.stringify(body) });
+    });
+    const resetFreshResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/items/alpha/related-work" && url.searchParams.get("fresh") === "1";
+    });
+    await page.locator("[data-related-refresh]").click();
+    expect((await resetFreshResponse).ok()).toBe(true);
+    await expect(page.locator(".related-work-row").first()).toContainText("Bulk 01 reset");
+    await expect(page.locator(".related-work-row")).toHaveCount(20);
+    await page.unroute("**/api/items/alpha/related-work**");
+    await page.locator("[data-related-more]").click();
+    await expect(page.locator(".related-work-row")).toHaveCount(40);
+    await page.locator("[data-related-more]").click();
+    await expect(page.locator(".related-work-row")).toHaveCount(46);
     await page.setViewportSize({ width: 390, height: 840 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
     await page.screenshot({ path: testInfo.outputPath("related-many-expanded-narrow.png") });

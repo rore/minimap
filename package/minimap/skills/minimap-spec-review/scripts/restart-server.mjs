@@ -10,7 +10,7 @@
 //   1 — failed to stop, or new server did not come up within the timeout.
 import net from "node:net";
 import fs from "node:fs/promises";
-import { readFileSync, unlinkSync } from "node:fs";
+import { readFileSync, unlinkSync, rmdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -35,45 +35,157 @@ if (process.argv.slice(2).some((arg) => arg !== "--replace-runtime")) {
 
 const restartLockPath = path.join(resolveMinimapHome(), "restart.lock");
 const restartLockToken = randomUUID();
+const restartLockOwnerName = `${restartLockToken}.json`;
+const restartLockOwnerPath = path.join(restartLockPath, restartLockOwnerName);
 await fs.mkdir(path.dirname(restartLockPath), { recursive: true });
 const lockDeadline = Date.now() + 30_000;
-while (true) {
-  try {
-    await fs.writeFile(restartLockPath, JSON.stringify({ pid: process.pid, token: restartLockToken }), { flag: "wx" });
-    break;
-  } catch (error) {
-    if (error?.code !== "EEXIST") throw error;
-    let raw = null;
-    let owner = null;
-    try {
-      raw = await fs.readFile(restartLockPath, "utf8");
-      owner = JSON.parse(raw);
-    } catch {}
-    let stale = false;
-    if (Number.isSafeInteger(owner?.pid) && owner.pid > 0) {
-      // Signal 0 checks the launcher PID without stopping it or the server.
-      try { process.kill(owner.pid, 0); } catch (error) { stale = error?.code === "ESRCH"; }
-    }
-    const stat = await fs.stat(restartLockPath).catch(() => null);
-    if (stat && Date.now() - stat.mtimeMs > (owner ? 120_000 : 5_000)) stale = true;
-    if (stale && raw !== null) {
-      const current = await fs.readFile(restartLockPath, "utf8").catch(() => null);
-      if (current === raw) await fs.unlink(restartLockPath).catch((error) => {
-        if (error?.code !== "ENOENT") throw error;
-      });
-      continue;
-    }
-    if (Date.now() >= lockDeadline) {
-      process.stderr.write("Another Minimap restart is still running.\n");
-      process.exit(1);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+
+function lockOwnerIsStale(owner, stat) {
+  let stale = false;
+  if (Number.isSafeInteger(owner?.pid) && owner.pid > 0) {
+    // Signal 0 checks the launcher PID without stopping it or the server.
+    try { process.kill(owner.pid, 0); } catch (error) { stale = error?.code === "ESRCH"; }
   }
+  if (stat && Date.now() - stat.mtimeMs > (owner ? 120_000 : 5_000)) stale = true;
+  return stale;
+}
+
+async function readLockOwner(lockStat) {
+  if (lockStat.isDirectory()) {
+    const entries = await fs.readdir(restartLockPath).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+    if (entries === null) return { kind: "unknown", owner: null, raw: null, stat: lockStat };
+    if (entries.length === 0) return { kind: "empty-directory", owner: null, raw: null, stat: lockStat };
+    if (entries.length !== 1 || !entries[0].endsWith(".json")) return { kind: "unknown", owner: null, raw: null, stat: lockStat };
+    const ownerPath = path.join(restartLockPath, entries[0]);
+    const ownerStat = await fs.lstat(ownerPath).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+    if (!ownerStat?.isFile()) return { kind: "unknown", owner: null, raw: null, stat: lockStat };
+    const raw = await fs.readFile(ownerPath, "utf8").catch(async (error) => {
+      if (error?.code === "ENOENT") return null;
+      const latest = await fs.lstat(restartLockPath).catch((statError) => statError?.code === "ENOENT" ? null : Promise.reject(statError));
+      if (latest?.isDirectory()) return null;
+      throw error;
+    });
+    if (raw === null) return { kind: "unknown", owner: null, raw: null, stat: lockStat };
+    let owner = null;
+    try { owner = JSON.parse(raw); } catch {}
+    if (!owner || entries[0] !== `${owner.token}.json`) return { kind: "unknown", owner: null, raw, stat: lockStat };
+    return { kind: "directory", owner, raw, ownerPath, stat: ownerStat, lockStat };
+  }
+  if (!lockStat.isFile()) return { kind: "unknown", owner: null, raw: null, stat: lockStat };
+  const raw = await fs.readFile(restartLockPath, "utf8").catch(async (error) => {
+    if (error?.code === "ENOENT") return null;
+    const latest = await fs.lstat(restartLockPath).catch((statError) => statError?.code === "ENOENT" ? null : Promise.reject(statError));
+    if (latest?.isDirectory()) return null;
+    throw error;
+  });
+  if (raw === null) return { kind: "unknown", owner: null, raw: null, stat: lockStat };
+  let owner = null;
+  try { owner = JSON.parse(raw); } catch {}
+  return { kind: "legacy-file", owner, raw, stat: lockStat };
+}
+
+async function removeStaleLock(observed) {
+  if (observed.kind === "empty-directory") {
+    if (Date.now() - observed.stat.mtimeMs <= 5_000) return false;
+    try { await fs.rmdir(restartLockPath); return true; }
+    catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ENOTEMPTY" || error?.code === "EEXIST") return false;
+      throw error;
+    }
+  }
+  if (observed.kind === "directory") {
+    if (!lockOwnerIsStale(observed.owner, observed.stat)) return false;
+    const current = await fs.readFile(observed.ownerPath, "utf8").catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+    if (current !== observed.raw) return false;
+    await fs.unlink(observed.ownerPath).catch((error) => {
+      if (error?.code !== "ENOENT") throw error;
+    });
+    try { await fs.rmdir(restartLockPath); return true; }
+    catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ENOTEMPTY" || error?.code === "EEXIST") return false;
+      throw error;
+    }
+  }
+  if (observed.kind === "legacy-file") {
+    if (!lockOwnerIsStale(observed.owner, observed.stat)) return false;
+    const currentStat = await fs.lstat(restartLockPath).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+    if (!currentStat?.isFile()) return false;
+    const current = await fs.readFile(restartLockPath, "utf8").catch(async (error) => {
+      if (error?.code === "ENOENT") return null;
+      const latest = await fs.lstat(restartLockPath).catch((statError) => statError?.code === "ENOENT" ? null : Promise.reject(statError));
+      if (latest?.isDirectory()) return null;
+      throw error;
+    });
+    if (current !== observed.raw) return false;
+    try { await fs.unlink(restartLockPath); return true; }
+    catch (error) {
+      if (error?.code === "ENOENT") return false;
+      const latest = await fs.lstat(restartLockPath).catch((statError) => statError?.code === "ENOENT" ? null : Promise.reject(statError));
+      if (latest?.isDirectory()) return false;
+      throw error;
+    }
+  }
+  return false;
+}
+
+async function createPreparedLock() {
+  const preparedPath = path.join(path.dirname(restartLockPath), `.restart-lock-${restartLockToken}`);
+  await fs.mkdir(preparedPath);
+  try {
+    await fs.writeFile(path.join(preparedPath, restartLockOwnerName), JSON.stringify({ pid: process.pid, token: restartLockToken }), { flag: "wx" });
+    return preparedPath;
+  } catch (error) {
+    await fs.unlink(path.join(preparedPath, restartLockOwnerName)).catch((cleanupError) => {
+      if (cleanupError?.code !== "ENOENT") throw cleanupError;
+    });
+    await fs.rmdir(preparedPath).catch(() => {});
+    throw error;
+  }
+}
+
+while (true) {
+  const existingStat = await fs.lstat(restartLockPath).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+  let mayPublish = existingStat === null;
+  if (existingStat) {
+    const observed = await readLockOwner(existingStat);
+    if (observed.kind !== "unknown") mayPublish = await removeStaleLock(observed);
+  }
+  if (mayPublish) {
+    const preparedPath = await createPreparedLock();
+    try {
+      await fs.rename(preparedPath, restartLockPath);
+      break;
+    } catch (error) {
+      await fs.unlink(path.join(preparedPath, restartLockOwnerName)).catch((cleanupError) => {
+        if (cleanupError?.code !== "ENOENT") throw cleanupError;
+      });
+      await fs.rmdir(preparedPath).catch((cleanupError) => {
+        if (cleanupError?.code !== "ENOENT") throw cleanupError;
+      });
+      const target = await fs.lstat(restartLockPath).catch((statError) => statError?.code === "ENOENT" ? null : Promise.reject(statError));
+      const owner = target?.isDirectory() && error?.code === "EPERM" ? await readLockOwner(target) : null;
+      let collision = target?.isDirectory() && (
+        error?.code === "EEXIST" || error?.code === "ENOTEMPTY" || owner?.kind === "directory"
+      );
+      if (!collision && error?.code === "EPERM" && target?.isDirectory() && owner?.kind !== "directory") {
+        const latest = await fs.lstat(restartLockPath).catch((statError) => statError?.code === "ENOENT" ? null : Promise.reject(statError));
+        collision = latest === null;
+      }
+      if (!collision && error?.code === "EEXIST" && target?.isFile()) collision = true;
+      if (!collision) throw error;
+    }
+  }
+  if (Date.now() >= lockDeadline) {
+    process.stderr.write("Another Minimap restart is still running.\n");
+    process.exit(1);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
 }
 process.once("exit", () => {
   try {
-    if (JSON.parse(readFileSync(restartLockPath, "utf8")).token === restartLockToken) unlinkSync(restartLockPath);
+    if (JSON.parse(readFileSync(restartLockOwnerPath, "utf8")).token === restartLockToken) unlinkSync(restartLockOwnerPath);
   } catch {}
+  try { rmdirSync(restartLockPath); } catch {}
 });
 
 const endpointExplicit = Object.hasOwn(process.env, "MINIMAP_PALLIUM_ENDPOINT");
