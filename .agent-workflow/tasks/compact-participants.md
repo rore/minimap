@@ -38,12 +38,26 @@
 **Behavior changes:** [{"target":"repository-contract","path":"playwright/roadmap-ui.spec.js","classification":"requirement-change","before":"Expanded participant details show all lifecycle groups, each participant's session/container references, provider and availability, origins and freshness inline, preceded by full guidance and references.","after":"The open panel presents Recent participants first with identity/provider/last-seen visible. Dormant and closed groups, per-session technical metadata, scope/item references, and long guidance remain accessible through native disclosures. Existing participant links, lifecycle, destination, origins, session/container values, partial/error states, and copy-reference action remain available and correctly labelled.","reason":"The user asked to make the oversized participant section easier to scan while retaining its information.","impact":"Technical detail and long guidance become opt-in; this reduces default visual height without deleting data or changing lifecycle semantics.","alternatives":"Keeping every field expanded preserves the current height problem. Hiding or removing metadata would lose useful detail.","authority":{"scope":"task","name":"task-owner"},"approval":{"by":"user","reference":"user request in this conversation, 2026-10-18","verbatim":"ok. now it's fast. now look at the participant section - why so large? and a lot of text no one follows. can't we make this better?"}}]
 
 <!-- Ready to implement -->
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
 
 Planning record committed before product-code edits as `5c0f5d9`. Initial Redline attempt used the bundled Python runtime and found PyYAML missing; no dependency installation was attempted. Re-ran with the existing Agent Workflow environment at `C:/Dev/rore/agent-workflow/.venv/Scripts/python.exe`: planned UI paths are gray, `playwright/roadmap-ui.spec.js` is red for safety/acceptance, with no boundary violation. Plan review approved by `/root/scan_review`; user authorization covers this UI simplification and its tests.
+
+The recent participant row now appears first with its session link, provider, and last-seen time. Per-session metadata remains under native disclosures; dormant/closed sessions and reference/guidance are separately collapsed. The short hint keeps the Recent/Dormant caveats visible. Same-item refresh retains disclosure state, while changing participant scope collapses the reference disclosure. CSS reduces default height without clipping. The one-recent browser fixture measures 192.1px and has no inner scrollbar. Both packaged runtime mirrors were regenerated from the canonical UI.
+
+Focused Playwright: the main participant test passed for List and Columns, including keyboard disclosure, metadata/link checks, refresh state, and five screenshots; the linked-name fallback test passed; the 200-record usability test passed; and the one-participant sizing test passed. A focused dense-board test exercised its cases but failed during Windows temp-fixture cleanup with `EBUSY` while removing `%TEMP%\\minimap-large-roadmap-*`; the remaining tests in that invocation were rerun separately and passed. No fixture assertions were weakened. Screenshots are available in `artifacts/compact-participants/`: `participant-detail-list-desktop.png`, `participant-detail-list-narrow.png`, `participant-detail-columns-desktop.png`, `participant-detail-columns-narrow.png`, and `participant-detail-expanded-reference.png`.
+
+`node --check` passed for `package/minimap/ui/app.js` and `playwright/roadmap-ui.spec.js`; `git diff --check` passed. Runtime mirror sync completed. The complete workflow check with fresh Redline and NUL path evidence is advisory only because the repository runs its architecture-review checkpoint in shadow mode; the acceptance-contract classification and user authority checks passed. The redline-free direct check is not valid evidence because this repository requires Redline input.
+
+Product change committed as `65c0639` (`Compact participant details panel`).
+
+## Result review
+
+Agent technical review: `/root/scan_review` approved the final UI and test changes; all review findings were resolved.
+Reviewed revision: `65c0639` (`Compact participant details panel`).
+Verification adequacy: adequate for the UI change based on focused List/Columns, fallback, dense-record, and 192.1px sizing browser coverage plus desktop/390px screenshots. The dense-board fixture cleanup `EBUSY` remains recorded for CI follow-up; its scenario assertions completed before cleanup failed.
 
 ## Discovery update
 
