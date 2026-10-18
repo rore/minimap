@@ -35,3 +35,5 @@ Live service or installation changes, new dependencies, arbitrary checkout-cap i
 ## Notes
 
 Requested 2026-10-18. Discovery active in `feat/nonblocking-performance-pass`; owning Work Record `.agent-workflow/tasks/nonblocking-performance-pass.md`. The 16-source bound remains unchanged pending evidence.
+
+The approved implementation targets measured Spec anchor CPU stalls, discarded anchor work in content reads, duplicate List rendering and unchanged-result search redraws. Qualification includes concurrent independent HTTP requests, exact anchor-result equivalence, and desktop/narrow browser interaction checks. Repeated fresh item-index reads and changed-result board rendering remain measured limits to evaluate, not assumed fixed by asynchronous I/O.
