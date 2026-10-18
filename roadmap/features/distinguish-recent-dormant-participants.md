@@ -64,3 +64,5 @@ Live witness, 2026-09-27: the exact feature reference returned status ok and par
 ## Compact detail follow-up — 2026-10-18
 
 Participant detail now prioritizes the recent session name, provider and last seen. Dormant/closed sessions, technical metadata and reference/guidance remain available in native disclosures; partial/error notices stay visible. Same-item refresh preserves expanded details. The one-recent desktop panel measures 192px; desktop and 390px List/Columns captures were checked. Work Record: .agent-workflow/tasks/compact-participants.md. Independent review and focused checks passed; full CI remains the delivery gate. No live update is included.
+
+Delivery: [PR #59](https://github.com/rore/minimap/pull/59).

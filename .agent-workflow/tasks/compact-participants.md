@@ -13,7 +13,7 @@
 {"source":"work-record-initial","outcome":"The participant panel shows useful participant information first and keeps technical details available without dominating the board.","scope":"Participant panel in `package/minimap/ui/app.js` and `index.html` styles, plus focused Playwright coverage and runtime mirror sync if required.","constraints":"No API/backend or participant meaning changes. Preserve participant links, all technical metadata, partial/error notices, and accurate Recent/Dormant semantics.","completion_criteria":"When a participant panel is opened with one recent participant, the visible panel prioritizes participant identity and last-seen information and is about 150–200px tall on desktop; dormant and technical details remain accessible, and browser coverage verifies desktop/narrow layouts across both board layouts."}
 
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:distinguish-recent-dormant-participants"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:distinguish-recent-dormant-participants"}],"pull_requests":["https://github.com/rore/minimap/pull/59"]}
 
 **Risk:** High
 
