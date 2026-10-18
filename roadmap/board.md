@@ -1,5 +1,4 @@
 # Now
-- preserve-board-view-state
 
 # Next
 - fix-shared-server-registry-test-isolation
@@ -14,6 +13,7 @@
 - idea-timeline-view
 
 # Done
+- preserve-board-view-state
 - consolidate-roadmap-refresh
 - restore-worktree-participant-badges
 - load-worktree-board-progressively
