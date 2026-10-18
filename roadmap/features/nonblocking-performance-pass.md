@@ -1,7 +1,7 @@
 ---
 id: nonblocking-performance-pass
 title: Keep service and board responsive during slow work
-status: in-progress
+status: done
 priority: high
 commitment: committed
 labels:
@@ -34,6 +34,8 @@ Live service or installation changes, new dependencies, arbitrary checkout-cap i
 
 ## Notes
 
-Requested 2026-10-18. Implemented and independently reviewed in [PR #55](https://github.com/rore/minimap/pull/55), awaiting full CI and human result approval; owning Work Record `.agent-workflow/tasks/nonblocking-performance-pass.md`. The 16-source bound remains unchanged.
+Completed 2026-10-18 in [PR #55](https://github.com/rore/minimap/pull/55), merged as `961422a444005ac003f94272e870e74ae64f2370` after independent review, human result approval and green full CI. Owning Work Record: `.agent-workflow/tasks/nonblocking-performance-pass.md`. The 16-source bound remains unchanged.
 
-The approved implementation targets measured Spec anchor CPU stalls, discarded anchor work in content reads, duplicate List rendering and unchanged-result search redraws. Qualification includes concurrent independent HTTP requests, exact anchor-result equivalence, and desktop/narrow browser interaction checks. Repeated fresh item-index reads and changed-result board rendering remain measured limits to evaluate, not assumed fixed by asynchronous I/O.
+Shipped: cooperative Spec anchor batches, transient line/heading indexes, content-only single reads, one List rebuild and no board rebuild for unchanged search results. Qualification passed concurrent independent HTTP requests, exact anchor-result equivalence and desktop/narrow browser checks. Full CI passed; the product-code run recorded 445 Node tests passed, one skipped, and 203 browser tests passed.
+
+Remaining limits: changed-result renders produced roughly 90ms long tasks in the dense fixture; an admitted independent workspace request took 1.34s under heavy Spec processing. Fresh item-index reads, single-call parsing/hashing/serialization and Spec HTTP disconnect cancellation are not solved by this slice. No universal nonblocking guarantee, live restart or installation change is claimed.
