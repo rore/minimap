@@ -57,7 +57,7 @@ test("non-Git paths fall back cleanly and a separate clone is never a sibling", 
   assert.equal(result.sources.some((source) => source.repoRoot === (process.platform === "win32" ? clone.toLowerCase() : clone)), false);
 });
 
-test("source discovery admits 25 recent valid sources without stale entries consuming slots", async () => {
+test("source discovery admits 25 recent valid sources without stale entries consuming slots", { timeout: 60_000 }, async () => {
   const root = await repo();
   for (let i = 0; i < 28; i += 1) {
     const target = path.join(path.dirname(root), `linked-${i}`);
@@ -68,7 +68,9 @@ test("source discovery admits 25 recent valid sources without stale entries cons
   // A registered directory with invalid Git context ranks first but must be backfilled.
   await fs.writeFile(path.join(git(path.join(path.dirname(root), "linked-26"), "rev-parse", "--absolute-git-dir"), "HEAD"), "invalid\n");
   const originalStat = fs.stat, originalOpen = fs.open, originalRead = fs.readFile;
-  let active = 0, peak = 0, identityHeads = 0;
+  let active = 0, peak = 0, identityHeads = 0, activeHeads = 0, peakHeads = 0;
+  let releaseHeads;
+  const fourHeads = new Promise((resolve) => { releaseHeads = resolve; });
   const reads = [];
   fs.stat = async (...args) => {
     if (!String(args[0]).includes("linked-") || String(args[0]).endsWith(".git")) return originalStat(...args);
@@ -82,15 +84,23 @@ test("source discovery admits 25 recent valid sources without stale entries cons
     handle.read = (...readArgs) => { reads.push({ file: String(args[0]), bytes: readArgs[2] }); return read(...readArgs); };
     return handle;
   };
-  fs.readFile = (...args) => {
-    if (path.basename(String(args[0])) === "HEAD") identityHeads++;
-    return originalRead(...args);
+  fs.readFile = async (...args) => {
+    if (path.basename(String(args[0])) !== "HEAD") return originalRead(...args);
+    identityHeads++; activeHeads++; peakHeads = Math.max(peakHeads, activeHeads);
+    const number = identityHeads;
+    try {
+      if (number === 8) releaseHeads();
+      if (number >= 5 && number <= 8) await fourHeads;
+      await new Promise((resolve) => setTimeout(resolve, identityHeads % 4 === 0 ? 5 : 30));
+      return await originalRead(...args);
+    } finally { activeHeads--; }
   };
   let result;
   try { result = await discoverWorktreeSources(root); }
   finally { fs.stat = originalStat; fs.open = originalOpen; fs.readFile = originalRead; }
   assert.ok(peak > 1 && peak <= 8, `metadata concurrency: ${peak}`);
   assert.equal(identityHeads, 25, "Admitted identities read HEAD; capped candidates do not");
+  assert.equal(peakHeads, 4, "Identity admission overlaps only four checks and retains rank order");
   assert.ok(reads.length > 25);
   assert.ok(reads.every(({ file, bytes }) => bytes <= (file.endsWith(".git") ? 4096 : 8192)));
   assert.equal(result.sources.length, 25);
@@ -98,6 +108,25 @@ test("source discovery admits 25 recent valid sources without stale entries cons
     Array.from({ length: 24 }, (_, i) => `linked-${25 - i}`));
   assert.equal(result.partial, true);
   assert.ok(result.excluded.some((entry) => entry.reason === "source-limit"));
+  const controller = new AbortController();
+  let started = 0, pending = 0;
+  let releaseCancelled;
+  const cancelledBatch = new Promise((resolve) => { releaseCancelled = resolve; });
+  fs.readFile = async (...args) => {
+    if (path.basename(String(args[0])) !== "HEAD") return originalRead(...args);
+    pending++;
+    try {
+      started++;
+      if (started === 8) { controller.abort(new Error("cancel identity batch")); releaseCancelled(); }
+      if (started >= 5) await cancelledBatch;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return await originalRead(...args);
+    } finally { pending--; }
+  };
+  try { await assert.rejects(discoverWorktreeSources(root, { signal: controller.signal }), /cancel identity batch/); }
+  finally { fs.readFile = originalRead; }
+  assert.equal(started, 8, "Opened identity, three valid siblings, then cancelled four; no further batch");
+  assert.equal(pending, 0, "Started identity reads drain before rejection");
   for (let i = 0; i < 27; i += 1) {
     await fs.rm(path.join(path.dirname(root), `linked-${i}`), { recursive: true, force: true });
   }

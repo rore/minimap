@@ -480,22 +480,29 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
     const versions = feature.versions.filter((version) => `${version.groupKind === "board" ? "board:" + version.group : "unlisted"}` === appearance.groupKey);
     group.items.push({ key: feature.key, id: feature.id, versions, conflicts: await conflicts(versions, displayRevisions, signal) });
   }
-  for (const source of loaded) {
-    const current = await readWorktreeIdentity(source.repoRoot, { signal });
-    if (!current) {
-      result.partial = true;
-      result.unavailable = { reason: "source-identity-unavailable", message: "A checkout could not be revalidated while the combined board loaded." };
-      result.coverage.identityUncertain.push({ sourceKey: source.sourceKey, reason: "source-identity-unavailable" });
-      result.workspace = null;
-      return result;
-    }
-    if (current.sourceKey !== source.sourceKey || current.repoRoot !== source.repoRoot
-      || JSON.stringify(current.git) !== JSON.stringify(source.git)) {
-      result.partial = true;
-      result.unavailable = { reason: "source-changed-during-read", message: "A checkout changed while the combined board loaded. Refresh to read one consistent snapshot." };
-      result.coverage.identityUncertain.push({ sourceKey: source.sourceKey, reason: "source-changed-during-read" });
-      result.workspace = null;
-      return result;
+  for (let offset = 0; offset < loaded.length; offset += 4) {
+    if (signal?.aborted) throw signal.reason;
+    const batch = loaded.slice(offset, offset + 4);
+    const reads = await Promise.allSettled(batch.map((source) => readWorktreeIdentity(source.repoRoot, { signal })));
+    if (signal?.aborted) throw signal.reason;
+    for (const [index, read] of reads.entries()) {
+      if (read.status === "rejected") throw read.reason;
+      const source = batch[index], current = read.value;
+      if (!current) {
+        result.partial = true;
+        result.unavailable = { reason: "source-identity-unavailable", message: "A checkout could not be revalidated while the combined board loaded." };
+        result.coverage.identityUncertain.push({ sourceKey: source.sourceKey, reason: "source-identity-unavailable" });
+        result.workspace = null;
+        return result;
+      }
+      if (current.sourceKey !== source.sourceKey || current.repoRoot !== source.repoRoot
+        || JSON.stringify(current.git) !== JSON.stringify(source.git)) {
+        result.partial = true;
+        result.unavailable = { reason: "source-changed-during-read", message: "A checkout changed while the combined board loaded. Refresh to read one consistent snapshot." };
+        result.coverage.identityUncertain.push({ sourceKey: source.sourceKey, reason: "source-changed-during-read" });
+        result.workspace = null;
+        return result;
+      }
     }
   }
   result.features = features;

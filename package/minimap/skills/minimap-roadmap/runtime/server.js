@@ -828,24 +828,35 @@ async function handleWorktreeWorkspace(request, response) {
           onMutation: () => roadmapSnapshots.invalidateAll() });
         const sources = new Map();
         const sourceChecks = aggregate.snapshotChecks || [];
-        for (const check of sourceChecks) {
-          const source = (aggregate.sources || []).find((entry) => entry.sourceKey === check.sourceKey);
-          if (!source) continue;
-          const binding = source.roadmapBinding || check.workspace;
-          const finalWorkspace = await loadWorkspace(source.repoRoot, { signal: scanSignal });
-          if (!sameWorkspaceRevision(check.workspace, finalWorkspace)) {
-            throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
+        for (let offset = 0; offset < sourceChecks.length; offset += 4) {
+          if (scanSignal.aborted) throw scanSignal.reason;
+          const validated = [];
+          for (const check of sourceChecks.slice(offset, offset + 4)) {
+            const source = (aggregate.sources || []).find((entry) => entry.sourceKey === check.sourceKey);
+            if (!source) continue;
+            const binding = source.roadmapBinding || check.workspace;
+            const finalWorkspace = await loadWorkspace(source.repoRoot, { signal: scanSignal });
+            if (!sameWorkspaceRevision(check.workspace, finalWorkspace)) {
+              throw new AppError("Roadmap files changed while the snapshot was loading.", 409, "snapshot_invalidated");
+            }
+            validated.push({ source, binding });
           }
-          const finalIdentity = await readWorktreeIdentity(source.repoRoot, { signal: scanSignal });
-          if (!finalIdentity) throw new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
-          if (!sameSourceIdentity(source, finalIdentity)) {
-            throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+          if (scanSignal.aborted) throw scanSignal.reason;
+          const identities = await Promise.allSettled(validated.map(({ source }) => readWorktreeIdentity(source.repoRoot, { signal: scanSignal })));
+          if (scanSignal.aborted) throw scanSignal.reason;
+          for (const [index, read] of identities.entries()) {
+            if (read.status === "rejected") throw read.reason;
+            const { source, binding } = validated[index], finalIdentity = read.value;
+            if (!finalIdentity) throw new AppError("Checkout identity is unavailable.", 503, "snapshot_unavailable");
+            if (!sameSourceIdentity(source, finalIdentity)) {
+              throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+            }
+            const admission = await captureSourceAdmission(source.repoRoot, binding, finalIdentity, scanSignal);
+            if (!admission || !sameSourceIdentity(source, admission)) {
+              throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
+            }
+            sources.set(source.sourceKey, admission);
           }
-          const admission = await captureSourceAdmission(source.repoRoot, binding, finalIdentity, scanSignal);
-          if (!admission || !sameSourceIdentity(source, admission)) {
-            throw new AppError("Roadmap source changed while the snapshot was loading.", 409, "snapshot_invalidated");
-          }
-          sources.set(source.sourceKey, admission);
         }
         const manifest = await buildObservationManifest(repoRoot, aggregate.workspace, openedOnly ? null : aggregate, scanSignal);
         return { value: compactWorktreePayload(aggregate), manifest: { openedRepo: canonicalPath(repoRoot), mode: openedOnly ? "this" : "across", observation: manifest },

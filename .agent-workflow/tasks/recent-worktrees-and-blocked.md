@@ -25,7 +25,7 @@ manual: inspect List and Columns with blocked fixtures; reuse and extend isolate
 
 ## Recovery
 
-Approved implementation saved at 389653b; focused discovery/UI checks pass. Performance acceptance remains blocked by simultaneous 25x1000 cold-load timeouts; stage diagnosis is next. Owner checkout `C:/Dev/rore/minimap/.local/preserve-board-view-state`, branch `feat/recent-worktrees-and-blocked`, base `609eda0`. Preserve unrelated artifacts/build directories and the live service.
+Approved implementation saved at 389653b; focused discovery/UI checks pass. Performance acceptance is pending requalification after the approved bounded identity batching correction. Owner checkout `C:/Dev/rore/minimap/.local/preserve-board-view-state`, branch `feat/recent-worktrees-and-blocked`, base `609eda0`. Preserve unrelated artifacts/build directories and the live service.
 
 ## Proposed recency rule
 
@@ -53,7 +53,7 @@ After other qualification ended, a separate copied-runtime probe issued one fres
 
 Stage reproduction: `node tmp/build-recent-stage.mjs`; set process-local `MINIMAP_PERFORMANCE_RUNTIME_ROOT` to the absolute `tmp/recent-stage-runtime` directory, then `node --test tmp/recent-stage-probe.mjs`. The probe creates only one disposable project and one fresh full request; it stops its owned server through the packaged script and removes that temporary fixture. Both runtime mirrors were refreshed with `node scripts/sync-mirrors.mjs`; `git diff --check` passed.
 
-Proposed extension, pending independent plan review and explicit approval: batch source identity checks at 4 in discovery admission and aggregate final validation, preserving input order, canonical failure semantics, backfill and cancellation/draining. For server final validation, read and compare each of 4 workspaces sequentially, then obtain their identities concurrently, then capture admissions in source order. Every identity must still be read after its corresponding final workspace validation. Retain all fresh item reads, duplicate-ID checks, source/binding revalidation and existing 30-second deadline; do not introduce an item cache or parallel workspace reads. Bound actual concurrent identity work across active scans and account for source-menu discovery callers before accepting any batching design. Focused cancellation/order/source-change regressions and one targeted concurrent 25x1000 repeat are required; no performance improvement is claimed before that qualification.
+Extension subsequently reviewed and approved below: batch source identity checks at 4 in discovery admission and aggregate final validation, preserving input order, canonical failure semantics, backfill and cancellation/draining. For server final validation, read and compare each of 4 workspaces sequentially, then obtain their identities concurrently, then capture admissions in source order. Every identity must still be read after its corresponding final workspace validation. Retain all fresh item reads, duplicate-ID checks, source/binding revalidation and existing 30-second deadline; do not introduce an item cache or parallel workspace reads. Bound actual concurrent identity work across active scans and account for source-menu discovery callers before accepting any batching design. Focused cancellation/order/source-change regressions and one targeted concurrent 25x1000 repeat are required; no performance improvement is claimed before that qualification.
 
 ## Approved performance extension
 

@@ -180,15 +180,24 @@ export async function discoverWorktreeSources(openRepoRoot, { signal } = {}) {
   }
   ranked.sort((left, right) => (right.activity ?? -1) - (left.activity ?? -1)
     || (canonical(left.worktree) < canonical(right.worktree) ? -1 : canonical(left.worktree) > canonical(right.worktree) ? 1 : 0));
-  for (const record of ranked) {
+  for (let offset = 0; offset < ranked.length;) {
     if (signal?.aborted) throw signal.reason;
     if (result.sources.length >= MAX_SOURCES) {
-      result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "source-limit" }); continue;
+      result.partial = true;
+      result.excluded.push(...ranked.slice(offset).map((record) => ({ repoRoot: record.worktree, reason: "source-limit" })));
+      break;
     }
-    const candidate = await readWorktreeIdentity(record.worktree, { signal });
-    if (!candidate) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "missing-or-unavailable" }); continue; }
-    if (candidate.git.commonDir !== opened.git.commonDir) { result.excluded.push({ repoRoot: record.worktree, reason: "different-common-git-dir" }); continue; }
-    result.sources.push(candidate);
+    const batch = ranked.slice(offset, offset + Math.min(4, MAX_SOURCES - result.sources.length));
+    const reads = await Promise.allSettled(batch.map((record) => readWorktreeIdentity(record.worktree, { signal })));
+    if (signal?.aborted) throw signal.reason;
+    for (const [index, read] of reads.entries()) {
+      if (read.status === "rejected") throw read.reason;
+      const record = batch[index], candidate = read.value;
+      if (!candidate) { result.partial = true; result.excluded.push({ repoRoot: record.worktree, reason: "missing-or-unavailable" }); continue; }
+      if (candidate.git.commonDir !== opened.git.commonDir) { result.excluded.push({ repoRoot: record.worktree, reason: "different-common-git-dir" }); continue; }
+      result.sources.push(candidate);
+    }
+    offset += batch.length;
   }
   return result;
 }
