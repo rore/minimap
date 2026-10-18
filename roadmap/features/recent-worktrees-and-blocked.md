@@ -25,3 +25,7 @@ Selection order, ties, missing activity evidence, stale entries, cancellation an
 ## Notes
 
 Requested 2026-10-18. Discovery and plan review in `feat/recent-worktrees-and-blocked`; owning Work Record `.agent-workflow/tasks/recent-worktrees-and-blocked.md`.
+
+## Qualification status
+
+The 25-source selection and blocked filter are implemented in the isolated branch, with focused discovery tests and rendered This/Across List/Columns checks passing. The 25x100 performance cell passed; two concurrent cold 25x1000 snapshots exceeded the existing 30-second request deadline. A single-stage probe measured about 10 seconds in 75 serial Git identity checks out of 23 seconds total. A bounded identity-check batching correction is under review; freshness checks and deadlines must remain unchanged. Delivery remains pending this qualification issue.
