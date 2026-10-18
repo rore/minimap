@@ -35,7 +35,7 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
     'import fs from "node:fs/promises";',
     'import path from "node:path";',
     "const original = AbortSignal.timeout.bind(AbortSignal);",
-    "AbortSignal.timeout = (milliseconds) => original(milliseconds === 30_000 ? 2_000 : milliseconds);",
+    "AbortSignal.timeout = (milliseconds) => original([30_000, 60_000].includes(milliseconds) ? 2_000 : milliseconds);",
     "const readFile = fs.readFile.bind(fs);",
     "const writeFile = fs.writeFile.bind(fs);",
     "const delayedSignals = new WeakSet();",
@@ -89,7 +89,11 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
   assert.equal(ready, true, "packaged server did not become ready");
 
   const headers = { "X-Minimap-Repo": repo };
-  for (const route of ["/api/items/missing/participants", "/api/board/participant-counts"]) {
+  for (const { route, message } of [
+    { route: "/api/items/missing/participants" },
+    { route: "/api/board/participant-counts" },
+    { route: "/api/worktree-workspace?compact=1&participants=0", message: "Snapshot request exceeded its 60-second budget." },
+  ]) {
     await fs.rm(env.MINIMAP_TEST_DELAY_MARKER, { force: true });
     const responsePromise = fetch(`http://127.0.0.1:${port}${route}`, { headers });
     let delayedReadStarted = false;
@@ -100,7 +104,9 @@ test("participant routes return 503 when the snapshot read deadline expires", { 
     assert.equal(delayedReadStarted, true, `${route} did not reach the delayed board read before its deadline`);
     const response = await responsePromise;
     assert.equal(response.status, 503, `${route}: ${await response.clone().text()}`);
-    assert.equal((await response.json()).error.code, "snapshot_unavailable");
+    const body = await response.json();
+    assert.equal(body.error.code, "snapshot_unavailable");
+    if (message) assert.equal(body.error.message, message);
     assert.equal(await fs.readFile(env.MINIMAP_TEST_DELAY_MARKER, "utf8"), "started");
   }
 });

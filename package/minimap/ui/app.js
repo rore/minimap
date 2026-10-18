@@ -5152,12 +5152,14 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   workspaceLoadController?.abort();
   const controller = new AbortController();
   workspaceLoadController = controller;
-  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
   const cached = options.fresh !== true;
   lastWorkspaceAttemptAt = Date.now();
   const generation = ++workspaceLoadGeneration;
   const repoPath = state.repoPath;
   const worktreeMode = state.worktreeMode;
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(worktreeMode === "across" ? 60_000 : 30_000)]);
+  const openedSignal = worktreeMode === "across"
+    ? AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]) : signal;
   const stillCurrent = () => !controller.signal.aborted && generation === workspaceLoadGeneration && repoPath === state.repoPath && worktreeMode === state.worktreeMode;
   const sameScope = state.workspaceScope?.repoPath === repoPath && state.workspaceScope?.mode === worktreeMode
     && (!state.boundRequired || (state.workspaceScope.sourceKey === state.pinnedSource?.sourceKey
@@ -5322,7 +5324,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       const opened = !sameScope ? (async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         if (fullReady || !stillCurrent()) return { opened: true };
-        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, compact: true, participants: false, signal }), opened: true }; }
+        try { return { aggregate: await api.loadWorktreeWorkspace({ openedOnly: true, cached, compact: true, participants: false, signal: openedSignal }), opened: true }; }
         catch (error) { return { error, opened: true }; }
       })() : null;
       const first = opened ? await Promise.race([completed, opened]) : await completed;

@@ -49,6 +49,7 @@ if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv
   const counters = { gitExecFile: 0, gitSpawn: 0, gitExecFileSync: 0,
     fileReadAsync: 0, fileReadCallback: 0, fileReadSync: 0 };
   const gitCommands = {};
+  const worktreeScans = {};
   const serializations = [];
   let memoryPeak = { ...process.memoryUsage() };
   const memoryTimer = setInterval(() => {
@@ -69,15 +70,19 @@ if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv
       evidenceHash: kind === "admission-evidence" ? createHash("sha256").update(result).digest("hex") : undefined });
     return result;
   };
-  const countGit = (kind, file, args) => {
+  const countGit = (kind, file, args, options) => {
     if (path.basename(String(file)).toLowerCase().replace(/\.exe$/, "") !== "git") return;
     counters[kind]++;
     const command = args?.[0] || "(none)";
     gitCommands[command] = (gitCommands[command] || 0) + 1;
+    if (args?.[0] === "worktree" && args?.[1] === "list" && options?.cwd) {
+      const root = path.resolve(options.cwd).toLowerCase();
+      worktreeScans[root] = (worktreeScans[root] || 0) + 1;
+    }
   };
   const exec = childProcess.execFile;
   function observedExecFile(file, args, ...rest) {
-    countGit("gitExecFile", file, args);
+    countGit("gitExecFile", file, args, rest[0]);
     return exec(file, args, ...rest);
   }
   observedExecFile[promisify.custom] = (...args) => new Promise((resolve, reject) => {
@@ -90,7 +95,7 @@ if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv
   for (const [method, kind] of [["spawn", "gitSpawn"], ["execFileSync", "gitExecFileSync"]]) {
     const original = childProcess[method];
     childProcess[method] = (file, args, ...rest) => {
-      countGit(kind, file, args); return original(file, args, ...rest);
+      countGit(kind, file, args, rest[0]); return original(file, args, ...rest);
     };
   }
   const readAsync = fsp.readFile, readCallback = fs.readFile, readSync = fs.readFileSync;
@@ -107,7 +112,7 @@ if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv
     process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid, serializations: serializations.splice(0),
       poolAtPreload, childNode: process.version, poolEnvironment: process.env.UV_THREADPOOL_SIZE ?? null,
       memoryCurrent: process.memoryUsage(), memoryPeak,
-      counters: { ...counters }, gitCommands: { ...gitCommands },
+      counters: { ...counters }, gitCommands: { ...gitCommands }, worktreeScans: { ...worktreeScans },
       eventLoopDelay: { samples: count, resolutionMs: 10, p50Ms: ms(histogram.percentile(50)),
         p95Ms: ms(histogram.percentile(95)), maxMs: ms(histogram.max), meanMs: ms(histogram.mean) } });
     if (message.reset) { histogram.reset(); memoryPeak = { ...process.memoryUsage() }; }
@@ -249,6 +254,7 @@ async function stopAndRemove(child, env, owned) {
 }
 
 async function qualify(sources, items, samples, signal, recordCount = 0) {
+  const qualifyColdFairness = !legacy && sources === 25 && items === 1000;
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-performance-"));
   let child;
   const env = { ...process.env, MINIMAP_HOME: path.join(owned, "home"),
@@ -266,7 +272,8 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
   await fs.writeFile(preload, commonjsPreload);
   env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --require="${preload.split(path.sep).join("/")}"`;
   const measurements = { firstUsable: [], fullSnapshot: [], warmAcross: [], healthDuringScan: [],
-    warmOtherProjectDuringScan: [], sameProjectTabs: [], independentProjects: [],
+    warmOtherProjectDuringScan: [], openedProvisional: [], sameProjectTabs: [], independentProjects: [],
+    ...(qualifyColdFairness ? { coldThirdProjectDuringIndependentScans: [] } : {}),
     ...(recordCount ? { featureDetailDuringScan: [], featureDetailWarm: [], relatedCold: [], relatedWarm: [], relatedUnchangedRefresh: [], relatedShared: [], relatedOneEdit: [], healthDuringRelated: [], featureDetailDuringRelated: [] } : {}) };
   const serverScenarios = [];
   const observe = async (scenario, sample, work) => {
@@ -295,13 +302,14 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     try {
       const response = await fetch(`http://127.0.0.1:${env.PORT}${route}`, {
         headers: root ? { "X-Minimap-Repo-Encoded": encodeURIComponent(root) } : {},
-        signal: AbortSignal.any([signal, AbortSignal.timeout(legacy ? 120000 : 35000)]),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(legacy ? 120000
+          : route.startsWith("/api/worktree-workspace") && !route.includes("openedOnly=1") ? 65000 : 35000)]),
       });
       const responseText = await response.text();
       const responseBytes = Buffer.byteLength(responseText);
       const body = JSON.parse(responseText);
       return { status: response.status, ms: Math.round((performance.now() - begin) * 100) / 100,
-        responseBytes,
+        responseBytes, startedAtMs: begin, finishedAtMs: performance.now(),
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
         versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
@@ -310,7 +318,8 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         relatedBodyReads: body.coverage?.bodyReads, relatedEnumerations: body.coverage?.enumerations,
         pid: body.pid, runtime: body.runtime, code: body.code, error: response.ok ? undefined : body.error };
     } catch (error) {
-      return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100, error: error.message };
+      return { status: 0, ms: Math.round((performance.now() - begin) * 100) / 100,
+        startedAtMs: begin, finishedAtMs: performance.now(), error: error.message };
     }
   };
   const full = legacy ? "/api/worktree-workspace" : "/api/worktree-workspace?participants=0&compact=1";
@@ -371,6 +380,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         const fullResult = await across;
         measurements.fullSnapshot.push({ ...fullResult, coldSnapshot: n === 0 });
         const openedResult = await opened; await probes;
+        measurements.openedProvisional.push(openedResult);
         requireSuccessful([openedResult, fullResult, ...measurements.healthDuringScan,
           ...measurements.warmOtherProjectDuringScan], "Opened/full scan and concurrent probes");
         if (!legacy) {
@@ -474,8 +484,56 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         "Same-project tabs must coalesce into one published snapshot");
       // Record shared snapshot IDs as evidence; deterministic coalescing tests
       // separately validate exact scan counts and cancellation ownership.
-      const projects = await observe("two-independent-projects", n, () => Promise.all([read(full, a), read(full, b)]));
-      measurements.independentProjects.push(...projects);
+      const coldThird = qualifyColdFairness ? await fixture(owned, `cold-project-${n}`, 1, 1) : null;
+      const projects = await observe("two-independent-projects", n, async () => {
+        const before = qualifyColdFairness ? await serverMetrics(child) : null;
+        let finishedCount = 0;
+        const pending = [a, b].map((root) => read(full, root).finally(() => { finishedCount++; }));
+        if (!qualifyColdFairness) return Promise.all(pending);
+        const probe = async (route, root, destination, interval) => {
+          while (finishedCount < 2) {
+            const record = await read(route, root);
+            destination.push(record);
+            if (finishedCount < 2) await delay(interval);
+          }
+        };
+        const probes = Promise.all([
+          probe("/health", null, measurements.healthDuringScan, 250),
+          probe(otherRoute, b, measurements.warmOtherProjectDuringScan, 500),
+        ]);
+        const roots = [a, b].map((root) => path.resolve(root).toLowerCase());
+        const readinessStart = performance.now();
+        let bothStarted = false;
+        while (!finishedCount && performance.now() - readinessStart < 5000) {
+          const current = await serverMetrics(child);
+          bothStarted = roots.every((root) => (current.worktreeScans[root] || 0) > (before.worktreeScans[root] || 0));
+          if (bothStarted) break;
+          await delay(25);
+        }
+        const acrossFinishedAtStart = finishedCount;
+        const cold = await read("/api/workspace", coldThird);
+        cold.bothAcrossStartedBeforeRequest = bothStarted;
+        cold.acrossFinishedAtStart = acrossFinishedAtStart;
+        measurements.coldThirdProjectDuringIndependentScans.push(cold);
+        const results = await Promise.all(pending); await probes;
+        measurements.independentProjects.push(...results);
+        cold.completedBeforeBothAcross = results.every((record) => cold.finishedAtMs < record.finishedAtMs);
+        requireSuccessful([cold], "Cold third project during two active Across scans");
+        assert.equal(bothStarted, true, "Both Across scans must reach discovery before the cold request starts");
+        assert.equal(cold.acrossFinishedAtStart, 0, "Neither Across scan may finish before the cold request starts");
+        assert.equal(cold.completedBeforeBothAcross, true, "Cold This request must complete before either Across scan");
+        for (const record of results) {
+          assert.ok(record.snapshot?.id);
+          assert.equal(record.loaded, sources);
+          assert.equal(record.versions, sources * items);
+          assert.equal(record.features, sources * items);
+          assert.equal(record.partial, true);
+          assert.equal(record.identityUncertain?.length, sources * (sources - 1) / 2);
+          assert.ok(record.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+        }
+        return results;
+      });
+      if (!qualifyColdFairness) measurements.independentProjects.push(...projects);
       requireSuccessful(projects, "Two independent projects");
       if (!legacy) {
         const retained = await observe("two-independent-retained-projects", n,

@@ -290,19 +290,51 @@ test("an oversized manifest is not retained and cannot leave an older snapshot r
   assert.equal(next.value.version, 3);
 });
 
-test("opened-only priority admits the oldest regular job after one priority job", async () => {
+test("opened-only priority is reserved alongside two regular jobs", async () => {
+  const { coordinator } = makeCoordinator();
+  const gates = new Map(["regular-1", "regular-2", "opened-1", "opened-2"].map((key) => [key, deferred()]));
+  const started = [];
+  const read = (key, priority = false) => coordinator.read({ key, priority,
+    load: async () => { started.push(key); return gates.get(key).promise; } });
+  const regular1 = read("regular-1");
+  const regular2 = read("regular-2");
+  await new Promise(setImmediate);
+  const opened1 = read("opened-1", true);
+  const opened2 = read("opened-2", true);
+  await new Promise(setImmediate);
+  assert.deepEqual(started, ["regular-1", "regular-2", "opened-1"]);
+  gates.get("opened-1").resolve(result({ key: "opened-1" }));
+  await opened1;
+  await new Promise(setImmediate);
+  assert.deepEqual(started, ["regular-1", "regular-2", "opened-1", "opened-2"]);
+  for (const key of ["regular-1", "regular-2", "opened-2"]) gates.get(key).resolve(result({ key }));
+  await Promise.all([regular1, regular2, opened2]);
+});
+
+test("regular jobs remain FIFO and cannot occupy the opened-only lane", async () => {
   const { coordinator } = makeCoordinator({ maxConcurrent: 1 });
   const held = deferred();
   const order = [];
   const first = coordinator.read({ key: "running", load: async () => { order.push("running"); return held.promise; } });
   await new Promise(setImmediate);
   const reads = [first];
-  for (const key of ["regular", "priority-1", "priority-2", "priority-3"]) {
+  for (const key of ["regular-1", "regular-2", "priority-1"]) {
     reads.push(coordinator.read({ key, priority: key.startsWith("priority"),
       load: async () => { order.push(key); return result({ key }); } }));
   }
-  assert.deepEqual(order, ["running"]);
+  const priorityStarted = new Promise((resolve) => {
+    const poll = () => order.includes("priority-1") ? resolve() : setImmediate(poll);
+    poll();
+  });
+  await priorityStarted;
+  assert.deepEqual(order, ["running", "priority-1"]);
   held.resolve(result({ key: "running" }));
   await Promise.all(reads);
-  assert.deepEqual(order, ["running", "priority-1", "regular", "priority-2", "priority-3"]);
+  assert.deepEqual(order, ["running", "priority-1", "regular-1", "regular-2"]);
+});
+
+test("per-read deadlines report their actual budget", async () => {
+  const { coordinator } = makeCoordinator();
+  const read = coordinator.read({ key: "across", timeoutMs: 25, load: () => new Promise(() => {}) });
+  await assert.rejects(read, (error) => error.message === "Snapshot scan exceeded its 0.025-second budget.");
 });
