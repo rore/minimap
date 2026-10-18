@@ -25,6 +25,8 @@ manual: inspect List and Columns with blocked fixtures; reuse and extend isolate
 
 ## Recovery
 
+Current product revision `bc386fea87a3cb141edf23213b65d2eb92b42972` is pushed to draft PR #57. UI follow-up is verified; production file-read width remains 32 because the isolated 128 candidate failed. No next speculative matrix is planned. Remaining acceptance blocker is concurrent cold 25x1000 loading; next planning should address the underlying read/payload model and explicitly retain identity/freshness guarantees. Existing cancellation early-return and large serialization/visible-DOM stalls are recorded residuals, not fixed claims. No merge, live restart or installation update occurred.
+
 Approved implementation saved at 389653b; focused discovery/UI checks pass. The approved batching correction is implemented at 70c711a, but repeat qualification still has one concurrent 25x1000 timeout. Keep PR #57 draft. Hash-only validation and alternate read APIs showed no useful gain. The approved UI corrections are implemented and under browser verification; the isolated128-read candidate failed and is rejected, so production remains32 reads per batch. Owner checkout `C:/Dev/rore/minimap/.local/preserve-board-view-state`, branch `feat/recent-worktrees-and-blocked`, base `609eda0`. Preserve unrelated artifacts/build directories and the live service.
 
 ## Proposed recency rule
@@ -78,6 +80,10 @@ Independent reviewer /root/performance_plan_review found no correctness issue in
 ## Renewed connected-path review
 
 ### Approved UI implementation and verification
+
+Agent technical review: /root/bounded_ui_review.
+Reviewed revision: bc386fea87a3cb141edf23213b65d2eb92b42972.
+Verification adequacy: adequate for the bounded UI corrections, with 37 focused unit/lint checks, three browser cases, screenshot-only rerun and diff check passing; no correctness findings. The reviewer inspected diff and connected paths and reused recorded test evidence. This is not overall performance acceptance: concurrent cold qualification remains failed and PR #57 remains draft. Local workflow check was advisory only (shadow architecture checkpoint and initial Work Record commit-order notice); no blocking predicate failed.
 
 The follow-up removes repeated full-feature and growing-card-list searches using indexes in the existing projector, omits collapsed card markup in List and Columns, and checks AbortSignal immediately before compact-response expansion. No source identity, grouping semantics, read widths, freshness validation or deadlines changed. Root synced both derived runtimes. Focused unit/API/projection/promise/HTML checks passed 37/37 (`tmp/recent-ui-bounded-unit.txt`). Three focused browser checks passed in 17.4s (`tmp/recent-ui-bounded-browser-elevated.txt`), covering collapse DOM absence, counts, selected item/route, re-expansion/scroll, narrowed Across versions and cross-group cues/missing references. A screenshot-only addition reran the first case successfully in 7.6s. Seven actual desktop/narrow screenshots under `artifacts/recent-worktrees-and-blocked/bounded-ui` were inspected by the implementer; the manager additionally inspected collapsed Columns and narrow List. An isolated 1000-feature projection probe preserved exact output and eliminated 1,000,000 growing-list predicate comparisons (instrumented single timing 25.57 to 10.76 ms; not a browser latency guarantee).
 
