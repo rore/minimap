@@ -35,17 +35,18 @@ This backend contribution belongs to the manager-owned `preserve-board-view-stat
 
 **Verification plan:** A single measured cold direct Pallium aggregate must complete below 30000 ms with all 16 admitted sources and preserved partial coverage for capped sources. Focused regressions must show at most four concurrent baseline lineage reads across simultaneous aggregate calls, deduplicated in-flight immutable reads, prompt cancellation without new queued Git reads, and stable output/order under the history-load budget. Existing test/worktree-aggregate.test.js protects deletion/recreation, ID changes, squash equivalence, independent feature identities, and raw/global history limits. Run worktree-source, snapshot, presence and Related-work tests appropriate to the final change, mirror parity test, and workflow checks. Related-work tests distinguish declaration-free legacy records, successful zero links, unavailable configuration, and stale retained data without inferring sources. Manager owns integration and visual verification of both views.
 
-**Plan review:** Pending profiling and concrete-plan review; production edits have not begun.
+**Plan review:** Agent technical review: /root/related_work_result_review at b724e2c, PASS, relayed by manager /root. Preserve mutable-item and final source/workspace validation; cancellation removes queued jobs and starts no more Git work; batch failures must be fully handled. Verification must include enough cold aggregate margin for full snapshot and observation reads within 30 seconds. Manager released implementation on 2026-10-18.
 
 **Approvals:** Not required at this risk level. User authorization above covers repository fixes and isolated tests; it does not authorize live environment changes.
 
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation
 
 - Created isolated `feat/restore-across-observations` worktree from `5072122c7353f7519c1aeda4fcac072682b55b26`. This initial record precedes production edits. Next: isolate stage cost and obtain concrete plan review.
 - Discovery profiling used a temporary module copied into the isolated worktree with stage/count output only. Discovery finished at 2226 ms (16 sources); workspaces loaded at 3252 ms; lineage pair 11:15 began at 34965 ms; bounded abort fired at 35007 ms before lineage completion or final revalidation. This establishes the cold lineage loop as the bottleneck. Temporary instrumentation will not ship.
+- Plan review passed at b724e2c. Implementation will bound actual Git child reads module-wide (including squash commands and ancestor blob reads), not merely baseline tasks, so simultaneous scans cannot bypass the four-child ceiling. Baseline pair batches remain four and squash completion remains canonical and serial per scan.
 
 ## Evidence
 
