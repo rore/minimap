@@ -14,12 +14,14 @@
 **Material assumptions:** Async I/O alone does not guarantee responsiveness; measure event-loop delay, CPU parsing/rendering, serialization and request dependency waits. Preserve existing limits until evidence supports a separate change.
 **Plan:** In sessions.js, construct file-content responses from one target read and metadata/outline without discarded anchor-status work; keep session recovery and errors. In getFileSessionContext, process anchor statuses in small cooperative batches yielding via setImmediate, preserving order and the existing synchronous resolver unchanged. In ui/app.js remove demonstrated redundant List render and only other duplicate renders proven by focused trace; preserve selection, dirty drafts, route and scroll behavior. Add focused performance regression tests, sync derived runtimes, check relevant existing tests and both rendered layouts. Do not change write/apply/rollback paths, identity checks, source cap, scan scheduler, dependencies or introduce persistent caches. Record repeated item-index latency and any unaddressed measured UI bottleneck as remaining findings, not fixed claims.
 **Verification plan:** Compare anchor-status results to existing resolver; show concurrent health and independent workspace requests make progress before a large Spec context completes; verify content shape/freshness and no comment/suggestion JSONL work with one target read; markdown/plain-text and missing/changed-target cases. Reuse existing anchor/atomic safety tests. Browser rendering-count/interaction regressions, selection/draft/route/scroll preservation and desktop/narrow List/Columns screenshots. Repeat only affected baseline probes for before/after evidence; full CI at delivery.
-**Plan review:** Agent technical review: /root/performance_plan_review, 2026-10-18, PASS with refinements recorded below. Human plan approval remains pending; no product edits released.
-**Approvals:** User requested 2026-10-18: "let's do a performance pass to see that everything is unblocking and all work that can take time is async and not blocking the service and ui". No live environment changes authorized.
-**State:** Blocked
+**Plan review:** Agent technical review: /root/performance_plan_review, 2026-10-18, PASS with refinements recorded below. Human plan approval received; implementation released for the reviewed scope.
+**Approvals:** Approved by user 2026-10-18: "I approve and let's make sure that performance is good and that there is no blocking thing." This approves the presented bounded Spec read-path and duplicate List-render fixes and continued performance qualification; no live environment changes authorized.
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Recovery
+
+2026-10-18: Human plan approval received. Backend and UI implementation are released against the reviewed bounded plan; further search scheduling remains investigation until a concrete safe design is reviewed.
 
 Discovery is authorized and active; implementation awaits a concrete reviewed plan. Owning checkout: `C:/Dev/rore/minimap/.local/preserve-board-view-state`, branch `feat/nonblocking-performance-pass`. Do not modify the user's main checkout or live Minimap server.
 
