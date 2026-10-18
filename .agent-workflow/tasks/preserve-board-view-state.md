@@ -65,4 +65,6 @@ Verification adequacy: reviewer accepted the bounded preference, URL, focus, nar
 
 ## Combined delivery
 
+PR #53 CI at `8a2fa98` passed the full Node suite but exposed a platform-specific test setup error: the stale-preference fixture lowercased a case-sensitive POSIX path and wrote to the wrong storage key. The regression now discovers and asserts the existing repository/mode key before injecting stale or malformed preferences. No production behavior changed; the focused browser regression passed 1/1. Full CI will rerun after this correction.
+
 Manager integrated the separately planned and reviewed `restore-across-observations` Work Record and commits without conflict. Its backend source and mirror hashes remain unchanged from independent review at `3f7868273a81ac79f648d962f88143fb0dcf7b43`; UI source and tests remain unchanged from the hashes above. This completes the requested badge investigation with a proven timeout fix; the canonical feature records the separate Related-work data gap. Backend evidence: 70 focused tests passed, full cold snapshot/observation 21.491s, concurrent distinct-key snapshot/observations 24.330s and 25.184s, each with expected coverage and healthy counts. UI evidence: four focused browser checks, 26 focused Node checks, six screenshots independently inspected by manager and reviewer. No live installation or service change.

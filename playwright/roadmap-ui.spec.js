@@ -1646,14 +1646,22 @@ test("remembers board controls and collapse per repository while explicit routes
     await page.goBack();
     await expect(page.locator("#board-search")).toHaveValue("");
 
-    const scope = JSON.stringify([fixture.replaceAll("\\", "/").toLowerCase(), "this"]);
+    const storedViewKeys = await page.evaluate((fixturePath) => Object.keys(window.localStorage).filter((key) => {
+      const prefix = "roadmap-ui.board-view:v1:";
+      if (!key.startsWith(prefix)) return false;
+      const [repo, mode] = JSON.parse(key.slice(prefix.length));
+      return mode === "this" && repo.toLowerCase() === fixturePath.replaceAll("\\", "/").toLowerCase();
+    }), fixture);
+    expect(storedViewKeys).toHaveLength(1);
+    const storedViewKey = storedViewKeys[0];
     await page.evaluate((key) => window.localStorage.setItem(key, JSON.stringify({
       version: 1, lens: "retired-lane", layout: "list", query: "", inPlay: false, filters: {},
-    })), `roadmap-ui.board-view:v1:${scope}`);
+    })), storedViewKey);
+    await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), storedViewKey)).toContain("retired-lane");
     await page.goto(repoUrlFor(fixture));
     await expect(page.locator("#board-view-toggle")).toContainText("By lane");
     await expect(page.locator("#status-banner")).not.toContainText(/URL grouping.*unavailable/i);
-    await page.evaluate((key) => window.localStorage.setItem(key, "{broken"), `roadmap-ui.board-view:v1:${scope}`);
+    await page.evaluate((key) => window.localStorage.setItem(key, "{broken"), storedViewKey);
     await page.goto(repoUrlFor(fixture));
     await expect(page.locator("#board-layout-list")).toHaveClass(/is-active/);
     await page.evaluate(() => {
