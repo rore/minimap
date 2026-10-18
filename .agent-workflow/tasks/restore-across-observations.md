@@ -21,11 +21,11 @@ This backend contribution belongs to the manager-owned `preserve-board-view-stat
 **Relationships:**
 {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:preserve-board-view-state"}],"pull_requests":[]}
 
-**Risk:** Elevated
+**Risk:** High
 
 **Complexity:** Moderate
 
-**Reason:** Backend aggregation and its focused tests are gray paths; lineage correctness and bounded Git work must survive the performance change. Generated runtime paths are watched. No boundary changes or protected acceptance tests are planned.
+**Reason:** Backend aggregation and its focused tests alone were assessed Elevated. The combined PR also updates canonical contract prose for remembered board preferences; the deterministic whole-change Redline floor requires High for every changed Work Record. Lineage correctness, bounded Git work and live source validation remain protected; this classification does not expand backend scope.
 
 **Discovery:** The direct exported loadWorktreeAggregate on Pallium timed out at 32009 ms with a 32000 ms abort. The UI and snapshot coordinator deadlines are 30000 ms. Across provisional data skips refreshBoardPresence; failed full loads set badges unavailable. The source cap admits at most 16 of 25 Pallium checkouts. Full aggregate currently awaits up to 120 lineage pairs sequentially. Existing per-scan Git caches are recreated on every scan. All 25 Pallium checkouts contain zero line-start **Relationships:** declarations in their 278–308 Work Records.
 
@@ -45,7 +45,7 @@ This backend contribution belongs to the manager-owned `preserve-board-view-stat
 
 **Plan review:** Agent technical review: /root/related_work_result_review at b724e2c, PASS, relayed by manager /root. Narrow global-eight/per-scan-four delta approved by the same reviewer through manager /root on 2026-10-18 after the global-four contention failure. Preserve mutable-item and final source/workspace validation; cancellation removes queued jobs and starts no more Git work; batch failures must be fully handled. Verify actual aggregate-path concurrency, waiter cleanup, both fresh distinct-key full snapshots under 30 seconds with coverage and healthy observations. Eight cat-file buffers can exceed 64 MiB once concatenation copies are included; the child bound is not a total memory claim.
 
-**Approvals:** Not required at this risk level. User authorization above covers repository fixes and isolated tests; it does not authorize live environment changes.
+**Approvals:** Approved by user 2026-10-18: "ok, fix these issues and investigate the missing badges and related work too. add regression tests and check visually in both views. drive it through review and merge, don't leave it hanging." This covers the planned repository fixes and isolated tests; it does not authorize live environment changes. Separate human result review is pending on the combined PR.
 
 **State:** Ready for review
 <!-- agent-workflow:end -->
