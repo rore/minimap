@@ -15,7 +15,7 @@ function responseHold() {
   return { pending, release };
 }
 
-async function fixture(page, mode, layout, beforeOpen) {
+async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-snapshot-ui-"));
   owned.push(root);
   await fs.mkdir(path.join(root, "roadmap", "features"), { recursive: true });
@@ -53,7 +53,7 @@ async function fixture(page, mode, layout, beforeOpen) {
   });
   if (beforeOpen) await beforeOpen({ root, payload });
   await page.goto(`/#repo=${encodeURIComponent(root)}&sources=${mode}&layout=${layout}`);
-  await expect(page.locator("#board-groups")).toContainText("Alpha");
+  if (waitForBoard) await expect(page.locator("#board-groups")).toContainText("Alpha");
   return { root, payload, setRecent: (value) => { recent = value; }, fail: () => { fail = true; }, observations: () => observations, reads: () => reads, requests,
     setSpec: () => {
       const link = { sessionId: "fixture-session", targetFile: path.join(root, "roadmap", "features", "alpha.md"), openComments: 2, pendingSuggestions: 1 };
@@ -73,7 +73,7 @@ test.afterEach(async () => {
 });
 
 for (const mode of ["this", "across"]) for (const layout of ["list", "columns"]) {
-  test(`${mode} ${layout} refreshes observations without a full scan and pauses while hidden`, async ({ page }, testInfo) => {
+  test(`${mode} ${layout} refreshes observations without a full scan and pauses observations while hidden`, async ({ page }, testInfo) => {
     const data = await fixture(page, mode, layout);
     await expect.poll(data.observations).toBeGreaterThan(0);
     await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
@@ -152,13 +152,9 @@ test("hash entry to Spec cancels a workspace read and retains badges on unchange
   await expect(page.locator("#board-groups")).not.toContainText("Late Alpha");
 });
 
-test("a provisional snapshot defers observations and resumes its cancelled full read on return", async ({ page }, testInfo) => {
+test("a provisional snapshot keeps its full read through hidden completion", async ({ page }, testInfo) => {
   const hold = responseHold();
-  let fullReads = 0, cancelled = false;
-  page.on("requestfailed", (request) => {
-    const url = new URL(request.url());
-    if (url.pathname === "/api/worktree-workspace" && !url.searchParams.has("openedOnly")) cancelled = true;
-  });
+  let fullReads = 0;
   const data = await fixture(page, "across", "columns", async ({ payload }) => {
     const opened = structuredClone(payload);
     opened.provisional = true;
@@ -184,17 +180,184 @@ test("a provisional snapshot defers observations and resumes its cancelled full 
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect.poll(() => cancelled).toBe(true);
   hold.release();
+  await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
+  expect(fullReads).toBe(1);
   await page.evaluate(() => {
-    const now = Date.now();
-    Date.now = () => now + 1_500; // Permit retry without expiring the fresh provisional snapshot.
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect.poll(() => fullReads).toBe(2);
-  await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
   await expect.poll(data.observations).toBeGreaterThan(0);
+  expect(fullReads).toBe(1);
+});
+
+for (const mode of ["this", "across"]) {
+  test(`${mode} keeps one in-flight workspace read through repeated hide and resume`, async ({ page }) => {
+    const data = await fixture(page, mode, "columns");
+    const hold = responseHold();
+    let holdNext = false, held = false, completed = false, followupReads = 0;
+    const routePattern = mode === "across" ? "**/api/worktree-workspace**" : "**/api/workspace**";
+    await page.route(routePattern, async (route) => {
+      followupReads++;
+      if (!holdNext) return route.fallback();
+      holdNext = false;
+      held = true;
+      await hold.pending;
+      const payload = structuredClone(data.payload);
+      payload.snapshot = { ...payload.snapshot, id: `${payload.snapshot.id}-hidden-completion`, validatedAt: new Date().toISOString(), stale: false };
+      if (mode === "across") {
+        for (const feature of payload.features) for (const version of feature.versions) version.summary.title = "Completed while hidden";
+        for (const group of payload.groups) for (const item of group.items) for (const version of item.versions || []) version.summary.title = "Completed while hidden";
+      } else {
+        payload.items.alpha.title = "Completed while hidden";
+        for (const group of payload.boardGroups) for (const item of group.items) if (item.id === "alpha") item.title = "Completed while hidden";
+      }
+      await route.fulfill({ json: payload }).catch(() => {});
+      completed = true;
+    });
+    holdNext = true;
+    await page.locator("#refresh-button").click();
+    await expect.poll(() => held).toBe(true);
+    const hideAndShow = () => page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await hideAndShow();
+    await hideAndShow();
+    expect(followupReads).toBe(1);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    hold.release();
+    await expect.poll(() => completed).toBe(true);
+    await expect(page.locator("#board-groups")).toContainText("Completed while hidden");
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(followupReads).toBe(1);
+  });
+}
+
+for (const mode of ["this", "across"]) {
+  test(`${mode} cached stale workspace finishing hidden waits until resume to revalidate`, async ({ page }) => {
+    const hold = responseHold();
+    let intercepted = 0, held = false;
+    const data = await fixture(page, mode, "columns");
+    const routePattern = mode === "across" ? "**/api/worktree-workspace**" : "**/api/workspace**";
+    await page.route(routePattern, async (route) => {
+      intercepted++;
+      if (intercepted === 1) {
+        held = true;
+        await hold.pending;
+        await route.fulfill({ json: { ...data.payload, snapshot: { ...data.payload.snapshot, stale: true } } }).catch(() => {});
+      } else return route.fallback();
+    });
+    await page.evaluate(() => {
+      const now = Date.now();
+      Date.now = () => now + 31_000;
+      window.__refreshTicks.forEach((tick) => tick());
+    });
+    await expect.poll(() => held).toBe(true);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    hold.release();
+    await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
+    expect(intercepted).toBe(1);
+    await page.evaluate(() => {
+      const now = Date.now();
+      Date.now = () => now + 1_500;
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect.poll(() => intercepted).toBe(2);
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Last-known view");
+  });
+}
+
+test("a cold workspace read failure while hidden recovers on visible resume", async ({ page }) => {
+  const hold = responseHold();
+  let reads = 0;
+  await fixture(page, "this", "columns", async () => {
+    await page.route("**/api/workspace**", async (route) => {
+      reads++;
+      if (reads === 1) {
+        await hold.pending;
+        return route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Temporary failure" } } });
+      }
+      return route.fallback();
+    });
+  }, { waitForBoard: false });
+  await expect.poll(() => reads).toBe(1);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  hold.release();
+  await expect(page.locator("#roadmap-path")).toHaveText("Unavailable");
+  await expect(page.locator("#board-groups")).not.toContainText("Alpha");
+  expect(reads).toBe(1);
+  await page.evaluate(() => {
+    const now = Date.now();
+    Date.now = () => now + 1_500;
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => reads).toBe(2);
+  await expect(page.locator("#board-groups")).toContainText("Alpha");
+  await expect(page.locator("#roadmap-path")).not.toHaveText("Unavailable");
+});
+
+test("a workspace timeout while hidden retains the board and retries once on resume", async ({ page }) => {
+  const data = await fixture(page, "this", "columns");
+  const hold = responseHold();
+  let reads = 0, held = false;
+  await page.route("**/api/workspace**", async (route) => {
+    reads++;
+    if (reads === 1) {
+      held = true;
+      await hold.pending;
+      await route.fulfill({ json: data.payload }).catch(() => {});
+    } else return route.fallback();
+  });
+  await page.evaluate(() => {
+    const nativeTimeout = AbortSignal.timeout;
+    window.__workspaceTimeoutMs = 0;
+    window.__restoreTimeout = () => { AbortSignal.timeout = nativeTimeout; };
+    AbortSignal.timeout = (milliseconds) => {
+      if (milliseconds !== 30_000) return nativeTimeout.call(AbortSignal, milliseconds);
+      window.__workspaceTimeoutMs = milliseconds;
+      const controller = new AbortController();
+      window.__expireWorkspaceTimeout = () => controller.abort(new DOMException("Timed out.", "TimeoutError"));
+      return controller.signal;
+    };
+  });
+  await page.locator("#refresh-button").click();
+  await expect.poll(() => held).toBe(true);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.__expireWorkspaceTimeout();
+  });
+  await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
+  await expect(page.locator("#board-groups")).toContainText("Alpha");
+  expect(await page.evaluate(() => window.__workspaceTimeoutMs)).toBe(30_000);
+  expect(reads).toBe(1);
+  hold.release();
+  await page.evaluate(() => {
+    window.__restoreTimeout();
+    const now = Date.now();
+    Date.now = () => now + 1_500;
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => reads).toBe(2);
+  await expect(page.locator("#board-source-status-summary")).not.toContainText("Last-known view");
 });
 
 test("a newly ambiguous feature cannot retain its formerly confirmed participant badge", async ({ page }) => {

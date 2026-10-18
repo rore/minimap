@@ -11,6 +11,7 @@ const relative = (root, file) => path.relative(root, path.isAbsolute(file) ? fil
 
 const pendingGitReads = [];
 let runningGitReads = 0;
+const MAX_ANCESTRY_COMMITS = 8192;
 
 // Shared across scans so overlapping repositories cannot multiply Git children.
 export async function runLineageGitRead(read, signal) {
@@ -42,6 +43,96 @@ export async function runLineageGitRead(read, signal) {
 function cachedRead(cache, key, read) {
   if (!cache.has(key)) cache.set(key, Promise.resolve().then(read));
   return cache.get(key);
+}
+
+async function readAncestryGraph(sources, signal) {
+  const heads = [...new Set(sources.map((source) => source.git.headCommit))];
+  if (heads.length < 2) return null;
+  let output;
+  try {
+    output = await git(sources[0].repoRoot, "rev-list", "--topo-order", "--parents",
+      `--max-count=${MAX_ANCESTRY_COMMITS}`, ...heads, { signal });
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
+    return null;
+  }
+  const lines = output ? output.split("\n") : [];
+  if (!lines.length || lines.length >= MAX_ANCESTRY_COMMITS) return null;
+  const nodes = new Map(), positions = new Map();
+  for (const [position, line] of lines.entries()) {
+    const match = line.match(/^([0-9a-f]{40,64})(?: ([0-9a-f]{40,64}(?: [0-9a-f]{40,64})*))?$/i);
+    if (!match || nodes.has(match[1])) return null;
+    nodes.set(match[1], match[2] ? match[2].split(" ") : []);
+    positions.set(match[1], position);
+  }
+  if (heads.some((head) => !nodes.has(head))) return null;
+  const children = new Map([...nodes.keys()].map((id) => [id, []]));
+  for (const [id, parents] of nodes) for (const parent of parents) {
+    if (!nodes.has(parent) || positions.get(parent) <= positions.get(id)) return null;
+    children.get(parent).push(id);
+  }
+  const ids = [...nodes.keys()], index = new Map(ids.map((id, i) => [id, i]));
+  const words = Math.ceil(ids.length / 32), ancestorsByCommit = new Map();
+  const ancestors = (commit) => {
+    if (ancestorsByCommit.has(commit)) return ancestorsByCommit.get(commit);
+    const start = index.get(commit);
+    if (start === undefined) return null;
+    const bits = new Uint32Array(words), stack = [start];
+    while (stack.length) {
+      const current = stack.pop(), mask = 1 << (current & 31), word = current >>> 5;
+      if (bits[word] & mask) continue;
+      bits[word] |= mask;
+      for (const parent of nodes.get(ids[current])) stack.push(index.get(parent));
+    }
+    ancestorsByCommit.set(commit, bits);
+    return bits;
+  };
+  const has = (bits, commit) => {
+    const i = index.get(commit);
+    return bits && i !== undefined && Boolean(bits[i >>> 5] & (1 << (i & 31)));
+  };
+  const uniqueBase = (left, right) => {
+    const leftAncestors = ancestors(left), rightAncestors = ancestors(right);
+    if (!leftAncestors || !rightAncestors) return null;
+    const common = new Uint32Array(words);
+    for (let word = 0; word < words; word += 1) common[word] = leftAncestors[word] & rightAncestors[word];
+    let best = null;
+    for (let i = 0; i < ids.length; i += 1) {
+      if (!(common[i >>> 5] & (1 << (i & 31)))) continue;
+      if ((children.get(ids[i]) || []).some((child) => common[index.get(child) >>> 5] & (1 << (index.get(child) & 31)))) continue;
+      if (best) return null;
+      best = ids[i];
+    }
+    return best;
+  };
+  return { nodes, heads: new Set(heads), ancestors, has, uniqueBase };
+}
+
+async function readDeletionProof(sources, graph, signal) {
+  if (!graph) return null;
+  const dirs = [...new Set(sources.flatMap((source) => {
+    const roadmapPath = relative(source.repoRoot, source.workspace.resolvedPath);
+    return [path.posix.join(roadmapPath, "features"), path.posix.join(roadmapPath, "ideas")];
+  }))];
+  let output;
+  try {
+    output = await git(sources[0].repoRoot, "log", "--full-history", "--format=%H", "--no-patch", "--diff-filter=D",
+      "--no-renames", "--diff-merges=first-parent", ...graph.heads, "--", ...dirs, { signal });
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
+    return null;
+  }
+  const commits = new Set();
+  for (const commit of output ? output.split("\n") : []) {
+    if (!/^[0-9a-f]{40,64}$/i.test(commit) || !graph.nodes.has(commit) || commits.size >= MAX_ANCESTRY_COMMITS) return null;
+    commits.add(commit);
+  }
+  // Full history only proves absence; possible deletions keep the native range/path simplification.
+  return { hasRangeDeletion(base, head) {
+    const headAncestors = graph.ancestors(head), baseAncestors = graph.ancestors(base);
+    if (!headAncestors || !baseAncestors) return true;
+    return [...commits].some((commit) => graph.has(headAncestors, commit) && !graph.has(baseAncestors, commit));
+  } };
 }
 
 async function git(root, ...argsAndOptions) {
@@ -183,7 +274,8 @@ async function ancestryPaths(left, right, roadmapPath, cache, signal) {
   try {
     const heads = [left.git.headCommit, right.git.headCommit].sort().join(":");
     const base = left.git.headCommit === right.git.headCommit ? left.git.headCommit
-      : await cachedRead(cache.bases, heads, () => git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit, { signal }));
+      : cache.graph?.uniqueBase(left.git.headCommit, right.git.headCommit)
+        || await cachedRead(cache.bases, heads, () => git(left.repoRoot, "merge-base", left.git.headCommit, right.git.headCommit, { signal }));
     if (!/^[0-9a-f]{40,64}$/i.test(base)) throw new Error("invalid merge base");
     const dirs = [path.posix.join(roadmapPath, "features"), path.posix.join(roadmapPath, "ideas")];
     const treeKey = `${base}:${roadmapPath}`;
@@ -217,6 +309,7 @@ async function ancestryPaths(left, right, roadmapPath, cache, signal) {
     for (const source of [left, right]) {
       const key = `${base}:${source.git.headCommit}`;
       const paths = await cachedRead(cache.deletions, key, async () => {
+        if (cache.deletionProof && !cache.deletionProof.hasRangeDeletion(base, source.git.headCommit)) return new Set();
         const output = await git(source.repoRoot, "log", "-z", "--format=", "--name-only", "--diff-filter=D", "--no-renames",
           "--diff-merges=first-parent", `${base}..${source.git.headCommit}`, "--", ...dirs, { signal });
         return new Set(output.split("\0").filter(Boolean));
@@ -384,6 +477,8 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
   const lineage = new Map();
   const evidenceCache = { bases: new Map(), trees: new Map(), deletions: new Map(),
     histories: new Map(), historyLoads: 0, historyChanges: 0 };
+  evidenceCache.graph = await readAncestryGraph(loaded, signal);
+  evidenceCache.deletionProof = await readDeletionProof(loaded, evidenceCache.graph, signal);
   const pairs = loaded.flatMap((left, i) => loaded.slice(i + 1).map((right, offset) => ({ i, j: i + 1 + offset, left, right })));
   for (let offset = 0; offset < pairs.length; offset += 4) {
     const batch = pairs.slice(offset, offset + 4);

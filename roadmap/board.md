@@ -13,6 +13,7 @@
 - idea-timeline-view
 
 # Done
+- fast-worktree-scan
 - recent-worktrees-and-blocked
 - nonblocking-performance-pass
 - preserve-board-view-state

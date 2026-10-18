@@ -83,9 +83,15 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
       await expect(page.locator("#spec-workbench")).toBeHidden();
     }
     await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
-    await expect.poll(() => reads).toBe(4);
-    expect(resumedUrl.searchParams.has("cached")).toBe(false);
+    if (interruption === "visibility") {
+      expect(reads).toBe(3);
+      expect(resumedUrl).toBeUndefined();
+    } else {
+      await expect.poll(() => reads).toBe(4);
+      expect(resumedUrl.searchParams.has("cached")).toBe(false);
+    }
     await page.getByRole("button", { name: /Open async-02/i }).click();
+    await expect(page.locator("#field-title")).toHaveValue(/async-02 — deliberately long async board regression title/);
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#tab-structured").click();
     await page.locator("#metadata-toggle").click();
@@ -95,7 +101,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
     await expect(page.locator("#field-title")).toHaveValue("Unsaved retry draft");
     await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
-    expect(reads).toBe(4);
+    expect(reads).toBe(interruption === "visibility" ? 3 : 4);
   } finally {
     release();
     await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

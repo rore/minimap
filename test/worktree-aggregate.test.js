@@ -85,7 +85,11 @@ test("real aggregate reads keep four lineage children per scan and eight across 
     }
     return child;
   };
-  function observed(file, args, ...rest) { return track(originalExecFile(file, args, ...rest), file); }
+  function observed(file, args, ...rest) {
+    const measuredArgs = file === "git" && args[0] === "rev-list" && args.includes("--parents")
+      ? ["rev-list", "--invalid-option"] : args;
+    return track(originalExecFile(file, measuredArgs, ...rest), file);
+  }
   observed[promisify.custom] = (...args) => new Promise((resolve, reject) => observed(...args, (error, stdout, stderr) => {
     if (error) { error.stdout = stdout; error.stderr = stderr; reject(error); }
     else resolve({ stdout, stderr });
