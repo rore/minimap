@@ -2601,7 +2601,7 @@ function buildRecordedStatusMarkup(item, { detail = false } = {}) {
   const tone = summary.tone === "blocked" ? "status-blocked" : summary.tone === "progress" ? "status-progress" : "neutral";
   const coverage = detail && [state.workspaceStale ? "Last-known view" : "", state.worktreeData?.provisional ? "Opened checkout only" : state.worktreeData?.partial ? "Partial coverage" : ""].filter(Boolean).join(" · ");
   const filtered = detail && state.worktreeMode === "across" && item && !getWorktreeProjection().items.has(item.id);
-  return `<span class="badge badge-tone-${tone} recorded-status" title="Saved file statuses in the versions shown by this board placement and filters; not live execution.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Last shown placement · outside current filters</span>' : ""}`;
+  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" title="Saved file statuses in the versions shown by this board placement and filters; not live execution.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Last shown placement · outside current filters</span>' : ""}`;
 }
 
 function syncBoardParticipantBadges() {
@@ -2636,8 +2636,8 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
   const numericPriority = /^\d+$/.test(String(metadata.priority ?? "")) ? renderBadge(metadata.priority, "priority") : "";
   const participantBadge = buildBoardParticipantBadge(item);
   const activity = recordedStatusSummary(item);
-  const activityMarkup = buildRecordedStatusMarkup(item);
-  const signalBadges = `${activityMarkup}${numericPriority}${participantBadge}`;
+  const summaryHtml = buildRecordedStatusMarkup(item);
+  const signalBadges = `${summaryHtml}${numericPriority}${participantBadge}`;
   const specLink = item.sourceVersion ? item.sourceVersion.summary.specSession : state.workspace?.specSessionsByItemId?.[item.id];
   const specBadge = specLink?.unavailable
     ? `<span class="board-item-spec-badge is-unavailable" title="Spec session unavailable" aria-label="Spec session unavailable">⚠</span>`
@@ -2668,7 +2668,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     ${statusSignal}
     <span class="board-item-id">${escapeHtml(item.sourceVersion?.itemId || item.id)}</span>
     ${overview}
-    <span class="badge-row">${activityMarkup}${renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}${groupCue}</span>
+    <span class="badge-row">${summaryHtml}${renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}${groupCue}</span>
   `;
 }
 
@@ -4178,7 +4178,7 @@ function renderPreview() {
   const previewBadges = renderMetadataBadges(metadata, "status");
   const selectedStatus = state.worktreeMode === "across" && metadata?.status ? renderBadge(metadata.status, "status") : "";
   const summaryItem = state.worktreeMode === "across" ? getBoardItemById(state.selectedItemId) : { metadata };
-  const activity = buildRecordedStatusMarkup(summaryItem, { detail: true });
+  const summaryHtml = buildRecordedStatusMarkup(summaryItem, { detail: true });
   const itemTitle = (metadata && metadata.title) || state.currentItem.title || "";
   const sectionHtml = visibleSections.map((heading) => `
     <section class="preview-section">
@@ -4191,7 +4191,7 @@ function renderPreview() {
   const relatedOpen = previewElement.querySelector("#related-work")?.open || false;
   previewElement.innerHTML = `
     ${itemTitle ? `<h1 class="preview-title">${escapeHtml(itemTitle)}</h1>` : ""}
-    <div class="preview-activity">${activity}</div>
+    <div class="preview-activity">${summaryHtml}</div>
     ${previewBadges ? `<div class="preview-meta" aria-label="Selected version metadata">${previewBadges}</div>` : ""}
     ${selectedStatus ? `<details class="preview-selected-version"><summary>Selected version status</summary>${selectedStatus}</details>` : ""}
     <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Tasks linked to this feature</summary><div id="related-work-content" aria-live="polite"></div></details>

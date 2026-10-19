@@ -77,3 +77,8 @@ Workflow/Redline: initial local check identified review-evidence prefix and task
 ## Delivery
 
 PR: https://github.com/rore/minimap/pull/64 (attached). Implementation `78c78f4`, review evidence `fcec670`; final delivery includes this PR relationship. Required architecture-reviewed label is present after independent plan/result approval. Local Workflow check is clean (exit 0) with complete NUL-delimited diff evidence, Redline verdict and the actual architecture-reviewed PR label. Evidence is retained in ignored build/workflow-check.json and build/redline-verdict.json. Full CI and merge are parent-owned. No live update is authorized or performed.
+
+
+## CI qualification correction
+
+CI on the first delivery head rejected three new HTML interpolations under the unchanged escape lint: a bounded tone token and two preescaped markup locals. The correction explicitly escapes the tone and names the markup locals `summaryHtml`, following the existing audited safe-markup convention. No lint rule, allowlist, assertion, or rendering semantics changed. Canonical app and both generated mirrors now hash `41E665F0E4A1411550E48609CE7DDD2BE4AC0D345D4CCA2BC637C48B62773575`. `node --test test/ui-lint-html-escape.test.js test/ui-lint-promises.test.js test/sync-mirrors.test.js` passed all 3 checks. Parent reviewed the actual tiny delta and APPROVED the explicit tone escape and existing summaryHtml convention on 2026-10-19; final CI remains the delivery gate; browser evidence remains applicable because the fixed literal token and markup output are unchanged.
