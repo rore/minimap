@@ -593,7 +593,7 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
   await expect(details).toBeVisible();
-  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
+  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Seen within 24h 1", "Dormant 1", "Closed 1"]);
   expect(participantRequests).toEqual(["feature-setup-guidance"]);
 
   await details.locator(":scope > summary").click();
@@ -680,7 +680,7 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.screenshot({ path: test.info().outputPath("participant-detail-columns-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1", "Closed 1"]);
+  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Seen within 24h 1", "Dormant 1", "Closed 1"]);
   await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.screenshot({ path: test.info().outputPath("participant-detail-columns-narrow.png") });
   // Reopening the same feature in Columns reuses the fresh manual-refresh result.
@@ -714,7 +714,7 @@ test("keeps participants usable for selected items on dense List and Columns boa
   const participantRoute = /\/api\/items\/([^/]+)\/participants$/;
   const cases = [
     { key: "empty", result: { ...participantPayload(selectedId), participants: [] }, status: "0 participants", message: "No sessions are associated with this item." },
-    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), badges: ["Recent 1", "Dormant 1"], message: "dense-session" },
+    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), badges: ["Seen within 24h 1", "Dormant 1"], message: "dense-session" },
     { key: "unreachable", result: { ...participantPayload(selectedId), status: "unreachable", participants: [] }, status: "Pallium unavailable", message: "could not be reached" },
   ];
 
@@ -782,7 +782,7 @@ test("keeps participants usable for selected items on dense List and Columns boa
       }
     }
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -2041,7 +2041,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
         : page.locator('.board-item[data-item-id="large-item-05"]');
 
       await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(2);
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Recent 1", "Dormant 1"]);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1", "Dormant 1"]);
       await expect(zeroCard.locator(".board-item-participants")).toHaveCount(0);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(0);
       await expect(completedCard.locator(".board-item-participants")).toHaveCount(0);
@@ -2110,7 +2110,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
       countForFeaturedItem = { recentParticipantCount: 1, dormantParticipantCount: 0 };
       countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 2 };
       await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(1);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveText("Dormant 2");
       if (layout === "columns") {
@@ -2126,7 +2126,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
       if (layout === "columns") await page.locator('[data-item-open="large-item-02"]').click();
       else await featuredCard.click();
       await expect(page.locator("#editor-title")).toHaveText("Large project item large-item-02 — usable title");
-      await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Recent 1", "Dormant 1"]);
+      await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Seen within 24h 1", "Dormant 1"]);
       expect(detailRequests).toHaveLength(1);
       expect(boardRequests).toHaveLength(2);
     }
@@ -2213,7 +2213,7 @@ test("ignores a delayed board count response after switching repositories", asyn
     await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
     releaseOldResponse();
     await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
-    await expect(currentCard.locator(".board-item-participants:visible")).not.toContainText("Recent 9");
+    await expect(currentCard.locator(".board-item-participants:visible")).not.toContainText("Seen within 24h 9");
   } finally {
     releaseOldResponse();
     await fs.rm(oldFixture, { recursive: true, force: true });

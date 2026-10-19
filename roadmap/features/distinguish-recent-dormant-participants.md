@@ -11,6 +11,8 @@ labels:
 
 ## Summary
 
+2026-10-19 clarity follow-up (`feat/board-activity-clarity`, pending delivery): shared board/detail labels say Seen within 24h and explain session last-seen at the last provider observation, not feature attachment age. Pallium retains the inclusive 24-hour lifecycle classification; Minimap does not reclassify from its clock or delete associations. The reported screenshot session age was about 22h22, so its recent classification was consistent with that window.
+
 Separate recent and dormant attached sessions on roadmap cards and in participant detail without implying current execution, ownership, or completion.
 
 ## Why

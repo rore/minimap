@@ -8,6 +8,8 @@ commitment: committed
 
 ## Summary
 
+2026-10-19 follow-up (`feat/board-activity-clarity`, pending delivery): combined cards explicitly show differing active/in-progress/blocked statuses from versions represented on that card, without replacing the selected document status or exposing filtered-out versions. The board header grows to contain wrapped coverage/loading text. Held/failing isolated fixtures qualify loading settlement; no live stuck-scan defect is established and no lifecycle/backend change is included.
+
 Follow up on the shipped worktree view with the user's real-board QA: reliable In play matching, immediate source-menu opening, compact source controls, readable version differences, and understandable coverage.
 
 ## Why

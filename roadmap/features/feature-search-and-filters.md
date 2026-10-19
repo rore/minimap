@@ -40,7 +40,7 @@ As roadmap size grows, minimap needs faster navigation more than it needs heavie
 
 ## Notes
 
-2026-10-19 correction (`feat/task-count-search`, pending delivery): preserve raw text and caret in a focused search input while it represents the current normalized query. This permits typed multiword queries, repeated spaces and backspace without changing matching, URL state, Clear or route updates. Qualification uses isolated fixtures; no installed runtime or shared service changed.
+2026-10-19 correction merged in [PR #61](https://github.com/rore/minimap/pull/61) (`79370e8`), with installed-runtime rollout still pending: preserve raw text and caret in a focused search input while it represents the current normalized query. This permits typed multiword queries, repeated spaces and backspace without changing matching, URL state, Clear or route updates. Qualification uses isolated fixtures; no installed runtime or shared service changed.
 
 Search and dynamic filters are implemented and improve review and navigation without changing the product's editing model.
 

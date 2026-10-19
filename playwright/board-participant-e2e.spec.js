@@ -141,13 +141,13 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     ] });
 
     const listActive = page.locator('.board-item[data-item-id="active-item"]');
-    await expect(listActive.locator(".board-item-participants:visible")).toHaveText(["Recent 1", "Dormant 1"]);
+    await expect(listActive.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1", "Dormant 1"]);
     await expect(page.locator('.board-item[data-item-id="zero-item"] .board-item-participants:visible')).toHaveCount(0);
     await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveCount(0);
 
     await page.locator("#board-layout-columns").click();
     const columnActive = page.locator('.board-column-card-main[data-item-dblopen="active-item"]');
-    await expect(columnActive.locator(".board-item-participants:visible")).toHaveText(["Recent 1", "Dormant 1"]);
+    await expect(columnActive.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1", "Dormant 1"]);
     await expect(page.locator('.board-column-card-main[data-item-dblopen="zero-item"] .board-item-participants:visible')).toHaveCount(0);
     await expect(page.locator('.board-column-card-main[data-item-dblopen="completed-item"] .board-item-participants:visible')).toHaveCount(0);
     expect(writes).toEqual([]);
@@ -167,7 +167,7 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
     expect(requests[1].body.references.map((reference) => reference.local_ref)).toEqual([
       "item:v1:active-item", "item:v1:zero-item", "item:v1:completed-item",
     ]);
-    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("Recent 1");
+    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("Seen within 24h 1");
 
     await page.locator('.board-item[data-item-id="active-item"]').click();
     await page.locator("#tab-structured").click();
@@ -179,7 +179,7 @@ test("board presence flows through Minimap and Pallium and renders safely in Lis
       "item:v1:zero-item", "item:v1:completed-item",
     ]);
     await expect(page.locator('.board-item[data-item-id="active-item"] .board-item-participants:visible')).toHaveCount(0);
-    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("Recent 1");
+    await expect(page.locator('.board-item[data-item-id="completed-item"] .board-item-participants:visible')).toHaveText("Seen within 24h 1");
   } finally {
     if (appEnv) await runScript(stopScript, appEnv).catch((error) => { throw error; });
     await new Promise((resolve) => pallium.close(resolve));

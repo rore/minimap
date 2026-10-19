@@ -116,7 +116,7 @@ test("In play combines status or attached sessions with every existing filter an
     changedCount = true;
     await refresh(page);
     await expect.poll(() => batches.length).toBe(3);
-    await expect(card(page, 7).locator(".board-item-participants:visible")).toHaveText("Recent 2");
+    await expect(card(page, 7).locator(".board-item-participants:visible")).toHaveText("Seen within 24h 2");
     await expect(card(page, 1)).toBeFocused();
     expect(await page.locator("#board-groups").evaluate((board) => board.scrollTop)).toBe(scrollTop);
 

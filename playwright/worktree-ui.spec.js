@@ -730,7 +730,7 @@ test("Across participant badges refresh independently and remain scoped through 
   try {
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
     const badges = page.locator(".board-item-participants:visible");
-    await expect(badges).toContainText(["Recent 1", "Dormant 2", "Recent 1", "Dormant 1"]);
+    await expect(badges).toContainText(["Seen within 24h 1", "Dormant 2", "Seen within 24h 1", "Dormant 1"]);
     const completedBadge = page.getByRole("button", { name: /Open large-01/ }).locator(".board-item-participants").first();
     await expect(page.getByRole("button", { name: /Open large-05/ }).locator(".board-item-participants")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Open large-06/ }).locator(".board-item-participants")).toHaveCount(0);
@@ -750,7 +750,7 @@ test("Across participant badges refresh independently and remain scoped through 
     expect(initialReads).toBeGreaterThan(0);
     await page.locator("#board-focus-in-play").click();
     await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "true");
-    await expect(completedBadge).toHaveText("Recent 3");
+    await expect(completedBadge).toHaveText("Seen within 24h 3");
     await expect(page.locator(".board-item-participants:visible")).toHaveCount(5);
     await page.locator("#board-focus-in-play").click();
     await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "false");
@@ -806,7 +806,7 @@ test("Across participant badges refresh independently and remain scoped through 
     recentCount = 2;
     await page.locator("#refresh-button").click();
     const large02Card = page.locator(".board-column-card-main").filter({ hasText: "large-02" }).first();
-    await expect(large02Card.locator(".board-item-participants").first()).toHaveText("Recent 2");
+    await expect(large02Card.locator(".board-item-participants").first()).toHaveText("Seen within 24h 2");
 
     injectCounts = false;
     await page.evaluate((hash) => { window.location.hash = hash; }, `repo=${encodeURIComponent(other.root)}&sources=across`);
