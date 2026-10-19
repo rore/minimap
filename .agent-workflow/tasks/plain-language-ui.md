@@ -71,5 +71,10 @@ Planning only. Isolated checkout `C:/Dev/rore/minimap/.local/plain-language-ui`,
 | Spec missing location / updated target | Anchor unavailable / re-anchored after edit | Location unavailable / Location updated after edit. Preserve recovery controls. |
 | Whole-file comment | Global comment | Whole file comment. |
 | Display-only margin terminology | gutter | margin, only where it names the actual UI margin. Do not rename selectors or low-level identifiers. |
+| Spec authorship | Actor | Author, only user-facing labels; preserve actor identity and underlying field. |
+| Whole-file location mode | Global | Whole file, only when the existing global mode means the whole file; retain enum global. |
+| Location selectors | Comment anchor mode / Suggestion anchor mode | Comment location / Suggestion location. |
+| Suggestion explanation | Rationale | Reason. |
+| Location hints | Anchored to section / Anchored to selected text | Section / Selected text; preserve the exact underlying target and recovery controls. |
 
 Exact condition precedence and on-demand placement require reviewer confirmation. In play membership and its underlying status/session predicate remain unchanged; do not replace it with a falsely narrower Active filter. Keep existing plain controls and all destructive-action confirmations. This is a bounded shortlist, not permission to rewrite unrelated help or backend errors.

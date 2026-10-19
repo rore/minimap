@@ -52,3 +52,7 @@ Manager read-only preview acceptance covered dictation_app and Pallium, both lay
 ## Compact summary follow-up — 2026-10-19
 
 Implemented, awaiting delivery in `.agent-workflow/tasks/compact-feature-summary.md`: one primary recorded-status summary reflects only versions represented in the current card placement and filters. Active aliases fold; active and blocked remain visible together; conflicting saved states retain a visible Statuses differ cue. Literal selected-file status stays under Selected version status in Across; other selected metadata remains visible. Neutral linked-session counts include nonclosed dormant links; session timing and lifecycle appear only inside Session details. In play and provider semantics remain unchanged. Focused semantic, participant and source-version checks pass; desktop/narrow List/Columns captures are available for final review. Full CI remains the delivery gate; no live update is authorized.
+
+## Plain-language UI follow-up — 2026-10-19
+
+Planned in `.agent-workflow/tasks/plain-language-ui.md`, isolated from the live environment. Replace obscure status and technical wording with familiar labels, shorten default explanations, and keep needed warnings and exact source details accessible. Board/detail/source, linked sessions/tasks and spec review copy are under independent plan review before implementation. Status, unknown/empty distinctions, conflicts, source/write guards and request behavior remain unchanged. Full affected browser files and desktop/narrow visuals are required; no live update is authorized.
