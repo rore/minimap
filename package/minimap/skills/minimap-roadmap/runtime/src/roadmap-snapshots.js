@@ -261,7 +261,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     expireEntries();
     if (!retain && cache.has(key)) removeEntry(cache.get(key));
     const entry = cache.get(key);
-    if (retain && cached && entry?.valueJson !== null && entry) {
+    if (retain && cached && entry?.valueJson !== null && entry && !entry.invalidated && entry.epoch === epoch) {
       let admitted = false;
       try {
         if (typeof admit === "function") {
@@ -271,7 +271,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
         if (signal?.aborted) throw abortError(signal);
       }
       if (signal?.aborted) throw abortError(signal);
-      if (admitted && cache.get(key) === entry && now() < entry.expiresAt) {
+      if (admitted && cache.get(key) === entry && !entry.invalidated && entry.epoch === epoch && now() < entry.expiresAt) {
         touch(entry);
         return responseFor(entry, {
           stale: entry.invalidated || entry.epoch !== epoch || now() - Date.parse(entry.validatedAt) >= limits.freshMs,
