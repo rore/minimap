@@ -86,8 +86,8 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     expect(requests).toBe(1);
     releaseFirst();
     await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["3 linked sessions"]);
-    await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
-    await expect(page.locator("#board-source-status-details")).toContainText("Session information has partial coverage.");
+    await expect(page.locator("#board-participant-status")).toHaveText("Session counts limited to 200 features");
+    await expect(page.locator("#board-source-status-details")).toContainText("Session counts may be incomplete.");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
     expect(await originalCard.evaluate((element) => element.isConnected && document.activeElement === element)).toBe(true);
     expect(requests).toBe(1);
@@ -109,7 +109,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
     await page.locator("#board-layout-list").click();
-    await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
+    await expect(page.locator("#board-participant-status")).toHaveText("Session counts limited to 200 features");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
     const lastKnownBadges = await listCard.locator(".board-item-participants").allTextContents();
     expect(lastKnownBadges).toEqual(["3 linked sessions", "3 linked sessions"]);
@@ -129,13 +129,13 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await expect.poll(() => requests).toBe(2);
-    await expect(page.locator("#board-participant-status")).toHaveText("Session lookup unavailable · showing last-known badges", { timeout: 10_000 });
-    await expect(page.locator("#board-source-status-details")).toContainText("Showing last-known session information; lookup is currently unavailable.");
+    await expect(page.locator("#board-participant-status")).toHaveText("Showing earlier session counts", { timeout: 10_000 });
+    await expect(page.locator("#board-source-status-details")).toContainText("Showing earlier session counts; new counts are unavailable.");
 
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect.poll(() => requests).toBe(3);
     await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["3 linked sessions"]);
-    await expect(page.locator("#board-source-status-details")).toContainText("Session information has partial coverage.");
+    await expect(page.locator("#board-source-status-details")).toContainText("Session counts may be incomplete.");
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
     await expect(page.locator('.board-column-card-main[data-item-dblopen="dense-001"] .board-item-participants:visible')).toHaveText(["3 linked sessions"]);

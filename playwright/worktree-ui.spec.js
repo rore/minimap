@@ -74,7 +74,7 @@ test("squash identity survives later merge in the rendered Across board", async 
     await page.goto(`/#repo=${encodeURIComponent(root)}`);
     await page.locator("#board-source-toggle").click();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
-    await expect(page.locator("#board-source-status-details")).toContainText("3 roadmap checkouts loaded; 0 excluded");
+    await expect(page.locator("#board-source-status-details")).toContainText("3 worktrees loaded; 0 not shown");
     await expect(page.getByRole("button", { name: /Open Merged feature/ })).toHaveCount(1);
     await page.getByRole("button", { name: /Open Merged feature/ }).click();
     await page.locator("#editor-source-summary").click();
@@ -114,7 +114,7 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeEnabled();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
     await expect(page.locator("#workspace-summary")).toContainText("85 features");
-    await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded; 0 excluded");
+    await expect(page.locator("#board-source-status-details")).toContainText("2 worktrees loaded; 0 not shown");
     await expect(page.locator("#editor-title")).toContainText("large-01");
     await expect(page.locator("#editor-source-label")).toBeVisible();
     await page.locator("#editor-source-summary").click();
@@ -136,7 +136,7 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await expect(filteredMain).toContainText("filtered out");
     await filteredMain.click();
     await expect(page.locator("#field-status")).toHaveValue("done");
-    await expect(page.locator("#item-preview .recorded-status")).toHaveText("Marked active");
+    await expect(page.locator("#item-preview .recorded-status")).toHaveText("Active");
     await expect(page.locator("#item-preview .preview-meta")).toBeVisible();
     await expect(page.locator("#editor-source-summary")).not.toContainText("Statuses differ");
     await expect(filteredMain).toHaveAttribute("aria-pressed", "true");
@@ -266,6 +266,7 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     await expect(page.locator('#board-source-menu [data-source-choice="this"]')).toBeVisible();
     await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeVisible();
     await firstRequest;
+    await expect(page.locator("#board-source-menu .source-menu-status")).toHaveText("Loading worktrees…");
     await page.locator("#board-source-toggle").click();
     await expect(page.locator("#board-source-menu")).toBeHidden();
     expect(aggregates).toEqual([]);
@@ -300,12 +301,13 @@ test("source menu stays responsive during discovery, deduplicates refresh, and i
     await page.locator("#board-source-toggle").click();
     await page.locator("#board-source-toggle").click();
     await thirdRequest;
+    await expect(page.locator("#board-source-menu .source-menu-status")).toHaveText("Loading worktrees…");
     await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
     const thirdResponse = page.waitForResponse((response) => response.url().includes("/api/worktree-sources"));
     releaseThird();
     expect((await thirdResponse).status()).toBe(503);
     await expect(page.locator('#board-source-menu [data-source-choice]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" })).toBeVisible();
-    await expect(page.locator("#board-source-menu")).toContainText(/last-known|unavailable/i);
+    await expect(page.locator("#board-source-menu .source-menu-status")).toHaveText("Couldn’t refresh worktrees; showing earlier choices");
     await expect(page.locator("#board-source-menu")).toBeVisible();
     expect(aggregates).toEqual([]);
 
@@ -375,8 +377,8 @@ test("partial worktree discovery is explicit and does not imply complete coverag
     await page.locator("#board-source-toggle").click();
     await expect(page.locator('#board-source-menu [data-source-choice="across"]')).toBeEnabled();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
-    await expect(page.locator("#board-source-status")).toContainText(/partial/i);
-    await expect(page.locator("#board-source-status-details")).toContainText("1 excluded");
+    await expect(page.locator("#board-source-status")).toContainText(/incomplete/i);
+    await expect(page.locator("#board-source-status-details")).toContainText("1 not shown");
     await page.locator("#board-source-toggle").click();
     await expect(page.locator("#board-source-menu")).toContainText(/unavailable|excluded/i);
   } finally {
@@ -594,7 +596,7 @@ test("scope drafts survive Refresh and canceled checkout or URL navigation", asy
     await page.locator("#board-source-toggle").click();
     page.once("dialog", (dialog) => dialog.dismiss());
     await page.locator('[data-source-choice="across"]').click();
-    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+    await expect(page.locator("#board-source-toggle")).toContainText("This worktree");
     await expect(page.locator("#scope-text")).toHaveValue(draft);
     const url = page.url();
     page.once("dialog", (dialog) => dialog.dismiss());
@@ -622,11 +624,13 @@ test("cross-group versions and missing board references stay visible in derived 
     await page.locator('[data-source-choice="across"]').click();
     await expect(page.locator("#board-source-status-summary")).toContainText("3 features");
     await page.locator("#board-source-status-summary").click();
-    await expect(page.locator("#board-source-status-details")).toContainText("4 placements in 3 groups");
-    await expect(page.locator("#board-source-status-details")).toContainText("1 missing board references");
+    await expect(page.locator("#board-groups .board-group")).toHaveCount(3);
+    await page.locator('[data-group-toggle="unlisted:Not on a board"]').click();
+    await expect(page.locator("#board-groups .board-item:not(.board-item-missing)")).toHaveCount(4);
+    await expect(page.locator("#board-source-status-details")).toContainText("1 missing feature files");
     await expect(page.getByText("Also in Lane 02")).toBeVisible();
     await page.locator("#board-source-toggle").click();
-    await expect(page.locator("#board-source-menu")).toContainText("1 missing board reference");
+    await expect(page.locator("#board-source-menu")).toContainText("1 missing feature file");
     await page.locator("#board-source-menu .board-source-missing summary").click();
     await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText(/blue · feature\/blue\/.+ · Lane 02/);
     await expect(page.locator("#board-source-menu .board-source-missing li")).toContainText("vanished-feature");
@@ -635,7 +639,7 @@ test("cross-group versions and missing board references stay visible in derived 
     params.set("lens", "milestone");
     await page.goto(`/#${params.toString()}`);
     await expect(page.locator("#board-source-status-summary")).toContainText("3 features");
-    await expect(page.locator("#board-source-status-details")).toContainText("1 missing board references");
+    await expect(page.locator("#board-source-status-details")).toContainText("1 missing feature files");
     await expect(page.locator("#board-source-status")).toBeVisible();
   } finally {
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -652,7 +656,7 @@ test("an unavailable version deep link needs confirmation before opening another
       source: "unavailable-source", sourceRef: "refs/heads/gone" });
     page.on("dialog", (dialog) => dialog.dismiss());
     await page.goto(`/#${params}`);
-    await expect(page.locator("#status-banner")).toContainText("selected checkout version changed or is unavailable");
+    await expect(page.locator("#status-banner")).toContainText("selected worktree version changed or is unavailable");
     await expect(page.locator("#editor-title")).not.toContainText("large-01");
   } finally {
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -676,7 +680,7 @@ test("independent same-ID features do not acquire participant detail from each o
     await expect(page.locator("#workspace-summary")).toContainText("5 features");
     await expect(page.getByRole("button", { name: "Open Ambiguous main" })).toBeVisible();
     await page.getByRole("button", { name: "Open Ambiguous main" }).click();
-    await expect(page.locator("#item-participants-status")).toHaveText("Association ambiguous");
+    await expect(page.locator("#item-participants-status")).toHaveText("Feature ID is shared");
     expect(participantReads).toEqual([]);
   } finally {
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -741,7 +745,7 @@ test("Across participant badges refresh independently and remain scoped through 
     await expect(page.getByRole("button", { name: /Open large-05/ }).locator(".board-item-participants")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Open large-06/ }).locator(".board-item-participants")).toHaveCount(0);
     await expect(completedBadge).toHaveCount(0);
-    await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
+    await expect(page.locator("#board-participant-status")).toContainText(/incomplete/i);
     const listScreenshotCard = page.getByRole("button", { name: /Open large-02/ }).first();
     await listScreenshotCard.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("across-participant-badges-list-desktop.png") });
@@ -786,7 +790,7 @@ test("Across participant badges refresh independently and remain scoped through 
         document.dispatchEvent(new Event("visibilitychange"));
       });
       await expect(page.locator(".board-item-participants:visible")).toHaveCount(3);
-      await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
+      await expect(page.locator("#board-participant-status")).toContainText(/incomplete/i);
       expect(aggregateReads).toHaveLength(initialReads);
       await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeVisibility);
       expect(participantReads).toHaveLength(initialDetailReads);
@@ -821,7 +825,7 @@ test("Across participant badges refresh independently and remain scoped through 
     const otherLarge02Card = page.locator(".board-item:visible, .board-column-card-main:visible").filter({ hasText: "large-02" }).first();
     await expect(otherLarge02Card).toBeVisible();
     await expect(otherLarge02Card.locator(".board-item-participants")).toHaveCount(0);
-    await expect(page.locator("#board-participant-status")).not.toContainText(/partial/i);
+    await expect(page.locator("#board-participant-status")).not.toContainText(/incomplete/i);
   } finally {
     await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     await fs.rm(other.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -849,7 +853,7 @@ test("blocked In play survives unavailable sessions in This and Across, with exp
     await page.screenshot({ path: path.join(images, "this-columns-desktop.png") });
 
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&boardView=1&inPlay=1`);
-    await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded");
+    await expect(page.locator("#board-source-status-details")).toContainText("2 worktrees loaded");
     await expect(page.getByRole("button", { name: /Open large-01/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Open large-03/ })).toBeVisible();
     await page.screenshot({ path: path.join(images, "across-list-desktop.png") });

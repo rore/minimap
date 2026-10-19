@@ -43,8 +43,8 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
     await expect(page.locator(".board-item-participants:visible")).toHaveText(["1 linked session"]);
     await page.locator("#refresh-button").click();
     await expect.poll(() => reads).toBe(3);
-    await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Partial coverage");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Board may be incomplete");
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
     for (const width of interruption === "visibility" ? [1440, 390] : []) {
       await page.setViewportSize({ width, height: 900 });
@@ -52,7 +52,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
         const button = page.locator(`#board-layout-${layout}`);
         if (await button.isEnabled()) await button.click();
         await expect(page.locator(".board-item-participants:visible")).toHaveText(["1 linked session"]);
-        await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 checkouts" })).toHaveCount(2);
+        await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 worktrees" })).toHaveCount(2);
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
         await page.screenshot({ path: testInfo.outputPath(`snapshot-retry-${layout}-${width}.png`), fullPage: true });
       }
@@ -97,7 +97,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
     await page.locator("#metadata-toggle").click();
     await page.locator("#field-title").fill("Unsaved retry draft");
     release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await expect(page.locator("#field-title")).toHaveValue("Unsaved retry draft");
     await expect(page.locator(".board-item-participants:visible")).toHaveText(["1 linked session"]);
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
@@ -127,14 +127,14 @@ for (const kind of ["consistency", "other"]) test(`snapshot recovery bounds ${ki
     fail = true;
     await page.locator("#refresh-button").click();
     await expect(page.locator("#status-banner")).toContainText(kind === "consistency" ? "Could not read a consistent worktree snapshot" : "unrelated failure");
-    await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Showing earlier results");
     await expect(page.locator(".board-item-participants:visible")).toHaveText(["1 linked session"]);
-    await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 checkouts" })).toHaveCount(2);
+    await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 worktrees" })).toHaveCount(2);
     await page.waitForTimeout(800);
     expect(reads).toBe(kind === "consistency" ? 4 : 2);
     fail = false;
     await page.locator("#refresh-button").click();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Last-known view");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Showing earlier results");
     await expect(page.locator("#status-banner")).not.toContainText("failure");
     expect(reads).toBe(kind === "consistency" ? 5 : 3);
   } finally { await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
@@ -156,12 +156,12 @@ test("snapshot recovery leaves the provisional board honest until a consistent f
   try {
     await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
     await expect.poll(() => reads).toBe(2);
-    await expect(page.locator("#board-source-status-summary")).toContainText("Opened checkout only");
-    await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Current worktree only");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading worktrees");
     await expect(page.locator(".board-item-participants:visible")).toHaveCount(0);
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
     release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Current worktree only");
     await expect(page.locator(".board-item-participants:visible")).toHaveText(["1 linked session"]);
   } finally {
     release();
@@ -188,14 +188,14 @@ test("snapshot recovery ignores a late retry after switching checkout mode", asy
     await page.locator("#refresh-button").click();
     await expect.poll(() => reads).toBe(3);
     await page.evaluate((hash) => { location.hash = hash; }, `repo=${encodeURIComponent(data.root)}&sources=this`);
-    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+    await expect(page.locator("#board-source-toggle")).toContainText("This worktree");
     release();
     await expect(page.locator(".board-source-badge")).toHaveCount(0);
     await expect(page.locator(".board-item-participants:visible")).toHaveCount(0);
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await page.waitForTimeout(800);
     expect(reads).toBe(3);
-    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+    await expect(page.locator("#board-source-toggle")).toContainText("This worktree");
   } finally {
     release();
     await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -275,15 +275,20 @@ test("remembers the unlisted group and explains source-limit exclusions", async 
     await expect(unlisted).toHaveAttribute("aria-expanded", "false");
     await unlisted.click();
     await expect(unlisted).toHaveAttribute("aria-expanded", "true");
-    await expect(page.locator("#board-source-status-summary")).toContainText("Partial coverage");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Board may be incomplete");
     await page.locator("#board-source-status").evaluate((details) => { details.open = true; });
-    await expect(page.locator("#board-source-status-details")).toContainText("at most 25 worktrees, including this checkout and up to 24 recent eligible siblings");
+    await expect(page.locator("#board-source-status-details")).toContainText("this worktree and up to 24 recent worktrees");
     await expect(page.locator("#board-source-status-details")).toContainText(limitedPath);
     await page.locator("#board-source-status").evaluate((details) => { details.open = false; });
     await page.locator(".board-source-control > button").first().click();
     await expect(page.locator("#board-source-menu")).toContainText(`Not selected: ${limitedPath}`);
-    await expect(page.locator("#board-source-menu")).toContainText("Outside the 25-checkout recent selection");
+    await expect(page.locator("#board-source-menu")).toContainText("Not among the 25 selected worktrees");
     await page.screenshot({ path: path.join(images, "source-limit-menu-desktop.png"), fullPage: false });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
+    await expect(page.locator("#board-source-menu .source-menu-status")).toHaveText("Limited to 25 worktrees; others aren’t shown");
+    await page.screenshot({ path: path.join(images, "source-limit-menu-narrow.png"), fullPage: false });
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     await page.locator("#board-source-toggle").click();
     await page.reload();
@@ -341,8 +346,8 @@ test("opened-only board is interactive while the full worktree request is pendin
     await full.started;
     expect(await page.evaluate(() => window.__readBudgets)).toContain(60_000);
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
-    await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
-    await expect(page.locator("#board-source-status")).toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status")).toContainText("Current worktree only");
+    await expect(page.locator("#board-source-status")).toContainText("Loading worktrees");
     await expect(page.locator("#board-view-toggle")).toBeEnabled();
     await expect(page.locator("#board-layout-list")).toBeVisible();
     await expect(page.locator("#board-layout-columns")).toBeEnabled();
@@ -372,8 +377,8 @@ test("opened-only board is interactive while the full worktree request is pendin
     await statusLens.focus();
     full.release();
     expect(participantRequests).toEqual([]);
-    await expect(page.locator("#board-source-status")).not.toContainText("Opened checkout only");
-    await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status")).not.toContainText("Current worktree only");
+    await expect(page.locator("#board-source-status")).not.toContainText("Loading worktrees");
     await expect(page.locator("#workspace-summary")).toContainText("65 features");
     await expect(page.locator("#editor-title")).toContainText("async-02");
     await expect(statusLens).toBeFocused();
@@ -430,7 +435,7 @@ test("Columns scroll and control focus survive full-worktree reconciliation", as
     expect(pendingScroll.horizontal).toBeGreaterThan(0);
     expect(pendingScroll.vertical).toBeGreaterThan(0);
     full.release();
-    await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status")).not.toContainText("Loading worktrees");
     await expect(page.locator(`[data-group-toggle="${groupKey}"]`)).toBeFocused();
     const finalHorizontal = await columns.evaluate((board) => ({ actual: board.scrollLeft, max: board.scrollWidth - board.clientWidth }));
     const finalVertical = await list.evaluate((lane) => ({ actual: lane.scrollTop, max: lane.scrollHeight - lane.clientHeight }));
@@ -450,7 +455,7 @@ test("In play keeps its intent while a provisional board has no matching source 
     await full.started;
     await page.getByRole("button", { name: "In play" }).click();
     await expect(page.getByRole("button", { name: "In play" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
+    await expect(page.locator("#board-source-status")).toContainText("Current worktree only");
     await expect(page.getByRole("button", { name: /Open async-01/i })).toHaveCount(0);
     full.release();
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
@@ -508,7 +513,7 @@ test("turning Unfinished off before the full response leaves no status filter", 
     await expect(unfinished).toHaveAttribute("aria-pressed", "false");
     expect(await statusFiltersInHash(page)).toEqual([]);
     full.release();
-    await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status")).not.toContainText("Loading worktrees");
     await expect(unfinished).toHaveAttribute("aria-pressed", "false");
     expect(await statusFiltersInHash(page)).toEqual([]);
   } finally {
@@ -576,14 +581,14 @@ for (const [scenario, userLens] of [["preserves the sibling-only milestone deep-
     try {
       await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&lens=milestone`);
       await full.started;
-      await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
+      await expect(page.locator("#board-source-status")).toContainText("Current worktree only");
       if (userLens === "status") {
         await page.locator("#board-view-toggle").click();
         await page.locator('[data-lens-key="status"]').click();
         await expect(page.locator("#board-view-toggle")).toContainText("By status");
       }
       full.release();
-      await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+      await expect(page.locator("#board-source-status")).not.toContainText("Loading worktrees");
       await expect(page.locator("#board-view-toggle")).toContainText(`By ${userLens}`);
       await expect(page).toHaveURL(new RegExp(`lens=${userLens}`));
       if (userLens === "milestone") await expect(page.locator(".board-group .group-name").first()).toContainText("Async milestone");
@@ -664,7 +669,7 @@ for (const [scenario, response] of [["request failure", null], ["unavailable wor
     await page.locator('[data-group-toggle="unlisted:Not on a board"]').click();
     await expect(page.getByRole("button", { name: /Open blue-only/i })).toBeVisible();
     expect(partialRequests).toBeGreaterThan(0);
-    await expect(page.locator("#board-source-status")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status")).not.toContainText("Loading worktrees");
   } finally { releaseFull(); await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
@@ -690,9 +695,9 @@ test("same-scope refresh preserves cards until the replacement settles and retri
     await page.locator("#refresh-button").click();
     await held.started;
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
-    await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading worktrees");
     held.release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await expect(page.locator("#workspace-summary")).toContainText("9 features");
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
     await page.locator("#refresh-button").click();
@@ -720,9 +725,9 @@ test("full failure keeps the provisional board and Refresh retries it", async ({
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
     await expect(page.locator("#status-banner")).toContainText("full request failed");
-    await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
-    await expect(page.locator("#board-participant-status")).toContainText("Session badges unavailable");
-    await expect(page.locator("#board-participant-status")).not.toContainText("Updating session badges");
+    await expect(page.locator("#board-source-status")).toContainText("Current worktree only");
+    await expect(page.locator("#board-participant-status")).toContainText("Session counts unavailable");
+    await expect(page.locator("#board-participant-status")).not.toContainText("Refreshing session counts");
     await page.locator("#refresh-button").click();
     await expect(page.locator("#workspace-summary")).toContainText("9 features");
     await page.locator('[data-group-toggle="unlisted:Not on a board"]').click();
@@ -738,9 +743,9 @@ test("switching to This ignores a late full-worktree response", async ({ page })
     await full.started;
     await page.locator("#board-source-toggle").click();
     await page.locator('#board-source-menu [data-source-choice="this"]').click();
-    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+    await expect(page.locator("#board-source-toggle")).toContainText("This worktree");
     full.release();
-    await expect(page.locator("#board-source-toggle")).toContainText("This checkout");
+    await expect(page.locator("#board-source-toggle")).toContainText("This worktree");
     await expect(page.getByRole("button", { name: /Open blue-only/i })).toHaveCount(0);
   } finally { full.release(); await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
@@ -753,8 +758,8 @@ test("This to Across shows the opened checkout before the pending full response"
     await page.locator("#board-source-toggle").click();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
     await full.started;
-    await expect(page.locator("#board-source-status")).toContainText("Opened checkout only");
-    await expect(page.locator("#board-source-status")).toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status")).toContainText("Current worktree only");
+    await expect(page.locator("#board-source-status")).toContainText("Loading worktrees");
     await expect(page.getByRole("button", { name: /Open async-01/i })).toBeVisible();
   } finally { full.release(); await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
@@ -766,7 +771,7 @@ test("consecutive saves in Across mode keep the latest item revision", async ({ 
       && new URL(response.url()).searchParams.get("openedOnly") !== "1");
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
     await fullResponse;
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#tab-structured").click();
     await page.locator("#metadata-toggle").click();
@@ -799,7 +804,7 @@ test("refresh completing after a dirty source switch preserves the chosen source
       && new URL(response.url()).searchParams.get("openedOnly") !== "1");
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
     await initialFullResponse;
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await page.locator("#editor-source-summary").click();
     const blue = page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "blue" });
     await blue.click();
@@ -830,7 +835,7 @@ test("refresh completing after a dirty source switch preserves the chosen source
     await expect(page.locator("#field-status")).toHaveValue("done");
     await expect(page.locator("#field-title")).toHaveValue("async-01 — deliberately long async board regression title");
     held.release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await expect(page.locator("#field-status")).toHaveValue("done");
     await page.locator("#editor-source-summary").click();
     await expect(page.locator('#editor-source-label [data-editor-source][aria-pressed="true"]')).toContainText("main");
@@ -851,7 +856,7 @@ test("Refresh does not reopen an item explicitly closed while its response is pe
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#editor-title")).toHaveText("Item");
     full.release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await expect(page.locator("#editor-title")).toHaveText("Item");
   } finally { full.release(); await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
@@ -860,7 +865,7 @@ test("Unfinished stays active when refresh leaves no unfinished features", async
   const { owned, root } = await fixture(4);
   try {
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await page.getByRole("button", { name: "Unfinished" }).click();
     for (const checkout of [root, path.join(owned, "blue")]) {
       const directory = path.join(checkout, "roadmap", "features");

@@ -15,9 +15,9 @@ export function recordedStatusSummary(item) {
   }))];
   const active = statuses.includes("active"), blocked = statuses.includes("blocked");
   const differs = statuses.length > 1;
-  const label = active && blocked ? "Marked active · blocked" : active ? "Marked active" : blocked ? "Marked blocked"
+  const label = active && blocked ? "Active · Blocked" : active ? "Active" : blocked ? "Blocked"
     : differs ? "Statuses differ" : !statuses.length || statuses[0] === "unknown" ? "Status unavailable"
-      : `Marked ${statuses[0].replaceAll("-", " ")}`;
+      : statuses[0].charAt(0).toUpperCase() + statuses[0].slice(1).replaceAll("-", " ");
   return { label, differs, tone: blocked ? "blocked" : active ? "progress" : "" };
 }
 

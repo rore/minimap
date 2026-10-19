@@ -715,44 +715,46 @@ function buildCombinedWorkspace(aggregate) {
 
 function renderBoardSourceControl() {
   if (!boardSourceToggleButton) return;
-  boardSourceToggleButton.textContent = state.worktreeMode === "across" ? "Across worktrees ▾" : "This checkout ▾";
+  boardSourceToggleButton.textContent = state.worktreeMode === "across" ? "Across worktrees ▾" : "This worktree ▾";
   const aggregate = state.worktreeData;
   const missing = aggregate?.coverage?.missingBoardRefs || [];
   const groups = state.workspace ? getVisibleBoardGroups() : [];
   const across = state.worktreeMode === "across";
   const total = across ? aggregate?.features?.length || 0 : getBoardItems().filter((item) => !item.missing).length;
   const shown = across ? countDistinctWorktreeFeatures(groups) : getVisibleBoardItemIds().length;
-  const partial = Boolean(aggregate?.partial || aggregate?.provisional || state.workspaceStale);
-  const partialLabel = aggregate?.provisional ? "Opened checkout only" : "Partial coverage";
+  const coverageLabel = state.workspaceStale ? "Showing earlier results" : state.worktreeLoading ? "Loading worktrees…" : aggregate?.partial ? "Board may be incomplete" : "";
+  const scopeMessageHtml = aggregate?.provisional ? '<span class="coverage-partial">Current worktree only</span>' : "";
+  const countNoun = across ? ((isSearchActive() ? total : shown) === 1 ? "feature" : "features") : ((isSearchActive() ? total : shown) === 1 ? "item" : "items");
   boardSourceStatusElement.hidden = !state.workspace;
-  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${across ? "features" : "items"}${partial ? `<span class="coverage-partial">${escapeHtml(partialLabel)}</span>` : ""}${state.worktreeLoading ? `<span class="coverage-partial" role="status">${state.worktreeRetrying || aggregate && !aggregate.provisional ? "Updating…" : "Loading other worktrees…"}</span>` : ""}${state.workspaceStale ? '<span class="coverage-partial">Last-known view</span>' : ""}`;
-  const placements = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
-  const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} roadmap checkouts loaded; ${escapeHtml(String(aggregate?.excluded?.length || 0))} excluded. Feature counts cover loaded local worktrees only.</p><p>${escapeHtml(String(placements))} placements in ${groups.length} groups. A feature can appear in multiple groups when its versions differ.</p>` : `<p>${total} items on this checkout's board. ${escapeHtml(String(shown))} match the current view.</p>`;
+  boardSourceStatusSummaryElement.innerHTML = `${escapeHtml(String(shown))}${isSearchActive() ? ` / ${total}` : ""} ${escapeHtml(countNoun)}${scopeMessageHtml}${coverageLabel ? `<span class="coverage-partial" role="status">${escapeHtml(coverageLabel)}</span>` : ""}`;
+  const coverage = across ? `<p>${escapeHtml(String(aggregate?.coverage?.loaded || 0))} worktrees loaded; ${escapeHtml(String(aggregate?.excluded?.length || 0))} not shown.</p>` : "";
   const exclusions = (aggregate?.excluded || []).map((entry) => `<li>${escapeHtml(`${entry.repoRoot}: ${sourceExclusionReason(entry)}`)}</li>`).join("");
   const sourceLimitReached = aggregate?.excluded?.some((entry) => entry.reason === "source-limit");
   const missingRows = missing.slice(0, 20).map((entry) => `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId} (missing file)`)}</li>`).join("");
-  const sessions = (boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session information has partial coverage." : "Session information is available for the loaded items.") : boardParticipantCounts.size ? "Showing last-known session information; lookup is currently unavailable." : "Session information is unavailable; status-based matches still apply.")
-    + (boardParticipantAsOf ? ` Last observed ${new Date(boardParticipantAsOf).toLocaleString()}.` : "");
-  const missingNotice = missingRows ? `<p>${missing.length} missing board references:</p><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}` : "";
+  const sessions = boardParticipantStatus === "loading" ? "Refreshing session counts…"
+    : boardParticipantStatus === "ok" ? (boardParticipantPartial ? "Session counts may be incomplete." : "")
+      : ["disabled", "idle"].includes(boardParticipantStatus) ? ""
+        : boardParticipantCounts.size ? "Showing earlier session counts; new counts are unavailable." : "Session counts unavailable.";
+  const missingNotice = missingRows ? `<p>${missing.length} missing feature files:</p><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}` : "";
   boardSourceStatusDetailsElement.innerHTML = coverage
-    + (aggregate?.provisional ? `<p>Only the opened checkout is shown. Other worktrees and session information ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; feature totals and In play are incomplete.</p>` : state.worktreeLoading ? "<p>Updating worktrees. The previous board remains available until the refresh finishes.</p>" : "")
-    + (state.workspaceStale ? "<p>These are the last-known results; fresh validation is pending or unavailable.</p>" : "")
-    + (sourceLimitReached ? "<p>Checkout discovery selects at most 25 worktrees, including this checkout and up to 24 recent eligible siblings. Other checkouts outside that selection were not loaded. Recency uses local Git events; uncommitted edits do not affect it.</p>" : "")
+    + (aggregate?.provisional ? `<p>Only this worktree is shown. Other worktrees and session links ${state.worktreeLoading ? "are still loading" : "could not be loaded"}; the board and In play may be incomplete.</p>` : state.worktreeLoading ? "<p>Refreshing worktrees; the previous board stays available.</p>" : "")
+    + (state.workspaceStale ? "<p>Showing earlier results until the board can be refreshed.</p>" : "")
+    + (sourceLimitReached ? "<p>Limited to this worktree and up to 24 recent worktrees. Others aren’t shown.</p>" : "")
     + (exclusions ? "<p>Excluded from the combined board:</p><ul>" + exclusions + "</ul>" : "")
-    + missingNotice + `<p>${escapeHtml(sessions)}</p>`;
+    + missingNotice + (sessions ? `<p>${escapeHtml(sessions)}${boardParticipantAsOf ? ` Last checked ${escapeHtml(new Date(boardParticipantAsOf).toLocaleString())}.` : ""}</p>` : "");
 }
 
 function sourceExclusionReason(entry) {
   if (entry.reason === "workspace-load-failed") return entry.message || "Roadmap workspace could not be loaded";
-  return ({ "incompatible-roadmap-config": "Roadmap location differs from the opened checkout",
-    "missing-or-unavailable": "Checkout path is missing or unreadable",
-    prunable: "Git worktree is prunable", "source-limit": "Outside the 25-checkout recent selection",
-    "different-common-git-dir": "Not part of this Git worktree family" })[entry.reason] || entry.reason;
+  return ({ "incompatible-roadmap-config": "Roadmap location differs from the opened worktree",
+    "missing-or-unavailable": "Worktree path is missing or unreadable",
+    prunable: "Git lists this worktree as unavailable", "source-limit": "Not among the 25 selected worktrees",
+    "different-common-git-dir": "Different Git repository" })[entry.reason] || entry.reason;
 }
 
 function sourceDisplayName(aggregate, sourceKey) {
   const source = aggregate?.sources?.find((candidate) => candidate.sourceKey === sourceKey);
-  if (!source) return "Unavailable checkout";
+  if (!source) return "Unavailable worktree";
   const branch = source.git.branchRef?.replace(/^refs\/heads\//, "") || source.git.headCommit?.slice(0, 8) || "unknown branch";
   return `${source.label} · ${branch}`;
 }
@@ -776,8 +778,8 @@ function renderBoardSourceMenu(inventory) {
   const sources = inventory?.sources || [];
   const acrossDisabled = inventory && !inventory.loading && sources.length < 2 ? "disabled" : "";
   const choices = [
-    `<button type="button" data-source-choice="this" aria-current="${thisSelected}">This checkout<small>${escapeHtml(state.repoPath || "current repo")}</small></button>`,
-    `<button type="button" data-source-choice="across" aria-current="${acrossSelected}" ${acrossDisabled}>Across worktrees<small>${sources.length ? `${sources.length} discovered checkouts · roadmaps checked when opened` : "Combine readable local roadmaps"}</small></button>`,
+    `<button type="button" data-source-choice="this" aria-current="${thisSelected}">This worktree<small>${escapeHtml(state.repoPath || "current repo")}</small></button>`,
+    `<button type="button" data-source-choice="across" aria-current="${acrossSelected}" ${acrossDisabled}>Across worktrees<small>${sources.length ? `${sources.length} local worktrees` : "View local worktrees together"}</small></button>`,
     ...sources.filter((source) => !isOpenedSource(source))
       .map((source) => `<button type="button" data-source-choice="${escapeHtml(source.sourceKey)}">${escapeHtml(sourceDisplayName(inventory, source.sourceKey))}<small>${escapeHtml(source.repoRoot)}</small></button>`),
   ];
@@ -787,10 +789,10 @@ function renderBoardSourceMenu(inventory) {
   const missingRows = missing.slice(0, 20).map((entry) => {
     return `<li>${escapeHtml(`${sourceDisplayName(aggregate, entry.sourceKey)} · ${entry.group} / ${entry.itemId}`)}</li>`;
   }).join("");
-  const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing board ${missing.length === 1 ? "reference" : "references"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
-  const status = inventory?.error ? "Discovery unavailable · showing last-known choices" : inventory?.loading ? "Checking local checkouts…"
-    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Partial discovery · at most 25 recent worktrees selected, including this checkout; other checkouts were not loaded"
-    : inventory?.partial ? "Partial discovery · some checkouts are unavailable" : inventory?.unavailable ? "Worktree discovery unavailable" : "";
+  const missingNotice = missing.length ? `<details class="board-source-missing"><summary>${missing.length} missing feature ${missing.length === 1 ? "file" : "files"}</summary><ul>${missingRows}</ul>${missing.length > 20 ? `<p>+${missing.length - 20} more</p>` : ""}</details>` : "";
+  const status = inventory?.loading ? "Loading worktrees…" : inventory?.error ? (sources.length ? "Couldn’t refresh worktrees; showing earlier choices" : "Couldn’t load worktrees")
+    : inventory?.excluded?.some((entry) => entry.reason === "source-limit") ? "Limited to 25 worktrees; others aren’t shown"
+    : inventory?.partial ? "Worktree list may be incomplete" : inventory?.unavailable ? "Couldn’t load worktrees" : "";
   boardSourceMenuElement.innerHTML = `${choices.join("")}${status ? `<p class="source-menu-status" role="status">${escapeHtml(status)}</p>` : ""}${excluded}${missingNotice}`;
   if (focusedChoice) [...boardSourceMenuElement.querySelectorAll("[data-source-choice]")]
     .find((button) => button.dataset.sourceChoice === focusedChoice)?.focus({ preventScroll: true });
@@ -1154,7 +1156,7 @@ function renderSetupView() {
     ? `Using ${setup.configPath} to point minimap at ${setup.roadmapPath}.`
     : `No roadmap.config.json found. Minimap defaults to ${setup.roadmapPath}.`;
   const statusSummary = setup.canInitialize
-    ? "Minimap can scaffold the starter roadmap files directly in this repo."
+    ? "Create a roadmap in this repo."
     : "This state needs a manual config or path fix before the workspace can load.";
   const stats = [
     { label: "Expected", value: setup.expectedEntries.length },
@@ -1168,7 +1170,7 @@ function renderSetupView() {
     </div>
   `).join("");
   const actionHtml = setup.canInitialize
-    ? '<div class="setup-actions"><button class="primary-button" type="button" data-setup-action="initialize">Create starter roadmap workspace</button></div>'
+    ? '<div class="setup-actions"><button class="primary-button" type="button" data-setup-action="initialize">Create roadmap</button></div>'
     : "";
   const invalidCard = setup.invalidEntries.length > 0
     ? `
@@ -1237,7 +1239,7 @@ function renderSetupView() {
             <h3>${escapeHtml(setup.canInitialize ? "Create the starter workspace" : "Fix the current path")}</h3>
           </div>
           <p>${escapeHtml(setup.canInitialize
-            ? "Use the action above to scaffold board.md, scope.md, features/, and ideas/ directly in the configured roadmap path."
+            ? "Create board.md, scope.md, features/ and ideas/ in the configured roadmap folder."
             : "Fix the config or missing path first, then refresh minimap to load the workspace.")}</p>
         </section>
         ${invalidCard}
@@ -1382,7 +1384,7 @@ function updateWorkspaceSummary() {
     const shown = countDistinctWorktreeFeatures(groups);
     const total = state.worktreeData.features.length;
     const appearances = groups.reduce((count, group) => count + group.items.filter((item) => !item.missing).length, 0);
-    workspaceSummaryElement.textContent = `${shown}${isSearchActive() ? ` / ${total}` : ""} features · ${appearances} appearances · ${groups.length} groups`;
+    workspaceSummaryElement.textContent = `${shown}${isSearchActive() ? ` / ${total}` : ""} ${(isSearchActive() ? total : shown) === 1 ? "feature" : "features"} · ${appearances} ${appearances === 1 ? "appearance" : "appearances"} · ${groups.length} ${groups.length === 1 ? "group" : "groups"}`;
     return;
   }
   const groups = state.workspace?.boardGroups.length ?? 0;
@@ -1401,16 +1403,16 @@ function updateWorkspaceSummary() {
   }
 
   if (activeLens?.key !== DEFAULT_LENS_KEY) {
-    workspaceSummaryElement.textContent = `${visibleItems} shown / ${items} items / ${activeLens.label}`;
+    workspaceSummaryElement.textContent = `${visibleItems} shown / ${items} ${items === 1 ? "item" : "items"} / ${activeLens.label}`;
     return;
   }
 
   if (isSearchActive()) {
-    workspaceSummaryElement.textContent = `${visibleItems} shown / ${items} items / ${groups} groups`;
+    workspaceSummaryElement.textContent = `${visibleItems} shown / ${items} ${items === 1 ? "item" : "items"} / ${groups} ${groups === 1 ? "group" : "groups"}`;
     return;
   }
 
-  workspaceSummaryElement.textContent = `${items} items / ${groups} groups`;
+  workspaceSummaryElement.textContent = `${items} ${items === 1 ? "item" : "items"} / ${groups} ${groups === 1 ? "group" : "groups"}`;
 }
 
 function normalizeEditorMode(mode) {
@@ -1787,17 +1789,17 @@ function renderBoardParticipantStatus() {
   if (!boardParticipantStatusElement) return;
   const status = boardParticipantStatus;
   const incomplete = boardInPlayResultsIncomplete();
-  const message = incomplete ? `In play results incomplete: ${status === "loading" || status === "idle" ? "checking attached sessions…"
-    : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "some checkout associations are ambiguous or outside coverage" : "session counts limited to 200 items")
+  const message = incomplete ? `In play may be incomplete: ${status === "loading" || status === "idle" ? "checking session links…"
+    : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "some session counts are unknown" : "session counts limited to 200 items")
     : status === "disabled" ? "session lookup disabled"
     : status === "unsupported" ? "session lookup needs a newer Pallium"
     : status === "server-unsupported" ? "completed session lookup needs a newer Minimap"
     : "session lookup unavailable"}`
-    : status === "loading" ? "Updating session badges…"
-    : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "Session badges have partial checkout coverage" : "Session badges limited to 200 items")
-    : status === "unsupported" ? "Participant recency needs a newer Pallium"
+    : status === "loading" ? "Refreshing session counts…"
+    : status === "ok" && boardParticipantPartial ? (state.worktreeMode === "across" ? "Session counts may be incomplete" : "Session counts limited to 200 features")
+    : status === "unsupported" ? "Session counts need a newer Pallium"
     : ["disabled", "idle", "ok"].includes(status) ? ""
-    : boardParticipantCounts.size ? "Session lookup unavailable · showing last-known badges" : "Session badges unavailable";
+    : boardParticipantCounts.size ? "Showing earlier session counts" : "Session counts unavailable";
   boardParticipantStatusElement.hidden = !message || state.appMode !== "roadmap" || !state.workspace;
   boardParticipantStatusElement.textContent = message;
   boardParticipantStatusElement.title = message;
@@ -2414,7 +2416,7 @@ function renderBoardGroupField(itemId = state.selectedItemId) {
     return;
   }
   if (state.worktreeMode === "across") {
-    fields.boardGroup.innerHTML = '<option value="">Choose one checkout to change board placement</option>';
+    fields.boardGroup.innerHTML = '<option value="">Choose one worktree to change board placement</option>';
     fields.boardGroup.disabled = true;
     return;
   }
@@ -2599,9 +2601,9 @@ function buildBoardParticipantBadge(item) {
 function buildRecordedStatusMarkup(item, { detail = false } = {}) {
   const summary = recordedStatusSummary(item);
   const tone = summary.tone === "blocked" ? "status-blocked" : summary.tone === "progress" ? "status-progress" : "neutral";
-  const coverage = detail && [state.workspaceStale ? "Last-known view" : "", state.worktreeData?.provisional ? "Opened checkout only" : state.worktreeData?.partial ? "Partial coverage" : ""].filter(Boolean).join(" · ");
+  const coverage = detail && [state.workspaceStale ? "Showing earlier results" : "", state.worktreeData?.provisional ? "Current worktree only" : state.worktreeData?.partial ? "Board may be incomplete" : ""].filter(Boolean).join(" · ");
   const filtered = detail && state.worktreeMode === "across" && item && !getWorktreeProjection().items.has(item.id);
-  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" title="Saved file statuses in the versions shown by this board placement and filters; not live execution.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Last shown placement · outside current filters</span>' : ""}`;
+  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" title="Status from feature files shown here.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Earlier view · outside current filters</span>' : ""}`;
 }
 
 function syncBoardParticipantBadges() {
@@ -2648,7 +2650,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
   const sourceName = item.sourceVersion?.sourceContext;
   const sourceLabel = sourceName ? `${sourceName.label} · ${sourceName.git.branchRef?.replace(/^refs\/heads\//, "") || sourceName.git.headCommit.slice(0, 8)}` : "";
   const differingFields = [...new Set((item.conflicts || []).map((entry) => entry.field))].filter((field) => field !== "status");
-  const sourceBadgeLabel = item.matchingVersions?.length > 1 ? `${item.matchingVersions.length} checkouts${activity.differs ? " · Statuses differ" : ""}` : sourceLabel;
+  const sourceBadgeLabel = item.matchingVersions?.length > 1 ? `${item.matchingVersions.length} worktrees${activity.differs ? " · Statuses differ" : ""}` : sourceLabel;
   const sourceBadge = item.sourceVersion
     ? `<span class="board-source-badge" title="${escapeHtml(sourceLabels.join("\n"))}">${escapeHtml(sourceBadgeLabel)}</span>` : "";
   const conflictDetail = (item.conflicts || []).map((entry) => {
@@ -3628,7 +3630,7 @@ function renderScope() {
     const setup = state.setupState;
     const steps = setup.canInitialize
       ? [
-          "Use the create action in the main panel to scaffold the starter roadmap files.",
+          "Use Create roadmap in the main panel.",
           "Review the generated board.md and scope.md once the workspace loads.",
           "Start editing roadmap items from the normal board and item views.",
         ]
@@ -3794,7 +3796,7 @@ function participantStatusText(result) {
   }
   if (result.status === "loading") return "Refreshing…";
   return {
-    "ambiguous-feature": "Association ambiguous",
+    "ambiguous-feature": "Feature ID is shared",
     "identity-unavailable": "Reference unavailable",
     unsupported: "Pallium unsupported",
     unreachable: "Pallium unavailable",
@@ -3871,13 +3873,13 @@ function renderItemParticipants() {
 
   const participants = Array.isArray(result.participants) ? result.participants : [];
   if (result.status === "loading" && participants.length === 0) {
-    replaceParticipantList('<p class="muted">Refreshing participant associations…</p>');
+    replaceParticipantList('<p class="muted">Refreshing linked sessions…</p>');
     return;
   }
 
   if (result.status !== "ok" && result.status !== "loading") {
     const messages = {
-      "ambiguous-feature": "More than one distinct feature uses this ID across checkouts. Participant associations cannot be assigned safely to either feature.",
+      "ambiguous-feature": "Different features use this ID. Linked sessions cannot be matched safely.",
       "identity-unavailable": "This repository has no safe canonical Git origin, so Minimap cannot create an exact participant reference.",
       unsupported: "The configured local Pallium service does not support participant lookup.",
       unreachable: "The configured local Pallium service could not be reached.",
@@ -3913,7 +3915,7 @@ function renderItemParticipants() {
             <div class="item-participant-reference-row"><span class="muted">Session</span><code>${escapeHtml(participant.session_ref)}</code></div>
             <div class="item-participant-reference-row"><span class="muted">Container</span><code>${escapeHtml(participant.container_ref)}</code></div>
             <div class="item-participant-badges">${availability.map(([label, value]) => `<span class="badge">${escapeHtml(label)}: ${escapeHtml(value)}</span>`).join("")}</div>
-            <p class="muted item-participant-association-meta" title="Association updated at ${escapeHtml(associationUpdatedAt)}">Association updated ${escapeHtml(formatParticipantTime(associationUpdatedAt))}${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}</p>
+            <p class="muted item-participant-association-meta" title="Feature link updated at ${escapeHtml(associationUpdatedAt)}">Feature link updated ${escapeHtml(formatParticipantTime(associationUpdatedAt))}${origins.length ? ` · ${escapeHtml(origins.join(", "))}` : ""}</p>
           </div>
         </details>
       </article>
@@ -3923,9 +3925,9 @@ function renderItemParticipants() {
   const closed = participants.filter((participant) => participant.lifecycle === "closed");
   const linkedList = linked.length ? `<div class="item-participant-group-list" role="list">${linked.map(renderParticipant).join("")}</div>` : '<p class="muted">No linked sessions.</p>';
   const historical = closed.length ? `<details class="item-participant-lifecycle" data-participant-disclosure="lifecycle:closed"><summary>Historical closed sessions <span class="muted">${closed.length}</span></summary><div class="item-participant-group-list" role="list">${closed.map(renderParticipant).join("")}</div></details>` : "";
-  const partial = result.partial ? '<p class="muted item-participants-partial">Showing up to 200 participants; more may exist. Counts describe only the displayed sessions.</p>' : "";
+  const partial = result.partial ? '<p class="muted item-participants-partial">Session list may be incomplete. Showing up to 200 sessions.</p>' : "";
   const refreshError = result.refreshError ? `<p class="muted item-participants-refresh-error" role="status">${escapeHtml(result.refreshError)}</p>` : "";
-  const refreshing = result.status === "loading" ? '<p class="muted item-participants-refreshing">Refreshing participant associations…</p>' : "";
+  const refreshing = result.status === "loading" ? '<p class="muted item-participants-refreshing">Refreshing linked sessions…</p>' : "";
   replaceParticipantList(refreshError + partial + refreshing + linkedList + historical);
 }
 
@@ -4189,12 +4191,16 @@ function renderPreview() {
 
   previewElement.className = "preview-surface preview-reading";
   const relatedOpen = previewElement.querySelector("#related-work")?.open || false;
+  const disclosureScope = JSON.stringify([currentReadScopeKey(), state.currentItem.id]);
+  const previousRelatedHost = previewElement.querySelector("#related-work-content");
+  const detailsOpen = previousRelatedHost?.dataset.disclosureScope === disclosureScope
+    && Boolean(previousRelatedHost.querySelector(".related-work-details")?.open);
   previewElement.innerHTML = `
     ${itemTitle ? `<h1 class="preview-title">${escapeHtml(itemTitle)}</h1>` : ""}
     <div class="preview-activity">${summaryHtml}</div>
     ${previewBadges ? `<div class="preview-meta" aria-label="Selected version metadata">${previewBadges}</div>` : ""}
-    ${selectedStatus ? `<details class="preview-selected-version"><summary>Selected version status</summary>${selectedStatus}</details>` : ""}
-    <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Tasks linked to this feature</summary><div id="related-work-content" aria-live="polite"></div></details>
+    ${selectedStatus ? `<details class="preview-selected-version"><summary>This version’s status</summary>${selectedStatus}</details>` : ""}
+    <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Linked tasks</summary><div id="related-work-content" aria-live="polite" data-disclosure-scope="${escapeHtml(disclosureScope)}" data-details-open="${detailsOpen ? "true" : "false"}"></div></details>
     <div class="preview-body">${sectionHtml || '<p class="muted">This item does not have any readable sections yet.</p>'}</div>
   `;
   renderRelatedWork();
@@ -4203,6 +4209,11 @@ function renderPreview() {
 function renderRelatedWork() {
   const host = previewElement.querySelector("#related-work-content");
   if (!host) return;
+  const disclosureScope = JSON.stringify([currentReadScopeKey(), state.currentItem?.id]);
+  const detailsOpen = host.dataset.disclosureScope === disclosureScope
+    && (host.querySelector(".related-work-details")?.open ?? host.dataset.detailsOpen === "true");
+  host.dataset.disclosureScope = disclosureScope;
+  host.dataset.detailsOpen = String(detailsOpen);
   const view = relatedWorkView;
   const records = view.records || [];
   const summary = previewElement.querySelector("#related-work > summary");
@@ -4213,10 +4224,10 @@ function renderRelatedWork() {
     : view.status === "ok" ? ""
       : view.status === "stale" ? " · Last checked earlier"
         : view.status === "error" || view.status === "unavailable" ? " · Unavailable"
-          : " · List may be incomplete";
-  if (summary) summary.textContent = `Tasks linked to this feature${total == null ? "" : ` (${total})`}${statusLabel}`;
+          : " · May be incomplete";
+  if (summary) summary.textContent = `Linked tasks${total == null ? "" : ` (${total})`}${statusLabel}`;
   const message = view.status === "loading" ? (records.length ? "Checking linked task records…" : "Loading linked task records…")
-    : view.status === "unavailable" ? "Linked task records are unavailable for this checkout."
+    : view.status === "unavailable" ? "Linked task records are unavailable for this worktree."
       : view.status === "error" ? "Could not load linked task records. Try Refresh."
         : view.status === "stale" ? `Could not verify the latest task records. Showing the last successful result from ${view.staleSince ? new Date(view.staleSince).toLocaleString() : "an earlier check"}.`
           : view.status === "partial" ? view.coverage?.legacy
@@ -4234,20 +4245,20 @@ function renderRelatedWork() {
       return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
     });
     return `<li class="related-work-row"><div class="related-work-main"><strong>${escapeHtml(record.title)}</strong>
-    <span class="muted">Task record state: ${escapeHtml(record.recordedState)}</span></div>
-    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open task record</button>
+    <span class="muted">${escapeHtml(record.recordedState)}</span></div>
+    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open task</button>
     ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div></li>`;
   }).join("");
-  host.innerHTML = `${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
-    ${records.length ? '<p class="muted related-work-order">Development task records for this feature. Task states and PR links reflect saved records.</p>' : ""}
+  host.innerHTML = `${message && view.status !== "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
+    <details class="related-work-details" ${detailsOpen ? "open" : ""}><summary>Task details</summary><p class="muted">Saved task records; PR status may have changed.</p>${view.status === "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}</details>
     ${records.length ? `<ul>${recordHtml}</ul>` : ""}
     ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-more>More records</button>' : ""}
     ${view.status !== "loading" ? '<button class="ghost-button related-work-refresh" type="button" data-related-refresh>Refresh task records</button>' : ""}`;
   if (state.worktreeMode === "across" && view.source?.repoRoot) {
     const provenance = document.createElement("p");
     provenance.className = "muted";
-    provenance.textContent = `Selected checkout: ${view.source.repoRoot}. Other versions may differ.`;
-    host.prepend(provenance);
+    provenance.textContent = `Worktree: ${view.source.repoRoot}. Other versions may differ.`;
+    host.querySelector(".related-work-details").append(provenance);
   }
 }
 
@@ -4328,7 +4339,7 @@ previewElement.addEventListener("click", async (event) => {
     if (requestId !== relatedRecordRequestId || !relatedRecordDialog.open) return;
     if (scope !== currentReadScopeKey() || itemId !== state.currentItem?.id) { relatedRecordDialog.close(); return; }
     document.querySelector("#related-record-title").textContent = result.title;
-    document.querySelector("#related-record-meta").textContent = `Task record state: ${result.recordedState}`;
+    document.querySelector("#related-record-meta").textContent = `${result.recordedState}`;
     // The decoder validates relationship metadata; it is omitted from the reading view.
     const lines = result.content.replace(/\r\n?/g, "\n").split("\n");
     const visible = [];
@@ -4369,14 +4380,14 @@ function renderEditorSourceSelect() {
   editorSourceLabelElement.hidden = state.worktreeMode !== "across" || versions.length === 0;
   const matchingSources = new Set(card?.matchingVersions?.map((version) => version.sourceKey) || []);
   const selected = versions.find((version) => version.sourceKey === state.selectedSource?.sourceKey) || versions[0];
-  const branchName = (version) => version?.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version?.sourceContext.git.headCommit.slice(0, 8) || "Unavailable checkout";
-  editorSourceSummaryElement.textContent = `${versions.length === 1 ? "Checkout" : `${versions.length} versions`}${recordedStatusSummary(card).differs ? " · Statuses differ" : ""} · ${branchName(selected)}`;
+  const branchName = (version) => version?.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version?.sourceContext.git.headCommit.slice(0, 8) || "Unavailable worktree";
+  editorSourceSummaryElement.textContent = `${versions.length === 1 ? "Worktree" : `${versions.length} versions`}${recordedStatusSummary(card).differs ? " · Statuses differ" : ""} · ${branchName(selected)}`;
   editorSourceSummaryElement.title = branchName(selected);
   editorSourceSelectElement.innerHTML = versions.map((version) => {
     const active = version.sourceKey === selected?.sourceKey;
     const differences = versionDifferences(version, selected);
     const label = active ? "Selected version" : differences.length ? differences.join(" · ") : "Same content and metadata";
-    return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${renderBadge(version.summary.status || "unknown", "status")}${matchingSources.has(version.sourceKey) ? "" : " filtered out"}</span><span class="editor-source-difference${differences.length ? " board-source-conflict" : ""}">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Checkout path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
+    return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${renderBadge(version.summary.status || "unknown", "status")}${matchingSources.has(version.sourceKey) ? "" : " filtered out"}</span><span class="editor-source-difference${differences.length ? " board-source-conflict" : ""}">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Worktree path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
   }).join("");
   positionEditorSourceMenu();
 }
@@ -4834,7 +4845,7 @@ async function openCurrentItemAsSpecSession() {
     return;
   }
   if (loadedItemSource !== state.selectedSource) {
-    setBanner("Load the selected checkout before opening this item in Review.", "error");
+    setBanner("Load the selected worktree before opening this item in Review.", "error");
     return;
   }
   // item.filePath is repo-relative (path.relative(repoRoot, item.filePath) on
@@ -5349,9 +5360,9 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     state.currentItem = null;
     state.setupState = null;
     syncWorkspaceChrome();
-    workspaceSummaryElement.textContent = "Opening checkout…";
-    boardGroupsElement.innerHTML = '<div class="empty-state" role="status">Opening checkout…</div>';
-    editorTitleElement.textContent = "Opening checkout…";
+    workspaceSummaryElement.textContent = "Opening worktree…";
+    boardGroupsElement.innerHTML = '<div class="empty-state" role="status">Opening worktree…</div>';
+    editorTitleElement.textContent = "Opening worktree…";
     editorSubtitleElement.textContent = "";
     renderPreview();
     renderEditorChrome();
@@ -5360,7 +5371,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
   }
 
   const present = async (aggregate, sourceWorkspace = null, workspace = sourceWorkspace?.workspace) => {
-    if (aggregate && !aggregate.workspace) throw Object.assign(new Error(aggregate.unavailable?.message || "This checkout has no readable roadmap workspace."), { code: aggregate.unavailable?.reason });
+    if (aggregate && !aggregate.workspace) throw Object.assign(new Error(aggregate.unavailable?.message || "This worktree has no readable roadmap workspace."), { code: aggregate.unavailable?.reason });
     workspace = aggregate ? buildCombinedWorkspace(aggregate) : workspace;
     if (!stillCurrent()) return;
     const reconcile = presented && !options.discardDraft;
@@ -5469,7 +5480,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
 
   try {
     if (worktreeMode === "across" && !options.aggregate) {
-      // Render one guarded checkout while a cold full scan continues.
+      // Render one guarded worktree while a cold full scan continues.
       const readFullSnapshot = async (useCached = cached) => {
         for (let attempt = 0; ; attempt += 1) {
           if (!stillCurrent()) return null;
@@ -5595,8 +5606,8 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   let version = feature?.versions.find((entry) => entry.sourceKey === preferredSource?.sourceKey);
   if (state.worktreeMode === "across" && preferredSource
     && (!version || (preferredSource.gitRef && sourceRef(version.sourceContext) !== preferredSource.gitRef))) {
-    setBanner("The selected checkout version changed or is unavailable.", "error");
-    if (!window.confirm("The selected checkout version changed or is unavailable. Open the board's current version instead?")) return;
+    setBanner("The selected worktree version changed or is unavailable.", "error");
+    if (!window.confirm("The selected worktree version changed or is unavailable. Open the board's current version instead?")) return;
     state.preferredVersions.delete(itemId);
     version = null;
   }
@@ -5781,7 +5792,7 @@ function switchEditorMode(nextMode, options = {}) {
   if (state.worktreeMode === "across" && nextMode !== "preview" && state.currentItem
     && (state.confirmedEditSource?.itemId !== state.selectedItemId
       || state.confirmedEditSource?.sourceKey !== state.selectedSource?.sourceKey)) {
-    if (!state.selectedSource || !window.confirm(`Edit only ${state.selectedSource.repoRoot}? Other checkout versions will not change.`)) return;
+    if (!state.selectedSource || !window.confirm(`Edit only ${state.selectedSource.repoRoot}? Other worktree versions will not change.`)) return;
     state.confirmedEditSource = { itemId: state.selectedItemId, sourceKey: state.selectedSource.sourceKey };
   }
 
@@ -5813,7 +5824,7 @@ async function saveCurrentItem() {
   }
   if (state.worktreeMode === "across" && (state.confirmedEditSource?.itemId !== state.selectedItemId
     || state.confirmedEditSource?.sourceKey !== state.selectedSource?.sourceKey)) {
-    setBanner("Choose and confirm one checkout before editing this feature.", "error");
+    setBanner("Choose and confirm one worktree before editing this feature.", "error");
     return;
   }
 
@@ -5960,7 +5971,7 @@ refreshButton.addEventListener("click", () => {
     void api.discoverWorktreeSources().then((inventory) => {
       if (!stillCurrent()) return;
       const sourceCandidate = inventory.sources.find(isOpenedSource);
-      if (!sourceCandidate) throw new Error("This checkout is unavailable. Reopen the source menu to choose a checkout.");
+      if (!sourceCandidate) throw new Error("This worktree is unavailable. Reopen the source menu to choose a worktree.");
       return reload({ ...options, sourceCandidate });
     }).catch((error) => { if (stillCurrent()) setBanner(error.message, "error"); });
     return;
@@ -6773,7 +6784,7 @@ boardSourceMenuElement.addEventListener("click", async (event) => {
   if ((choice === "this" && state.worktreeMode === "this" && state.workspace && !state.workspaceStale)
     || (choice === "across" && state.worktreeMode === "across")) { closeBoardSourceMenu(); return; }
   if ((hasUnsavedCurrentItemChanges() || state.boardDirty || state.scopeDirty)
-    && !window.confirm("Discard unsaved item, board, or scope changes before switching checkouts?")) return;
+    && !window.confirm("Discard unsaved item, board, or scope changes before switching worktrees?")) return;
   closeBoardSourceMenu();
   if (choice === "across") {
     state.worktreeMode = "across";
@@ -6791,7 +6802,7 @@ boardSourceMenuElement.addEventListener("click", async (event) => {
     const selected = choice === "this"
       ? inventory?.sources?.find(isOpenedSource) || state.worktreeData?.sources?.[0]
       : inventory?.sources?.find((source) => source.sourceKey === choice);
-    if (!selected) { setBanner("This checkout choice is unavailable. Reopen the source menu to refresh it.", "error"); return; }
+    if (!selected) { setBanner("This worktree choice is unavailable. Reopen the source menu to refresh it.", "error"); return; }
     if (selected) state.repoPath = selected.repoRoot;
     state.worktreeMode = "this";
     state.worktreeModeExplicit = true;
@@ -6895,7 +6906,7 @@ editorSourceSelectElement.addEventListener("click", (event) => {
   if (!button || button.getAttribute("aria-pressed") === "true") return;
   const itemId = state.selectedItemId;
   if (!itemId) return;
-  if (hasUnsavedCurrentItemChanges() && !window.confirm("Discard unsaved changes before opening another checkout version?")) {
+  if (hasUnsavedCurrentItemChanges() && !window.confirm("Discard unsaved changes before opening another worktree version?")) {
     return;
   }
   const selected = state.worktreeData?.sources.find((source) => source.sourceKey === button.dataset.editorSource);
