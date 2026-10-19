@@ -64,6 +64,45 @@ test("isolates scopes and validates cached admission before reuse", async () => 
   assert.equal(loadsB, 1);
 });
 
+test("invalidated cached entries reload without running admission", async () => {
+  const { coordinator } = makeCoordinator();
+  let loads = 0, admissions = 0;
+  const load = async () => result({ run: ++loads }, { refs: [`run:${loads}`] });
+  const first = await coordinator.read({ key: "repo:this", load });
+  coordinator.invalidateAll();
+  assert.equal(coordinator.getManifest(first.snapshot.id, "repo:this"), null);
+  const next = await coordinator.read({ key: "repo:this", cached: true, load,
+    admit: async () => { admissions++; return true; } });
+  assert.equal(admissions, 0);
+  assert.equal(loads, 2);
+  assert.equal(next.value.run, 2);
+  assert.notEqual(next.snapshot.id, first.snapshot.id);
+  assert.equal(next.generation, coordinator.generation());
+  assert.equal(next.snapshot.stale, false);
+  assert.deepEqual(coordinator.getManifest(next.snapshot.id, "repo:this"), { refs: ["run:2"] });
+});
+
+test("invalidation during cached admission reloads the current generation", async () => {
+  const { coordinator } = makeCoordinator();
+  let loads = 0;
+  const load = async () => result({ run: ++loads }, { refs: [`run:${loads}`] });
+  const first = await coordinator.read({ key: "repo:this", load });
+  const entered = deferred(), admission = deferred();
+  const pending = coordinator.read({ key: "repo:this", cached: true, load,
+    admit: async () => { entered.resolve(); return admission.promise; } });
+  await entered.promise;
+  coordinator.invalidateAll();
+  admission.resolve(true);
+  const next = await pending;
+  assert.equal(loads, 2);
+  assert.equal(next.value.run, 2);
+  assert.notEqual(next.snapshot.id, first.snapshot.id);
+  assert.equal(next.generation, coordinator.generation());
+  assert.equal(next.snapshot.stale, false);
+  assert.equal(coordinator.getManifest(first.snapshot.id, "repo:this"), null);
+  assert.deepEqual(coordinator.getManifest(next.snapshot.id, "repo:this"), { refs: ["run:2"] });
+});
+
 test("non-retained reads stay inside the coordinator without reusing or caching results", async () => {
   const { coordinator } = makeCoordinator();
   let loads = 0;

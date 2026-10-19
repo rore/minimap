@@ -29,19 +29,44 @@
 
 **Verification plan:** test: New pre-admission regression fails on the base and passes with admit not invoked and fresh/current generation returned. test: New held-admission race fails on the base and passes with no obsolete return and valid current manifest. test: Complete roadmap-snapshots.test.js retains unchanged age-stale reuse, byte/accounting, cancellation and coalescing coverage. test: Relevant roadmap snapshot server/deadline tests keep HTTP/source guards intact; runtime mirrors match canonical source. test: Diff/skill-doc drift checks and final workflow evidence. Independent agent plan/result review and parent CI remain delivery gates.
 
-**Plan review:** Pending parent-arranged independent technical review of this exact record; no product/test edits until approval.
+**Plan review:** Agent technical review: `/root/snapshot_cache_review` APPROVED 00ce54e on 2026-10-19, forwarded by parent. Implement only the two cache eligibility conditions and deterministic regressions, preserving all existing guards, removal and accounting. Parent authorizes implementation; no further plan gate.
 
 **Approvals:** Approved by user 2026-10-19: "so we should do it". Parent authorizes this narrow repository fix, tests, review and merge; parent owns any separately approved local update. No environment change is part of this implementation.
 
 **Exceptions:** —
 
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
 
-Planning only. Checkout `C:/Dev/rore/minimap/.local/snapshot-cache-invalidation`, branch `feat/snapshot-cache-invalidation`, base `283995cf`. No product or test edits. Exact owning item is `roadmap/features/consolidate-roadmap-refresh.md`, with the CLI-returned tuple in Relationships. Parent owns independent review, PR/CI/merge and live environment decisions. Next action is independent plan review; implementation is paused.
+Checkout `C:/Dev/rore/minimap/.local/snapshot-cache-invalidation`, branch `feat/snapshot-cache-invalidation`, base `283995cf`. Initial Work Record committed at `00ce54e` before product/test edits. Exact owning item is `roadmap/features/consolidate-roadmap-refresh.md`, with the CLI-returned tuple in Relationships. Parent owns independent review, PR/CI/merge and live environment decisions.
+
+Plan approved; beginning fail-before unit regressions before the two production condition changes.
 
 ## Scope checkpoint
 
 Expected product diff: only the two existing cached-read conditions in `package/minimap/src/roadmap-snapshots.js`, then derived mirrors via sync. New tests use the current pure coordinator fixture and do not start a server or touch user data. No new public behavior or documented API promise is introduced; the existing server invalidation guards stay unchanged. Review any discovered broader requirement before expanding scope.
+
+
+## Implemented contribution
+
+Only the two existing cached-read conditions changed: an entry must be non-invalidated and match the current epoch before admission, and those conditions are checked again after admission resolves. Existing cache identity/expiry, signal checks, touch/removal, enqueue/coalescing, byte accounting and manifest logic are untouched. Both runtime mirrors were regenerated from the canonical coordinator. No new helper, API/UI behavior, dependency, deadline or identity/write guard was introduced.
+
+Two deterministic deferred-fixture regressions were added. The pre-invalidated case verifies admit is not called and a fresh/current generation is loaded. The during-admission case invalidates while admit is held and verifies a new current generation/manifest instead of the old entry. Existing age-stale, retention/accounting, cancellation, scan sharing and obsolete-publication tests remain unchanged.
+
+## Verification evidence
+
+Fail-before: both new regressions failed against unchanged source. Pre-invalidated admission ran once instead of zero; during-admission invalidation returned the old run instead of performing the second fresh load. Retained log: ignored `tmp/snapshot-cache-evidence/before.log`.
+
+Pass-after: `node --test test/roadmap-snapshots.test.js test/sync-mirrors.test.js` passed 22/22, no failures/skips (`after-unit.log`). This includes all existing ordinary age-stale cache reuse, coalescing, subscriber cancellation, invalidated scan/publication, manifest isolation and cache byte/entry accounting tests. `node --test test/roadmap-snapshot-server.test.js test/roadmap-snapshot-deadline.test.js test/related-work-server.test.js` passed 10/10, no failures/skips, using isolated packaged-server fixtures (`server.log`). These retain HTTP invalidation/source guards, deadlines and related-work generation behavior. Total: 32 passing checks; no browser or live-server test was needed for this internal cache-only fix.
+
+`git diff --check` passed. Skill-doc/CONTRACT keyword sweep found only correct existing source/manifest invalidation and legitimate in-flight409 retry guidance; no document promises reuse of invalidated cached entries. No normative skill/API documentation change is needed. Owning roadmap contribution note is updated without reopening the completed broader feature or claiming a live update. Final source SHA256: `D533FE3724D96C99AF5EB041EB512F6B2BB57153774A7C13BB746175B2F4879F`, identical in both runtime mirrors. Independent result review and final workflow check remain delivery gates.
+
+## Result review
+
+Agent technical review: `/root/snapshot_cache_review` APPROVED the final diff, logs and verification on 2026-10-19, forwarded by parent, with no findings. Reviewer confirmed all three source/runtime hashes and the 32 passing checks. No source changes followed result approval.
+
+Reviewed revision: final implementation diff from `00ce54e`; canonical roadmap-snapshots.js and both generated mirrors SHA256 `D533FE3724D96C99AF5EB041EB512F6B2BB57153774A7C13BB746175B2F4879F`.
+
+Verification adequacy: both deterministic new regressions failed before the fix and pass afterward. The complete coordinator/mirror run passed 22 checks, retaining ordinary age-stale reuse, sharing, cancellation, accounting and manifest coverage. Isolated server/deadline/related-work checks passed 10 checks, retaining existing HTTP/source invalidation guards. Only two eligibility conditions changed; existing removal, enqueue and accounting paths remain intact. No API/UI, dependency or live-runtime change occurred. Parent owns PR/CI/merge and any environment update.
