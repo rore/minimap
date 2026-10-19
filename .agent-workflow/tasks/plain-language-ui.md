@@ -50,17 +50,17 @@ Planning only. Isolated checkout `C:/Dev/rore/minimap/.local/plain-language-ui`,
 | Mixed versions | Statuses differ | Keep Statuses differ visibly on the existing versions entry. |
 | Unknown status | Status unavailable | Keep Status unavailable; do not invent Queued. |
 | Worktree terminology | This checkout, Checkout path, N checkouts | This worktree, Worktree path, N worktrees. Runtime keys and branch semantics stay unchanged. |
-| Full board scan running | Loading other worktrees… / Updating… plus repeated qualifiers | Loading worktrees…; keep Current worktree only accessible for a provisional view. |
-| General partial selection | Partial coverage / Partial discovery | Some worktrees not shown. Exact omitted/unreadable reasons and counts remain in details. |
+| Full board scan running | Loading other worktrees… / Updating… plus repeated qualifiers | Loading worktrees…; keep Current worktree only visibly present for a provisional view, not hidden in details. |
+| General partial board | Partial coverage / Partial discovery | Board may be incomplete. Missing references can occur inside loaded worktrees; keep exact reasons and counts in details. Use Some worktrees not shown only for proven omitted worktrees. |
 | Proven load failure | Worktree discovery unavailable / unavailable source | Couldn’t load worktrees; retain existing last usable choices and specific reasons in details. |
 | Stale or retained view | Last-known view / last-known results | Showing earlier results. Do not claim a failed refresh unless one occurred. |
 | Selected detail scope | Opened checkout only | Current worktree only, adjacent to summary while coverage is incomplete. |
-| Source selection limit | Long 25-checkout selection explanation | Limited to this worktree and up to 24 recent worktrees. Exact selected/excluded counts and reasons remain available. |
+| Source selection limit | Long 25-checkout selection explanation | Limited to this worktree and up to 24 recent worktrees. Others aren’t shown. Exact selected/excluded counts and reasons remain available. |
 | Healthy board/session detail | Placement/group metrics and healthy session-availability paragraphs | Remove these redundant paragraphs; retain meaningful coverage, exclusions, unknown, limit and recovery information. |
-| Partial session observation | Partial session coverage | Some session links couldn’t be checked. No claim that an unobserved link is absent. |
+| Partial session observation | Partial session coverage | Session counts may be incomplete on the board; Session list may be incomplete in detail. Keep exact limit, ambiguity or failure reasons in details, without claiming every partial result is a failed lookup. |
 | Session technical disclosure | Reference and guidance | Technical details. Exact scope/item IDs and guidance remain inside. |
 | Session association | Association updated | Feature link updated. Keep timestamp and origin. |
-| Session classification | Lifecycle | Session status inside Session details; retain recent/dormant/closed values, not a live-activity claim. Reviewer may prefer omitting redundant healthy destination/state labels. |
+| Session classification | Lifecycle | Keep Lifecycle only inside technical details. Do not collide with the separate Session state field or imply current execution; retain recent/dormant/closed values. |
 | Selected literal status | Selected version status | This version’s status, still separate from the combined primary summary. |
 | Task header/actions | Tasks linked to this feature / Open task record | Linked tasks (N) / Open task. Retain pagination total, unknown count behavior and task contents. |
 | Task state label | Task record state: X | X, with saved-record meaning available in short Task details guidance. |
