@@ -13,7 +13,7 @@
 {"source":"work-record-initial","outcome":"Restore the existing green Done badge when every represented saved status is normalized done, without implying completion for mixed or unknown versions.","scope":"The smallest shared tone and rendering correction, focused unit/browser expectations, generated runtime mirrors, and the owning roadmap contribution note.","constraints":"Preserve status labels, per-version placement/filter scope, active/blocked precedence, uncertainty and source provenance. Only normalized done qualifies; do not add complete/shipped aliases or infer completion from sessions. Reuse existing status-done CSS. No new helpers, dependencies, backend/provider/request changes, unrelated UI changes or live environment edits. Work only in the isolated done-status-color checkout.","completion_criteria":"This worktree and Across show green Done in List, Columns and selected detail when every represented saved status is done. Mixed done/queued, done/unknown and unrecognized completion words remain neutral unless existing active/blocked precedence applies. Existing semantic metadata, source/filter and unknown distinctions remain verified. Focused tests, mirror/lint checks, actual captures, independent review and workflow evidence pass before delivery to parent."}
 
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:polish-worktree-view-usability"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:polish-worktree-view-usability"}],"pull_requests":["https://github.com/rore/minimap/pull/66"]}
 
 **Risk:** High
 
@@ -75,3 +75,8 @@ Implementation `763ded3` passes every blocking workflow/Redline predicate. Decla
 ## Pre-edit checkpoint
 
 Protected acceptance paths are red/High and require architecture-review visibility at PR time. The user has authorized replacing the intentional neutral Done expectation with the existing green palette. All other status/metadata/source/write assertions remain binding. API, persistence, security, dependencies and runtime lifecycle are outside scope. Generated mirrors are derived through the existing sync script only.
+
+
+## Delivery handoff
+
+Parent created PR #66: https://github.com/rore/minimap/pull/66 with the actual architecture-reviewed label applied. Technical and visual review are approved; CI and merge remain parent-owned. No live update is authorized or performed.
