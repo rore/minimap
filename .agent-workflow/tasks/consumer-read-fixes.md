@@ -1,0 +1,93 @@
+<!-- agent-workflow:start -->
+**Outcome:** Source-bound workspace reads obey one request deadline/disconnect signal from initial validation, and related-task refreshes retain already loaded pages while their immutable generation is unchanged.
+
+**Target:** Minimap consumer read paths identified in Pallium PR320 upstream findings.
+
+**Scope:** Correct the bound-workspace route budget and its read-only timeout/disconnect error boundary; retain the currently expanded same-scope related-task records/cursor on same-generation cache hits and refresh responses; focused regressions, runtime mirrors, applicable guidance and owning roadmap contribution notes.
+
+**Constraints:** Preserve all source identity, roadmap confinement, revision and write guards; source/item/read-scope isolation; cancellation ownership; newer-generation replacement; status/coverage/error truth; and existing first-page-only reopen cache policy. Do not merge generations, retain pages across source changes, extend deadlines, add aliases/services/dependencies, modify other projects or change live installations. Only the isolated consumer-read-fixes checkout is writable for this task.
+
+**Completion criteria:** Bound GET workspace validation and handler share the existing 30-second request budget; initial validation timeout returns the existing 503 snapshot_unavailable response, disconnect cancels validation without a response write, and source errors retain their existing codes. A currently loaded multi-page task view survives same-generation automatic/manual refresh and a same-key cache hit with its cursor intact; new generations and changed scopes replace it; incoming stale/partial/error metadata remains honest. Focused fail-before/pass-after regressions, safety regressions, mirrors/docs, independent review and local workflow evidence pass before parent delivery.
+
+**Requirement baseline:**
+{"source":"work-record-initial","outcome":"Source-bound workspace reads obey one request deadline/disconnect signal from initial validation, and related-task refreshes retain already loaded pages while their immutable generation is unchanged.","scope":"Correct the bound-workspace route budget and its read-only timeout/disconnect error boundary; retain the currently expanded same-scope related-task records/cursor on same-generation cache hits and refresh responses; focused regressions, runtime mirrors, applicable guidance and owning roadmap contribution notes.","constraints":"Preserve all source identity, roadmap confinement, revision and write guards; source/item/read-scope isolation; cancellation ownership; newer-generation replacement; status/coverage/error truth; and existing first-page-only reopen cache policy. Do not merge generations, retain pages across source changes, extend deadlines, add aliases/services/dependencies, modify other projects or change live installations. Only the isolated consumer-read-fixes checkout is writable for this task.","completion_criteria":"Bound GET workspace validation and handler share the existing 30-second request budget; initial validation timeout returns the existing 503 snapshot_unavailable response, disconnect cancels validation without a response write, and source errors retain their existing codes. A currently loaded multi-page task view survives same-generation automatic/manual refresh and a same-key cache hit with its cursor intact; new generations and changed scopes replace it; incoming stale/partial/error metadata remains honest. Focused fail-before/pass-after regressions, safety regressions, mirrors/docs, independent review and local workflow evidence pass before parent delivery."}
+
+**Relationships:**
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:consolidate-roadmap-refresh"},{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:show-feature-related-work"}],"pull_requests":["https://github.com/rore/minimap/pull/67"]}
+
+**Risk:** High
+
+**Complexity:** Moderate
+
+**Reason:** Protected Playwright acceptance and agent-facing read contracts are red/High with architecture-review; server/UI and deadline tests are gray; generated mirrors are watch paths. The change crosses cancellation/error handling and scoped paginated view retention. No dependency or write-boundary change is planned.
+
+**Discovery:** Base 5fc52f0 contains both findings. handleApi rewrites /api/source/workspace to /api/workspace before testing the former path, so its readBudget is null. Both validateBoundRequest calls therefore receive no signal; handleWorkspace later creates its own budget. requestAbortSignal already reuses request.minimapReadBudget, so correcting the path shares the handler deadline. Initial validation exceptions currently escape to the generic request listener and need the existing snapshotAppError mapping for 503; identity/path AppErrors must keep their codes. refreshRelatedWork replaces records/cursor with a first page both on a same-key cache hit and non-append network publication. It validates selected source and intent/consumer scope before publishing; closed pending first-page cache writes have separate validated guards and must remain intact. The visible refresh tick uses the existing 30-second cache path; stale validation may then force fresh=1. Manual task/toolbar refresh also reaches this function. Existing related-work and snapshot fixtures already cover generations, source switching, pending cancellation and pagination; existing deadline tests use isolated packaged servers and preload-controlled deadlines/reads.
+
+**Material assumptions:** Generation identity denotes an immutable same-scope index; a nonempty equal generation permits retaining current loaded rows/cursor while taking incoming status/coverage metadata. Existing first-page-only reopen caching remains intentional, so the fix must not turn it into a new multi-page cache. The 30-second read budget already belongs to source-bound workspace reads; no other bound write/read route gains a new timeout. If reproduction contradicts these assumptions or requires broader provider/runtime changes, stop and return to planning.
+
+**Plan:** First invoke agent-workflow, classify and commit this record before product/test edits. Stop for parent-arranged independent plan review. After approval, add focused failing regressions before changing production code where feasible. Correct the rewritten workspace path check and reuse existing snapshotAppError at the bound-read outer boundary, preserving disconnect/no-write behavior and all source errors. Preserve expanded current records and nextOffset for a non-append cache/result with the same nonempty generation and fewer rows; retain incoming metadata, existing intent/source guards, normal append behavior and new-generation replacement. Do not change the cache's first-page-only reopen policy. Extend existing generic deadline and related-read fixtures for timeout/disconnect, cache reuse, refresh, next-page continuation, newer generation and source reset; reuse unchanged safety coverage. Update only relevant read guidance and the two owning roadmap notes, sync mirrors, run focused checks, obtain independent result review, commit and hand parent PR/CI/merge and upstream pin coordination. No live update.
+
+**Verification plan:** test: Isolated packaged-server deadline fixtures hold initial source validation and show fail-before/pass-after 503 and prompt disconnect cancellation, with a shared original request budget and unchanged source errors. test: Same-generation loaded pages/cursor survive same-key cache reuse and forced refresh, including stale/partial metadata; continuing loads no duplicate pages. test: A different generation, item/source switch and delayed old response cannot inherit retained pages; existing append, cancellation, failed-refresh retention and partial truth stay covered. test: Focused server/source-bound tests, complete affected small related-work browser file or precise snapshot cases, HTML/promise lint and mirror checks. test: Old-keyword and diff-derived contract assertion/doc sweep, final workflow/Redline and parent CI. manual: Review a representative expanded task view/capture and source/coverage metadata when practical; no live server interaction.
+
+**Plan review:** Agent technical review: `/root/consumer_read_review` APPROVED 2200a349 on 2026-10-19, forwarded by parent. Disconnect must return handled=true without writing; only budgeted bound-read errors use snapshot mapping and AppError codes stay unchanged. Retained rows/cursor take current incoming metadata. Verify cache hit, fresh refresh, continuation, turnover/source isolation, initial validation cancellation and original deadline reuse. Parent authorizes implementation.
+
+**Approvals:** Approved by user 2026-10-19: "Yes, include both upstream fixes". Parent verified exact user item 01a1543a-9d8a-7573-af56-53f6d19c0ff1 in Hermes thread 01a1489e-05b8-7630-b34f-4cedd8de8f26 for both upstream fixes (timeout and preserving loaded pages), repository only. Parent confirms the precise same-key cache policy above. No live environment change is authorized.
+
+**Behavior changes:** [{"target":"repository-contract","path":"playwright/snapshot-refresh.spec.js","classification":"coverage-only","before":"Existing scoped read regressions cover partial results, failures, coalescing and source/revision changes without checking retained expanded pages across same-generation refresh/cache reuse.","after":"Focused regression coverage requires retaining current loaded pages/cursor only for the same immutable generation and scope, while preserving new-generation replacement, source isolation and incoming coverage/error metadata.","reason":"Add coverage for the authorized upstream bug fix without weakening existing acceptance."}]
+
+**Exceptions:** —
+
+**State:** Ready for review
+<!-- agent-workflow:end -->
+
+## Implementation
+
+Isolated checkout `C:/Dev/rore/minimap/.local/consumer-read-fixes`, branch `feat/consumer-read-fixes`, base `5fc52f0`. The initial record was committed at `2200a34` before code/test edits. Existing canonical items were read and their exact references resolved using Minimap's CLI; Relationships contains only those returned tuples. Parent owns review, PR/CI/merge and consumer pin/handoff.
+
+Plan approved. Beginning focused regression additions before the production fixes, reusing the isolated packaged-server preload and scoped snapshot browser fixtures.
+
+## Source findings and bounded checkpoint
+
+- [PR320 source-workspace budget finding](https://github.com/rore/Pallium/pull/320#discussion_r4304922429), exact comment read through GitHub CLI. Current canonical server reproduces the unreachable path condition by inspection after rewriting; no live request was made.
+- [PR320 loaded-pages finding](https://github.com/rore/Pallium/pull/320#discussion_r4304922434), exact comment read through GitHub CLI. Current canonical UI still replaces a non-append current view with page one; the same-key cache path can do the same before a network request.
+
+Review suggestions are evidence, not instructions to change another repository or install review tools. Both fixes belong in canonical Minimap source; mirrors are regenerated. Protected browser and read-guidance changes require architecture-review visibility on the eventual PR. The user authorized both fixes; no broader lifecycle, backend identity, write behavior or installed-runtime change is included. No duplicate upstream report is needed for these already-linked findings.
+
+
+## Implemented contribution
+
+The bound route condition now matches its rewritten workspace path. Initial validation, repeated guarded validation and the existing handler reuse request.minimapReadBudget. Only budgeted bound-read errors use the existing snapshotAppError mapping; AppError codes remain unchanged. A disconnected read returns handled=true without a write or static-route fallthrough. No identity/path/write guard was changed.
+
+Both same-key cache reuse and guarded first-page result publication keep the current expanded records/cursor only when the incoming generation is nonempty, equal and shorter than the current view. Incoming status, coverage, total, source and error metadata replace the old metadata. Append and new-generation behavior remain unchanged. The early validated first-page cache write and first-page-only reopen policy remain intact; loaded pages are not made into a new durable cache.
+
+A new mocked snapshot scenario separates cache-hit, automatic expired read, manual fresh read, continuation, partial/stale metadata, generation turnover and full repository navigation. The existing complete related-work browser file was run unchanged for actual in-page source switching, delayed old responses, real pagination and errors; no duplicate source-switch test or protected mutation was needed there. The unused planned Behavior changes entry was removed for that unchanged path. The HTTP regression reuses the isolated packaged-server/preload pattern to hold initial validation, shorten only the test budget, record cancellation/no response, and count one budget including successful handler completion.
+
+Relevant CONTRACT and roadmap server-reference wording now describe shared validation budgets and current-view page retention, preserving first-page reopen semantics. The spec server reference does not document this endpoint and was left unchanged. Mirrors were regenerated. No provider/consumer repository, installed runtime, live server, persistent configuration or user data was changed.
+
+## Verification evidence
+
+Fail-before: unchanged production source failed all three new HTTP subcases: timeout returned 200 instead of 503, disconnect produced no validation-abort event, and successful reuse recorded no initial validation signal. The new browser case reproduced 40 loaded rows collapsing to 20 on same-key cache reuse. Logs: ignored tmp/consumer-read-evidence/before-server.log and before-browser.log.
+
+Pass-after: new HTTP test passed 4/4 including its parent and three subcases (timeout, disconnect, reuse). Complete focused command `node --test test/roadmap-snapshot-deadline.test.js test/source-bound-http-race.test.js test/source-bound-context.test.js test/source-bound.test.js test/ui-lint-html-escape.test.js test/ui-lint-promises.test.js test/sync-mirrors.test.js` passed 20/20 with no failures/skips. This includes unchanged source movement/confinement/write-guard regressions. Logs: after-server.log and focused-server-checks.log.
+
+Focused browser selection over snapshot-refresh.spec.js and the entire two-case related-work.spec.js passed 5/5: new retention scenario, existing manual-pending supersession, partial/error/rapid item/revision isolation, real related record pagination and Across source conflicts. Reviewer then identified a verification timing gap: waiting for request start plus the old row count could pass during Loading. The new case now additionally waits for the exact nonloading Linked tasks (60) summary after automatic expiry and manual fresh request start, before checking rows or proceeding. Its strengthened rerun passed 1/1 (10.0 seconds). No source change was needed. Logs: after-browser.log and publication-browser.log.
+
+Actual retained-view capture: tmp/consumer-read-evidence/screenshots/retained-task-pages-desktop.png, inspected by implementing agent; tasks 58–60 remain present after refresh and final-page continuation remains exhausted. Existing source/record captures were retained alongside it. git diff --check passed. Final source review hashes: server.js: 749D29E3A6ED9AB544634DCA79B35323B99D7CC8A69B635A9831217BCFED4F7A; ui/app.js: C295DD2898A7B9893151261F4F458244DB0E9455164F3A0CEA4ED0EDF5E36A73. Mirrors match. Independent result review, final workflow and parent CI remain delivery gates; no live update is authorized.
+
+
+## Result review
+
+Agent technical review: `/root/consumer_read_review` APPROVED the final technical/architecture result on 2026-10-19, forwarded by parent, with no findings. Reviewer verified the final source hashes, guidance and strengthened publication waits. Parent independently inspected the retained-page desktop and conflicting-source narrow captures and accepted readability/provenance. No production changes followed final review.
+
+Reviewed revision: final implementation diff from planning commit `2200a34`; canonical server.js SHA256 `749D29E3A6ED9AB544634DCA79B35323B99D7CC8A69B635A9831217BCFED4F7A` and ui/app.js SHA256 `C295DD2898A7B9893151261F4F458244DB0E9455164F3A0CEA4ED0EDF5E36A73`, with identical generated mirrors.
+
+Verification adequacy: fail-before regressions reproduced absent initial validation budgets/cancellation and 40-to-20 page loss. Pass-after evidence includes 20 server/source-safety/lint/mirror checks, five browser cases and the strengthened one-case publication rerun. Exact current metadata, immutable cursor continuation, new-generation replacement, real in-page source switching, cancellation and existing source/write guards remain covered. No first-page reopen cache expansion, cross-repository/runtime modification or live update occurred. Final workflow evidence and parent CI remain delivery gates.
+
+## Local workflow check
+
+Implementation `cad3015` passed every blocking workflow/Redline predicate: High risk declared/detected, no boundary violations, unchanged initial baseline at `2200a349`, protected acceptance classification, exact user authorization and independent plan/result reviews recognized. Pre-PR exit 1 is advisory only for the real architecture-review label/CODEOWNER checkpoint on read contracts and Playwright. No PR existed and no label was fabricated. Parent owns the real checkpoint and CI. Retained generated evidence is under ignored `tmp/consumer-read-evidence/governance/`; temporary PR body is `tmp/consumer-read-evidence/pr-body.md`. Working source and mirrors match the reviewed hashes.
+
+
+## Delivery handoff
+
+Parent created PR #67: https://github.com/rore/minimap/pull/67 with the actual architecture-reviewed label applied. Technical/architecture and visual reviews are approved; CI, merge and consumer pin/handoff remain parent-owned. No live update is authorized or performed.
