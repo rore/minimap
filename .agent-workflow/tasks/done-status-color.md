@@ -68,6 +68,10 @@ Reviewed revision: final implementation diff from `dfcc19a`; app.js SHA256 `6C38
 
 Verification adequacy: 18 unit/lint/mirror checks passed; all 8 distinct focused browser scenarios have passing evidence across the initial 7-pass/1-test-interaction-failure run and corrected 2-pass Across run. Existing semantic metadata, active/blocked precedence, linked count and source-filter assertions remain intact. Actual desktop/narrow List/Columns/detail captures verify the existing green palette and neutral mixed state. Scope, labels, aliases, requests and data semantics remain unchanged. Parent owns PR/CI/merge and the real architecture-review checkpoint; no live update is authorized or performed.
 
+## Local workflow check
+
+Implementation `763ded3` passes every blocking workflow/Redline predicate. Declared/detected risk is High; no boundary violation; baseline matches the initial `dfcc19a` record; both protected browser paths are classified; task-owner/user authorization and plan/result review are recognized. Pre-PR local exit 1 is advisory only: protected Playwright paths require the real PR's architecture-reviewed label or CODEOWNER checkpoint. Parent will satisfy that checkpoint on PR creation. No label was fabricated for this local check. Evidence is retained uncommitted under `tmp/done-status-evidence/governance/`.
+
 ## Pre-edit checkpoint
 
 Protected acceptance paths are red/High and require architecture-review visibility at PR time. The user has authorized replacing the intentional neutral Done expectation with the existing green palette. All other status/metadata/source/write assertions remain binding. API, persistence, security, dependencies and runtime lifecycle are outside scope. Generated mirrors are derived through the existing sync script only.
