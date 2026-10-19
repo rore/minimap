@@ -2836,14 +2836,14 @@ test("uses restrained semantic badge tones without coloring every field", async 
   const primaryStatus = card.locator('.recorded-status:visible');
   await expect(primaryStatus).toHaveCount(1);
   await expect(primaryStatus).toHaveText("Done");
-  await expect(primaryStatus).toHaveClass(/badge-tone-neutral/);
+  await expect(primaryStatus).toHaveClass(/badge-tone-status-done/);
   await expect(badges.nth(1)).toHaveText("committed");
   await expect(badges.nth(1)).toHaveClass(/badge-tone-commitment-committed/);
   await expect(card).not.toContainText("high");
 
   await page.locator('[data-item-open="feature-column-board-view"]').first().click();
   await expect(page.locator('#item-preview .recorded-status:visible')).toHaveText("Done");
-  await expect(page.locator('#item-preview .recorded-status:visible')).toHaveClass(/badge-tone-neutral/);
+  await expect(page.locator('#item-preview .recorded-status:visible')).toHaveClass(/badge-tone-status-done/);
 });
 
 test("repo= URL hash param survives item-click navigation", async ({ page }) => {

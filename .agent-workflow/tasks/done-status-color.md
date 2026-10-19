@@ -29,7 +29,7 @@
 
 **Verification plan:** test: Existing unit matrix preserves active/in-progress normalization and blocked precedence while covering normalized done unanimity, empty, unknown, mixed and unrecognized completion words. test: Protected semantic-tone case retains priority/commitment assertions and now expects the existing green class. test: Focused snapshot cases exercise This/Across List/Columns/detail and filtered represented versions, with no source/label/request behavior changes. test: Diff-derived assertion scan finds every intentional neutral Done expectation; HTML escaping, promise and mirror checks pass. manual: Desktop/narrow card/detail captures show green Done and neutral mixed/unknown badges. test: Final workflow/Redline evidence and parent CI/merge; no installed server changes.
 
-**Plan review:** Pending parent-arranged independent technical review; stop before product or test edits.
+**Plan review:** Agent technical review: `/root/done_color_review` APPROVED this bounded plan on 2026-10-19, forwarded by parent. Use only nonempty unanimous normalized done; preserve active/blocked precedence, labels and represented version scope. Parent authorizes implementation. No additional plan gate.
 
 **Approvals:** Approved by user 2026-10-19: "so let's fix". Parent scopes this authorization to the Done badge color regression, preserving exact done semantics and existing safety/request behavior. No live update is authorized.
 
@@ -37,12 +37,36 @@
 
 **Exceptions:** —
 
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
 
-Planning only. Isolated checkout `C:/Dev/rore/minimap/.local/done-status-color`, branch `feat/done-status-color`, base `96e7fc2`. No product or test edits. Owning roadmap item: `roadmap/features/polish-worktree-view-usability.md`; exact CLI-returned reference appears in Relationships. Parent owns independent review, PR/CI/merge and any later environment approval. Next action is independent plan review of this record; implementation is paused until parent forwards approval.
+Isolated checkout `C:/Dev/rore/minimap/.local/done-status-color`, branch `feat/done-status-color`, base `96e7fc2`. The initial planning record was committed as `dfcc19a` before product/test edits. Owning roadmap item: `roadmap/features/polish-worktree-view-usability.md`; exact CLI-returned reference appears in Relationships. Parent owns independent review, PR/CI/merge and any later environment approval.
+
+Plan approved; beginning the two shared production changes and focused verification. The other tone consumer adds a board-card-status-done class with no matching CSS, so the existing card accent behavior stays unchanged; only the existing status-done badge palette is reused.
+
+Implemented the two shared expressions: only one distinct normalized status equal to done yields the done tone; shared markup maps that tone to the existing green badge class. Labels, metadata, filters, source selection and active/blocked precedence are unchanged. Unit coverage includes case/whitespace normalization, done/unknown, done/queued, done/complete, done/shipped, repeated unrecognized complete, and empty/unknown sets. Existing semantic browser metadata assertions remain intact. Four new rendered scenarios cover This/Across × List/Columns, desktop/narrow card/detail, computed green, mixed/unknown neutral and done-only version filtering. No CSS, new helpers, dependencies, backend or request logic changed. Mirrors were regenerated with the existing sync script.
+
+The owning roadmap note now records PR65 merged at 96e7fc2 and this separate contribution awaiting review/delivery. The known narrow-spec layout limitation is preserved. UI-only color semantics do not reach a documented skill API; the old-keyword sweep found no Done-neutral documentation requiring changes.
+
+## Verification evidence
+
+- `node --test test/ui-worktrees.test.js test/ui-lint-html-escape.test.js test/ui-lint-promises.test.js test/sync-mirrors.test.js`: 18 passed, 0 failed, 0 skipped.
+- Browser command targeting the new Done scenarios, existing represented-activity scenarios, finished-representative linked-count scenario and semantic metadata scenario: initial 8-case run had 7 passed and 1 test-only interaction failure. Across Columns attempted toolbar Refresh through the normal open item overlay; its backdrop correctly intercepted the click. No product assertion failed before that interaction.
+- Corrected the new test to close the overlay with Escape before Refresh and reopen Alpha for each detail check. Reran only the two affected Across cases: 2 passed, 0 failed. All 8 distinct focused browser cases therefore have passing evidence. Initial and corrected logs remain uncommitted under `tmp/done-status-evidence/browser.log` and `across-rerun.log`; no failed run is represented as a single clean 8-case invocation.
+- Computed badge colors are `rgb(21, 121, 90)` for unanimous Done and `rgb(108, 115, 133)` for mixed saved statuses. Done-only source filtering restores green; adding an unknown represented version stays neutral. Existing Active/Blocked and selected metadata checks passed.
+- Case-insensitive Done/neutral assertion and caller sweep found only the intentional expectations migrated here; labels and remaining neutral conflict assertions stay unchanged. `git diff --check` passed; mirrors match canonical sources.
+
+Actual desktop/narrow This/Across List/Columns cards and detail captures are retained uncommitted under `tmp/done-status-evidence/screenshots/`. The implementing agent inspected green Done and neutral mixed captures. Parent independently inspected Across Columns narrow detail, This List desktop and Across List mixed-neutral and accepted readability/layout. Source hashes for result review: app.js `6C38806C32429C4C1A003DE5487DBA68EF1769F04EC49B862CBE6DD99945FEE1`; worktrees.js `533570FA6832C6142B4E0F8126E6E88CE6E7F75437CEE43584362DD161E238C5`.
+
+## Result review
+
+Agent technical review: `/root/done_color_review` APPROVED the final technical/architecture result on 2026-10-19, forwarded by parent, with no blockers. Reviewer independently inspected the green narrow detail and mixed gray capture. Parent also accepted the bounded visual evidence. No source changes followed the reviewed production expressions.
+
+Reviewed revision: final implementation diff from `dfcc19a`; app.js SHA256 `6C38806C32429C4C1A003DE5487DBA68EF1769F04EC49B862CBE6DD99945FEE1`, worktrees.js SHA256 `533570FA6832C6142B4E0F8126E6E88CE6E7F75437CEE43584362DD161E238C5`, with identical generated mirrors.
+
+Verification adequacy: 18 unit/lint/mirror checks passed; all 8 distinct focused browser scenarios have passing evidence across the initial 7-pass/1-test-interaction-failure run and corrected 2-pass Across run. Existing semantic metadata, active/blocked precedence, linked count and source-filter assertions remain intact. Actual desktop/narrow List/Columns/detail captures verify the existing green palette and neutral mixed state. Scope, labels, aliases, requests and data semantics remain unchanged. Parent owns PR/CI/merge and the real architecture-review checkpoint; no live update is authorized or performed.
 
 ## Pre-edit checkpoint
 

@@ -18,7 +18,7 @@ export function recordedStatusSummary(item) {
   const label = active && blocked ? "Active · Blocked" : active ? "Active" : blocked ? "Blocked"
     : differs ? "Statuses differ" : !statuses.length || statuses[0] === "unknown" ? "Status unavailable"
       : statuses[0].charAt(0).toUpperCase() + statuses[0].slice(1).replaceAll("-", " ");
-  return { label, differs, tone: blocked ? "blocked" : active ? "progress" : "" };
+  return { label, differs, tone: blocked ? "blocked" : active ? "progress" : statuses.length === 1 && statuses[0] === "done" ? "done" : "" };
 }
 
 export function versionDifferences(version, selected) {
