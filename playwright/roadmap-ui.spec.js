@@ -2040,7 +2040,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
         ? page.locator('.board-column-card-main[data-item-dblopen="large-item-05"]')
         : page.locator('.board-item[data-item-id="large-item-05"]');
 
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(2);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(1);
       await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["2 linked sessions"]);
       await expect(zeroCard.locator(".board-item-participants")).toHaveCount(0);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(0);
@@ -2051,7 +2051,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
       await page.screenshot({ path: `test-results/board-presence-${layout}-desktop.png`, fullPage: false });
       await page.setViewportSize({ width: 760, height: 740 });
       await featuredCard.scrollIntoViewIfNeeded();
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(2);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(1);
       const geometry = await featuredCard.evaluate((card) => {
         const rect = card.getBoundingClientRect();
         const titleElement = card.querySelector(".board-item-title");
@@ -2829,16 +2829,19 @@ test("uses restrained semantic badge tones without coloring every field", async 
   await page.locator('[data-lens-key="priority"]').click();
 
   const card = page.locator('[data-item-open="foundation-local-server"]').first().locator('xpath=ancestor::article[1]');
-  const badges = card.locator('.badge');
+  const badges = card.locator('.badge-row .badge');
   await expect(badges).toHaveCount(2);
-  await expect(badges.nth(0)).toHaveText("done");
-  await expect(badges.nth(0)).toHaveClass(/badge-tone-status-done/);
+  const primaryStatus = card.locator('.recorded-status:visible');
+  await expect(primaryStatus).toHaveCount(1);
+  await expect(primaryStatus).toHaveText("Marked done");
+  await expect(primaryStatus).toHaveClass(/badge-tone-neutral/);
   await expect(badges.nth(1)).toHaveText("committed");
   await expect(badges.nth(1)).toHaveClass(/badge-tone-commitment-committed/);
   await expect(card).not.toContainText("high");
 
   await page.locator('[data-item-open="feature-column-board-view"]').first().click();
-  await expect(page.locator('.preview-meta .badge').first()).toHaveClass(/badge-tone-status-done/);
+  await expect(page.locator('#item-preview .recorded-status:visible')).toHaveText("Marked done");
+  await expect(page.locator('#item-preview .recorded-status:visible')).toHaveClass(/badge-tone-neutral/);
 });
 
 test("repo= URL hash param survives item-click navigation", async ({ page }) => {
