@@ -2589,12 +2589,12 @@ function buildBoardParticipantBadge(item) {
 }
 
 function buildParticipantRecencyBadges(recent, dormant, closed = 0) {
-  return [["Recent", recent], ["Dormant", dormant], ["Closed", closed]].filter(([, count]) => count > 0).map(([label, count]) => {
-    const title = label === "Recent"
-      ? "Recent under Pallium's 24-hour session last-seen observation; session activity is not work on this feature, current execution, or staffing."
-      : label === "Dormant" ? "Dormant under Pallium's session last-seen observation; dormant does not mean this item is completed."
+  return [["recent", "Seen within 24h", recent], ["dormant", "Dormant", dormant], ["closed", "Closed", closed]].filter(([, , count]) => count > 0).map(([lifecycle, label, count]) => {
+    const title = lifecycle === "recent"
+      ? "Session seen within 24 hours at the last Pallium observation; this is session activity, not feature attachment age, work on this feature, current execution, or staffing."
+      : lifecycle === "dormant" ? "Dormant under Pallium's session last-seen observation; dormant does not mean this item is completed."
       : "Closed session association; this does not mean this item is completed.";
-    return `<span class="badge board-item-participants${label !== "Recent" ? " participant-dormant" : ""}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${label} ${count} associated session${count === 1 ? "" : "s"}. ${title}`)}">${label} ${count}</span>`;
+    return `<span class="badge board-item-participants${lifecycle !== "recent" ? " participant-dormant" : ""}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${label} ${count} associated session${count === 1 ? "" : "s"}. ${title}`)}">${escapeHtml(label)} ${count}</span>`;
   }).join(" ");
 }
 
@@ -2633,7 +2633,15 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
   const cardStatus = getBoardCardStatus(item);
   const numericPriority = /^\d+$/.test(String(metadata.priority ?? "")) ? renderBadge(metadata.priority, "priority") : "";
   const participantBadge = buildBoardParticipantBadge(item);
-  const signalBadges = `${cardStatus ? renderBadge(metadata.status, "status") : ""}${numericPriority}${participantBadge}`;
+  const otherActivity = (item.matchingVersions || []).filter((version) => version.sourceKey !== item.sourceVersion?.sourceKey
+    && normalizeBadgeToken(version.summary.status) !== normalizeBadgeToken(metadata.status)
+    && ["active", "in-progress", "blocked"].includes(normalizeBadgeToken(version.summary.status)));
+  const otherVersionBadges = [...new Set(otherActivity.map((version) => normalizeBadgeToken(version.summary.status)))].map((status) => {
+    const sources = otherActivity.filter((version) => normalizeBadgeToken(version.summary.status) === status)
+      .map((version) => `${version.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version.sourceContext.label}: ${version.repoRoot}`);
+    return `<span class="badge badge-tone-${escapeHtml(getBadgeTone("status", status))} board-version-activity" title="${escapeHtml(sources.join("\n"))}">${escapeHtml(`${humanizeFilterKey(status)} in another version`)}</span>`;
+  });
+  const signalBadges = `${cardStatus ? renderBadge(metadata.status, "status") : ""}${otherVersionBadges.join("")}${numericPriority}${participantBadge}`;
   const statusSignal = `<span class="board-card-signals">${signalBadges}</span>`;
   const specLink = item.sourceVersion ? item.sourceVersion.summary.specSession : state.workspace?.specSessionsByItemId?.[item.id];
   const specBadge = specLink?.unavailable
@@ -2664,7 +2672,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     ${statusSignal}
     <span class="board-item-id">${escapeHtml(item.sourceVersion?.itemId || item.id)}</span>
     ${overview}
-    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}${groupCue}</span>
+    <span class="badge-row">${renderBadges(item, activeLensKey, { cardMode: true })}${otherVersionBadges.join("")}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}${groupCue}</span>
   `;
 }
 
@@ -3925,8 +3933,8 @@ function renderItemParticipants() {
   };
   const grouped = Object.fromEntries(["recent", "dormant", "closed"].map((lifecycle) => [lifecycle, participants.filter((participant) => participant.lifecycle === lifecycle)]));
   const recent = grouped.recent.length
-    ? `<section class="item-participant-group" aria-label="Recent sessions"><h4>Recent</h4><div class="item-participant-group-list" role="list">${grouped.recent.map(renderParticipant).join("")}</div></section>`
-    : '<p class="muted item-participants-no-recent">No recent sessions.</p>';
+    ? `<section class="item-participant-group" aria-label="Sessions seen within 24 hours"><h4>Seen within 24h</h4><div class="item-participant-group-list" role="list">${grouped.recent.map(renderParticipant).join("")}</div></section>`
+    : '<p class="muted item-participants-no-recent">No sessions seen within 24h.</p>';
   const otherGroups = ["dormant", "closed"].map((lifecycle) => {
     const group = grouped[lifecycle];
     if (!group.length) return "";

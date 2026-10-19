@@ -29,9 +29,9 @@ async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true, op
   git("add", "."); git("commit", "-m", "fixture");
   const payload = mode === "across" ? await loadWorktreeAggregate(root) : await loadWorkspace(root);
   payload.snapshot = { id: "fixture-snapshot", validatedAt: new Date().toISOString(), stale: false, refreshing: false };
-  let recent = 1, fail = false, observations = 0, reads = 0;
+  let recent = 1, dormant = 0, fail = false, observations = 0, reads = 0;
   const requests = [];
-  const counts = () => ({ status: "ok", counts: [{ [mode === "across" ? "featureKey" : "itemId"]: mode === "across" ? payload.features[0].key : "alpha", participantCount: recent, recentParticipantCount: recent, dormantParticipantCount: 0 }], partial: false, asOf: new Date().toISOString(), recentSeconds: 86400, includeCompleted: true });
+  const counts = () => ({ status: "ok", counts: [{ [mode === "across" ? "featureKey" : "itemId"]: mode === "across" ? payload.features[0].key : "alpha", participantCount: recent + dormant, recentParticipantCount: recent, dormantParticipantCount: dormant }], partial: false, asOf: new Date().toISOString(), recentSeconds: 86400, includeCompleted: true });
   if (mode === "across") payload.participantCounts = counts();
   await page.route(mode === "across" ? "**/api/worktree-workspace**" : "**/api/workspace**", async (route) => {
     reads++;
@@ -54,7 +54,7 @@ async function fixture(page, mode, layout, beforeOpen, { waitForBoard = true, op
   if (beforeOpen) await beforeOpen({ root, payload });
   await page.goto(`/#repo=${encodeURIComponent(root)}&sources=${mode}&layout=${layout}${openItem ? "&item=alpha" : ""}`);
   if (waitForBoard) await expect(page.locator("#board-groups")).toContainText("Alpha");
-  return { root, payload, setRecent: (value) => { recent = value; }, fail: () => { fail = true; }, observations: () => observations, reads: () => reads, requests,
+  return { root, payload, setRecent: (value) => { recent = value; }, setRecency: (nextRecent, nextDormant) => { recent = nextRecent; dormant = nextDormant; }, fail: () => { fail = true; }, observations: () => observations, reads: () => reads, requests,
     setSpec: () => {
       const link = { sessionId: "fixture-session", targetFile: path.join(root, "roadmap", "features", "alpha.md"), openComments: 2, pendingSuggestions: 1 };
       if (mode === "across") for (const version of payload.features[0].versions) version.summary.specSession = link;
@@ -85,6 +85,120 @@ test.afterEach(async () => {
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+async function expectHeaderFits(page) {
+  const boxes = await page.locator("#board-panel").evaluate((board) => {
+    const rect = (selector) => board.querySelector(selector).getBoundingClientRect().toJSON();
+    return { header: rect(".panel-header"), title: rect("h2"), status: rect("#board-source-status-summary"), controls: rect("#board-controls") };
+  });
+  for (const content of [boxes.title, boxes.status]) {
+    expect(content.top).toBeGreaterThanOrEqual(boxes.header.top);
+    expect(content.bottom).toBeLessThanOrEqual(boxes.header.bottom);
+    expect(content.left).toBeGreaterThanOrEqual(boxes.header.left);
+    expect(content.right).toBeLessThanOrEqual(boxes.header.right);
+  }
+  expect(boxes.header.bottom).toBeLessThanOrEqual(boxes.controls.top + 1);
+}
+
+for (const layout of ["list", "columns"]) {
+  test(`${layout} represented activity, wrapped coverage and session recency remain source-specific`, async ({ page }, testInfo) => {
+    const hold = responseHold();
+    let lifecycle = "recent";
+    const data = await fixture(page, "across", layout, async ({ payload }) => {
+      const feature = payload.features[0];
+      const base = feature.versions[0];
+      for (const status of ["active", "blocked"]) {
+        const sibling = structuredClone(base);
+        sibling.sourceKey += `-${status}`;
+        sibling.sourceContext.sourceKey = sibling.sourceKey;
+        sibling.sourceContext.git.branchRef = `refs/heads/feat/${status}-delivery`;
+        sibling.summary.status = status;
+        if (sibling.summary.metadata) sibling.summary.metadata.status = status;
+        feature.versions.push(sibling);
+        payload.groups[0].items[0].versions.push(sibling);
+      }
+      const opened = structuredClone(payload);
+      opened.features[0].versions = [opened.features[0].versions[0]];
+      opened.groups[0].items[0].versions = [opened.groups[0].items[0].versions[0]];
+      opened.provisional = true;
+      opened.partial = true;
+      opened.coverage = { ...opened.coverage, pending: true };
+      await page.route("**/api/worktree-workspace**", async (route) => {
+        if (new URL(route.request().url()).searchParams.has("openedOnly")) return route.fulfill({ json: opened });
+        await hold.pending;
+        await route.fulfill({ json: payload });
+      });
+      await page.route(/\/api\/source\/items\/alpha\/participants(?:\?|$)/, async (route) => {
+        const result = detailParticipantPayload("Associated Session");
+        result.participants[0].lifecycle = lifecycle;
+        if (lifecycle === "dormant") result.participants[0].last_seen_at = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+        await route.fulfill({ json: result });
+      });
+    });
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading other worktrees");
+    await expectHeaderFits(page);
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-loading-header-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await expectHeaderFits(page);
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-loading-header-narrow.png`) });
+    hold.release();
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const card = page.locator(layout === "list" ? ".board-item" : ".board-column-card").first();
+    await expect(card.locator(".board-version-activity:visible")).toHaveText(["Active in another version", "Blocked in another version"]);
+    await expect(card.locator(".board-version-activity:visible").first()).toHaveAttribute("title", /feat\/active-delivery/);
+    await expect(card).not.toHaveClass(/board-card-status-progress|board-card-status-blocked/);
+    await expect(card.locator(".board-item-participants:visible")).toHaveText("Seen within 24h 1");
+    await expect(card.locator(".board-item-participants:visible")).toHaveAttribute("aria-label", /Session seen within 24 hours at the last Pallium observation/);
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-version-activity-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-version-activity-narrow.png`) });
+    await page.getByRole("button", { name: "Open Alpha", exact: true }).first().click();
+    await expect(page.locator("#item-preview .badge-field-status")).toHaveText("queued");
+    await expect(page.locator("#item-participants-status")).toContainText("Seen within 24h 1");
+    await expect(page.locator(".item-participants-hint")).toContainText("not attachment age or work on this feature");
+    lifecycle = "dormant";
+    await page.locator("#item-participants > summary").click();
+    await page.locator("#item-participants-refresh").click();
+    await expect(page.locator("#item-participants-status")).toContainText("Dormant 1");
+    await expect(page.locator(".item-participants-no-recent")).toHaveText("No sessions seen within 24h.");
+    if (await page.locator("#editor-overlay").isVisible()) await page.keyboard.press("Escape");
+    data.setRecency(0, 1);
+    await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
+    await expect(card.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
+    await page.evaluate(() => {
+      const params = new URLSearchParams(location.hash.slice(1));
+      params.set("f", "status:queued");
+      location.hash = params.toString();
+    });
+    await expect(page.locator("#board-groups .board-version-activity:visible")).toHaveCount(0);
+  });
+
+  test(`${layout} failed full coverage settles and can recover without a stuck loading label`, async ({ page }) => {
+    const hold = responseHold();
+    let failFull = true;
+    await fixture(page, "across", layout, async ({ payload }) => {
+      const opened = structuredClone(payload);
+      opened.provisional = true;
+      opened.partial = true;
+      await page.route("**/api/worktree-workspace**", async (route) => {
+        if (new URL(route.request().url()).searchParams.has("openedOnly")) return route.fulfill({ json: opened });
+        await hold.pending;
+        await route.fulfill(failFull ? { status: 503, json: { error: { message: "Full coverage unavailable" } } } : { json: payload });
+      });
+    });
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading other worktrees");
+    hold.release();
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await page.locator("#board-source-status-summary").click();
+    await expect(page.locator("#board-source-status-details")).toContainText("could not be loaded");
+    failFull = false;
+    await page.locator("#refresh-button").click();
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+  });
+}
 
 for (const layout of ["list", "columns"]) {
   test(`${layout} collapsed task header keeps known totals and status through pagination`, async ({ page }, testInfo) => {
@@ -377,11 +491,11 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
   test(`${mode} ${layout} refreshes observations without a full scan and pauses observations while hidden`, async ({ page }, testInfo) => {
     const data = await fixture(page, mode, layout);
     await expect.poll(data.observations).toBeGreaterThan(0);
-    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
     const reads = data.reads();
     data.setRecent(2);
     await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
-    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 2");
+    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 2");
     expect(data.reads()).toBe(reads);
     const calls = data.observations();
     await page.evaluate(() => {
@@ -395,7 +509,7 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 3");
+    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 3");
     await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-desktop.png`) });
     await page.setViewportSize({ width: 390, height: 840 });
     await page.locator("#board-groups").scrollIntoViewIfNeeded();
@@ -408,11 +522,11 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
 test("temporary observation failure retains badges with an explicit stale state", async ({ page }, testInfo) => {
   const data = await fixture(page, "across", "columns");
   await expect.poll(data.observations).toBeGreaterThan(0);
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
   data.fail();
   await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
   await expect(page.locator("#board-participant-status")).toContainText("last-known");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
   await page.screenshot({ path: testInfo.outputPath("stale-desktop.png") });
   await page.setViewportSize({ width: 390, height: 840 });
   await expect(page.locator("#board-participant-status")).toHaveClass(/is-incomplete/);
@@ -422,7 +536,7 @@ test("temporary observation failure retains badges with an explicit stale state"
 
 test("hash entry to Spec cancels a workspace read and retains badges on unchanged return", async ({ page }) => {
   const data = await fixture(page, "this", "columns");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
   const roadmapHash = await page.evaluate(() => location.hash);
   const hold = responseHold();
   let started = false, cancelled = false;
@@ -449,7 +563,7 @@ test("hash entry to Spec cancels a workspace read and retains badges on unchange
   data.fail();
   await page.evaluate((hash) => { location.hash = hash; }, roadmapHash);
   await expect(page.locator("#board-participant-status")).toContainText("last-known");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
   await expect(page.locator("#board-groups")).not.toContainText("Late Alpha");
 });
 
@@ -663,7 +777,7 @@ test("a workspace timeout while hidden retains the board and retries once on res
 
 test("a newly ambiguous feature cannot retain its formerly confirmed participant badge", async ({ page }) => {
   const data = await fixture(page, "across", "columns");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Recent 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
   const original = data.payload.features[0];
   const independent = structuredClone(original);
   independent.key = "independent-alpha";

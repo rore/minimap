@@ -40,7 +40,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
   });
   try {
     await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
     await page.locator("#refresh-button").click();
     await expect.poll(() => reads).toBe(3);
     await expect(page.locator("#board-source-status-summary")).toContainText("Updating");
@@ -51,7 +51,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
       for (const layout of ["list", "columns"]) {
         const button = page.locator(`#board-layout-${layout}`);
         if (await button.isEnabled()) await button.click();
-        await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+        await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
         await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 checkouts" })).toHaveCount(2);
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(2);
         await page.screenshot({ path: testInfo.outputPath(`snapshot-retry-${layout}-${width}.png`), fullPage: true });
@@ -82,7 +82,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
       });
       await expect(page.locator("#spec-workbench")).toBeHidden();
     }
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
     if (interruption === "visibility") {
       expect(reads).toBe(3);
       expect(resumedUrl).toBeUndefined();
@@ -99,7 +99,7 @@ for (const interruption of ["visibility", "Spec toolbar", "Spec hash"]) test(`sn
     release();
     await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
     await expect(page.locator("#field-title")).toHaveValue("Unsaved retry draft");
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
     expect(reads).toBe(interruption === "visibility" ? 3 : 4);
   } finally {
@@ -123,12 +123,12 @@ for (const kind of ["consistency", "other"]) test(`snapshot recovery bounds ${ki
   });
   try {
     await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
     fail = true;
     await page.locator("#refresh-button").click();
     await expect(page.locator("#status-banner")).toContainText(kind === "consistency" ? "Could not read a consistent worktree snapshot" : "unrelated failure");
     await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
     await expect(page.locator(".board-source-badge:visible").filter({ hasText: "2 checkouts" })).toHaveCount(2);
     await page.waitForTimeout(800);
     expect(reads).toBe(kind === "consistency" ? 4 : 2);
@@ -162,7 +162,7 @@ test("snapshot recovery leaves the provisional board honest until a consistent f
     await expect(page.locator("#status-banner")).not.toContainText("consistent");
     release();
     await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
   } finally {
     release();
     await fs.rm(data.owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -184,7 +184,7 @@ test("snapshot recovery ignores a late retry after switching checkout mode", asy
   });
   try {
     await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across`);
-    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Recent 1"]);
+    await expect(page.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
     await page.locator("#refresh-button").click();
     await expect.poll(() => reads).toBe(3);
     await page.evaluate((hash) => { location.hash = hash; }, `repo=${encodeURIComponent(data.root)}&sources=this`);

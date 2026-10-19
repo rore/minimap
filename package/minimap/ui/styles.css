@@ -3793,6 +3793,10 @@ textarea {
   gap: 10px;
 }
 
+.board-panel .panel-header { height: auto; min-height: 44px; }
+.board-panel .panel-header-main h2 { flex-shrink: 0; }
+.board-source-status { min-width: 0; max-width: 100%; }
+
 .board-panel .panel-actions,
 .scope-panel .panel-actions {
   gap: 6px;
