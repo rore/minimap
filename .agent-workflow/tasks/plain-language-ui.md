@@ -13,7 +13,7 @@
 {"source":"work-record-initial","outcome":"Use plain, familiar UI language and concise defaults without obscuring saved status, conflicts, uncertainty, source identity or actions that can change data.","scope":"UI copy, existing disclosures and small layout adjustments; every wording consumer and affected acceptance test; relevant guidance and canonical roadmap note; generated runtime mirrors.","constraints":"Preserve status derivation, per-version filtering, source and revision guards, provider lifecycle, In play membership, request behavior and all data writes. Unknown is not empty or zero. Retain conflicts, selected-file metadata, source paths and saved-record provenance. Keep discard/apply/revert/recovery confirmations and actionable errors. No backend changes, live environment edits, new services or dependencies. Work only in the isolated plain-language-ui branch.","completion_criteria":"Default statuses use familiar labels such as Active, Queued, Blocked and Done, with both active and blocked and visible conflicting-version cues preserved. Board, source and detail wording clearly distinguishes loading, incomplete selection, unavailable sources and earlier results without repetitive qualifiers. Linked sessions and tasks stay concise while exact references, timestamps, saved-record caveats and recovery details remain accessible. Spec language describes comment or suggestion locations accurately for sections as well as quoted text. All wording consumers are updated without weakening safety assertions, and complete affected browser files plus desktop/narrow List/Columns and spec visuals pass review."}
 
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:polish-worktree-view-usability"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:polish-worktree-view-usability"}],"pull_requests":["https://github.com/rore/minimap/pull/65"]}
 
 **Risk:** High
 
@@ -134,3 +134,8 @@ Verification adequacy: 219 distinct affected browser cases have passing evidence
 ## Local workflow check
 
 Implementation commit `4e4cfdb` passed all blocking workflow/Redline predicates. Declared and detected risk are High; no boundary violations; the initial requirement baseline matches `2772b486`; all eight protected acceptance paths are classified and task-owner/user authorization is recognized; plan and result reviews are recognized. Local exit 1 is advisory only: the CONTRACT.md red zone requires the actual PR's architecture-review label or CODEOWNER checkpoint. No PR existed at this check, so no label was fabricated. Retained generated evidence: ignored `build/redline-verdict.json` and `build/workflow-check.json`. Parent owns satisfying the real PR checkpoint and full CI.
+
+
+## Delivery handoff
+
+Parent created PR #65: https://github.com/rore/minimap/pull/65 and attached it to the task. Parent reports the actual architecture-reviewed label applied. Technical/visual review and repository implementation are complete for this bounded contribution; CI and merge remain parent-owned. The existing failed narrow-spec layout is recorded above and in the owning roadmap follow-up. No live update is authorized or performed.
