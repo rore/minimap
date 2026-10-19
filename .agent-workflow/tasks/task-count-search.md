@@ -29,15 +29,33 @@
 
 **Verification plan:** test: Known/unknown, zero, partial/stale and pagination-wide counts -> focused Playwright count test. test: Space, repeated-space, backspace, caret, route and Clear behavior in both layouts -> focused keyboard browser tests plus existing search regression. manual: Actual desktop and 390px narrow screenshots. test: UI filters, HTML/promise lint, runtime mirror parity, workflow/redline checks.
 
-**Plan review:** Pending independent agent technical review before product edits.
+**Plan review:** Agent technical review: `/root/scan_review` approved the plan after inspecting the connected input/render/route/Clear and related-work paths. Counts use nonnegative safe totals including zero, preserve uncertainty and pagination; search retains focused raw text only when query semantics match.
 
 **Approvals:** Approved by user 2026-10-19: "1. in the task linked to this feature header, can we show the number of tasks (e.g. (2) ) - so  you don't need to open to know if there are tasks. 2. in the search box, i can't search for multiple words - i can't enter a space" (source request cd6b01f8-7396-4229-b518-1a7ae0fabfc3).
 
+**Behavior changes:** [{"target":"repository-contract","path":"playwright/snapshot-refresh.spec.js","classification":"requirement-change","before":"The browser contract labels a successful empty task result as None and does not require count visibility in partial/stale/collapsed states or keyboard typing of search spaces.","after":"Known task totals appear parenthesized with status and pagination truth; unknown loading/unavailable states omit counts. Keyboard search preserves raw spaces and caret while matching remains normalized in both layouts; route and Clear behavior remain intact.","reason":"The user requested collapsed task counts and repair of the inability to type spaces.","impact":"The old None assertion becomes (0); focused count/status and typed-search regressions are added. No API, matching, cache or source semantics change.","alternatives":"Retaining the old header hides known counts; writing normalized input continues to erase spaces.","authority":{"scope":"task","name":"task-owner"},"approval":{"by":"user","reference":"User request cd6b01f8-7396-4229-b518-1a7ae0fabfc3, 2026-10-19","verbatim":"1. in the task linked to this feature header, can we show the number of tasks (e.g. (2) ) - so  you don't need to open to know if there are tasks. 2. in the search box, i can't search for multiple words - i can't enter a space"}}]
+
 **Exceptions:** —
 
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
 
-Isolated checkout `.local/task-count-search`, branch `feat/task-count-search`, starts at `833ae31`. Planned files: `package/minimap/ui/app.js`, generated runtime app mirrors, focused cases in `playwright/snapshot-refresh.spec.js`, and owning roadmap notes `roadmap/features/show-feature-related-work.md` and `roadmap/features/feature-search-and-filters.md`. No product edits yet.
+Isolated checkout `.local/task-count-search`, branch `feat/task-count-search`, starts at `833ae31`. Planned files: `package/minimap/ui/app.js`, generated runtime app mirrors, focused cases in `playwright/snapshot-refresh.spec.js`, and owning roadmap notes `roadmap/features/show-feature-related-work.md` and `roadmap/features/feature-search-and-filters.md`. Product implementation follows this pre-edit plan.
+
+Implemented the shared count prefix with validated totals (including zero), existing status suffixes and no inferred zero for an unknown unavailable result. Search keeps normalized state/filter/route contracts; `renderSearchControls` now preserves the focused input when its normalized text equals state, avoiding value reassignment and caret movement on ordinary typing. Added focused keyboard and count-status/pagination cases for List and Columns, with desktop/narrow captures. Both runtime mirrors regenerated. No backend/cache changes.
+
+## Evidence
+
+`node C:/Dev/rore/minimap/node_modules/@playwright/test/cli.js test playwright/snapshot-refresh.spec.js --grep "collapsed task header|keyboard search" --reporter=line` passed all four new List/Columns cases. `node --test test/ui-filters.test.js test/ui-lint-html-escape.test.js test/ui-lint-promises.test.js test/sync-mirrors.test.js` passed all 25 checks. `node scripts/sync-mirrors.mjs` regenerated both runtime mirrors; `git diff --check` passed. The broader run passed all 35 browser tests: complete `playwright/snapshot-refresh.spec.js` and `playwright/related-work.spec.js` suites plus the existing `roadmap-ui.spec.js` body-text search/URL and metadata-filter-plus-search cases.
+
+Actual desktop and 390px narrow screenshots were inspected by implementer and parent: known collapsed stale count remains readable, and typed multiword search remains visible with its matching item in both layouts. Captures are under `test-results/snapshot-refresh-{list,columns}-*/`, named `{layout}-task-count-{desktop,narrow}.png` and `{layout}-multiword-search-{desktop,narrow}.png`. Skill-doc keyword checks found no conflicting old description.
+
+## Result review
+
+Agent technical review: `/root/scan_review`, independent non-implementer, approved the final diff on 2026-10-19. No code/test blockers.
+
+Reviewed revision: canonical app SHA256 `0AD06338027AABC7957AD5E2416C524E6DD2EA0AE61CD5594C2CA180C8D46A25`, independently verified identical in both runtime mirrors.
+
+Verification adequacy: reviewer read all four new browser cases and updated zero-count assertion and accepted the reported four browser plus 25 filter/lint/mirror checks as targeted evidence. The subsequent broader 35-case local browser regression passed; full CI remains an owner delivery gate. Reviewer ran no tests and relied on the parent screenshot inspection while the broader test run regenerated artifacts.

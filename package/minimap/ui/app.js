@@ -1827,7 +1827,9 @@ function renderSearchControls() {
   boardFocusInPlayButton.setAttribute("aria-pressed", state.inPlay ? "true" : "false");
   boardFocusInPlayButton.classList.toggle("is-active", state.inPlay);
 
-  boardSearchInput.value = state.searchQuery;
+  if (document.activeElement !== boardSearchInput || normalizeSearchQuery(boardSearchInput.value) !== state.searchQuery) {
+    boardSearchInput.value = state.searchQuery;
+  }
   boardSearchInput.disabled = !state.workspace || state.boardEditMode;
   boardFilterToggleButton.disabled = facets.length === 0 || state.boardEditMode;
   boardFilterToggleButton.textContent = activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters";
@@ -4209,11 +4211,15 @@ function renderRelatedWork() {
   const view = relatedWorkView;
   const records = view.records || [];
   const summary = previewElement.querySelector("#related-work > summary");
-  if (summary) summary.textContent = view.status === "loading" ? "Tasks linked to this feature · Loading"
-    : view.status === "ok" ? `Tasks linked to this feature · ${view.total || records.length || "None"}`
-      : view.status === "stale" ? "Tasks linked to this feature · Last checked earlier"
-        : view.status === "error" || view.status === "unavailable" ? "Tasks linked to this feature · Unavailable"
-          : "Tasks linked to this feature · List may be incomplete";
+  const total = view.status === "unavailable" && !records.length ? null
+    : Number.isSafeInteger(view.total) && view.total >= 0 ? view.total
+      : records.length ? records.length : view.status === "ok" ? 0 : null;
+  const statusLabel = view.status === "loading" ? " · Loading"
+    : view.status === "ok" ? ""
+      : view.status === "stale" ? " · Last checked earlier"
+        : view.status === "error" || view.status === "unavailable" ? " · Unavailable"
+          : " · List may be incomplete";
+  if (summary) summary.textContent = `Tasks linked to this feature${total == null ? "" : ` (${total})`}${statusLabel}`;
   const message = view.status === "loading" ? (records.length ? "Checking linked task records…" : "Loading linked task records…")
     : view.status === "unavailable" ? "Linked task records are unavailable for this checkout."
       : view.status === "error" ? "Could not load linked task records. Try Refresh."
