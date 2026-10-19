@@ -156,14 +156,14 @@ test("Across redraws a matching card when its versions narrow but its primary so
     await page.goto(`/#repo=${encodeURIComponent(root)}`);
     await page.locator("#board-source-toggle").click();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
-    await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded");
+    await expect(page.locator("#board-source-status-details")).toContainText("2 worktrees loaded");
     const search = page.locator("#board-search");
     await search.fill("shared");
     const card = page.locator("#board-groups .board-item").filter({ hasText: "Shared common title" });
-    await expect(card.locator(".board-source-badge").first()).toHaveText("2 checkouts");
+    await expect(card.locator(".board-source-badge").first()).toHaveText("2 worktrees");
     await search.fill("common");
     await expect(card).toBeVisible();
-    await expect(card.locator(".board-source-badge").first()).not.toHaveText("2 checkouts");
+    await expect(card.locator(".board-source-badge").first()).not.toHaveText("2 worktrees");
     await expect(page.locator("#board-groups .board-item")).toHaveCount(1);
   } finally {
     await page.goto("about:blank");

@@ -290,8 +290,9 @@ test.afterEach(async () => {
 test("shows repo name and ASCII workspace summary in the header", async ({ page }) => {
   await page.goto(repoUrl());
 
-  await expect(page).toHaveTitle(/Minimap.*minimap.*Roadmap/);
-  await expect(page.locator("#repo-name")).toHaveText("minimap");
+  const expectedRepoName = path.basename(process.cwd());
+  await expect(page).toHaveTitle(`Minimap — ${expectedRepoName} · Roadmap`);
+  await expect(page.locator("#repo-name")).toHaveText(expectedRepoName);
   await expect(page.locator("#mode-title")).toHaveText("Roadmap");
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await expect(page.locator("#workspace-summary")).not.toContainText("?");
@@ -621,7 +622,7 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(participantDetails).toContainText("Lifecycle: recent");
   await expect(participantDetails).toContainText("Destination: active");
   await expect(participantDetails).toContainText("git:github.com/rore/minimap");
-  await expect(participantDetails).toContainText("Association updated");
+  await expect(participantDetails).toContainText("Feature link updated");
   const lifecycleDetails = page.locator(".item-participant-lifecycle");
   await expect(lifecycleDetails).toHaveCount(1);
   await expect(lifecycleDetails.nth(0).locator(":scope > summary")).toContainText("Historical closed sessions");
@@ -634,8 +635,8 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await referenceDetails.locator(":scope > summary").click();
   await expect(referenceDetails).toHaveAttribute("open", "");
   await expect(referenceDetails).toContainText("Scope");
-  await expect(referenceDetails).toContainText("Last seen measures session activity, not work on this feature or staffing.");
-  await expect(referenceDetails).toContainText("Use a linked Pallium session to remove explicit associations");
+  await expect(referenceDetails).toContainText("Last seen is session activity. It does not show work on this feature.");
+  await expect(referenceDetails).toContainText("Manage manual links in Pallium");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.locator("#item-participants-copy").click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText().then((text) => text.replaceAll("\r", "")))).toBe("scope_ref: roadmap:v1:git:github.com/rore/minimap#roadmap\nlocal_ref: item:v1:feature-setup-guidance");
@@ -1416,7 +1417,7 @@ test("status columns keep configured empty lanes visible in columns mode", async
     await expect(page.locator(".board-column").nth(2)).toContainText("blocked");
     await expect(page.locator(".board-column").nth(2).locator(".board-column-empty")).toContainText("No visible items.");
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 test("keeps list-mode board controls compact and non-overlapping", async ({ page }) => {
@@ -1428,7 +1429,7 @@ test("keeps list-mode board controls compact and non-overlapping", async ({ page
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
   await page.locator("#board-focus-unfinished").click();
   await expect(page.locator("#board-filter-toggle")).toHaveText("Filters (1)");
-  await expect(page.locator("#board-participant-status")).toHaveText("Session badges unavailable");
+  await expect(page.locator("#board-participant-status")).toHaveText("Session counts unavailable");
 
   const toolbar = page.locator(".board-toolbar-row");
   const modeRowBox = await page.locator(".board-mode-row").boundingBox();
@@ -1482,7 +1483,7 @@ test("keeps list-mode board controls compact and non-overlapping", async ({ page
   await page.locator("#board-focus-in-play").click();
   const warning = page.locator("#board-participant-status");
   await expect(warning).toHaveClass(/is-incomplete/);
-  await expect(warning).toHaveText("In play results incomplete: session lookup unavailable");
+  await expect(warning).toHaveText("In play may be incomplete: session lookup unavailable");
   const warningBox = await warning.boundingBox();
   const toolbarBox = await toolbar.boundingBox();
   expect(warningBox.width).toBeCloseTo(toolbarBox.width, 0);
@@ -1933,7 +1934,7 @@ test("dragging between status columns uses the handle and updates the canonical 
     await expect(page).not.toHaveURL(/item=/);
     expect(await fs.readFile(path.join(fixture, "roadmap", "features", "drag-source.md"), "utf8")).toContain("status: queued");
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -1988,7 +1989,7 @@ test("list view opens cards and supports moving and ordering with its in-card dr
     await card.click();
     await expect(page.locator("#editor-title")).toHaveText("Drag source");
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 test("shows bounded recent and dormant session counts across dense List and Columns boards", async ({ page }) => {
@@ -2141,7 +2142,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
     await page.screenshot({ path: "artifacts/board-presence-columns-queued-refresh.png", fullPage: false });
     expect(boardRequests).toHaveLength(1);
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -2158,10 +2159,10 @@ test("does not show zero badges when board recency is disabled, unsupported, or 
       await expect(page.locator(".board-item-participants")).toHaveCount(0);
       const toolbar = page.locator("#board-participant-status");
       if (status === "disabled") await expect(toolbar).toBeHidden();
-      else if (status === "unsupported") await expect(toolbar).toHaveText("Participant recency needs a newer Pallium");
+      else if (status === "unsupported") await expect(toolbar).toHaveText("Session counts need a newer Pallium");
       else {
         await expect(toolbar).toBeVisible();
-        await expect(toolbar).toHaveText("Session badges unavailable");
+        await expect(toolbar).toHaveText("Session counts unavailable");
       }
       await page.waitForLoadState("networkidle");
       const card = page.locator('.board-item[data-item-id="large-item-02"]');
@@ -2176,7 +2177,7 @@ test("does not show zero badges when board recency is disabled, unsupported, or 
       await page.unroute(/\/api\/board\/observations(?:\?.*)?$/);
     }
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -2230,7 +2231,7 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     const originalBoard = await fs.readFile(boardFile, "utf8");
     const activeCard = page.locator('[data-item-id="large-item-02"]');
     await expect(activeCard).toHaveClass(/board-card-status-progress/);
-    await expect(activeCard.locator(".badge-row .recorded-status")).toHaveText("Marked active");
+    await expect(activeCard.locator(".badge-row .recorded-status")).toHaveText("Active");
     await expect(activeCard.locator(".badge-row .badge-field-priority")).toHaveText("P1");
     await expect(activeCard.locator(".badge-row .badge-field-priority")).toHaveAttribute("title", "Priority 1");
     await expect(page.locator('[data-item-id="large-item-03"]')).toHaveClass(/board-card-status-blocked/);
@@ -2244,7 +2245,7 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     await page.locator("#board-focus-milestone").selectOption("");
     const statuses = await page.locator(".board-item .recorded-status:visible").allTextContents();
     expect(statuses.length).toBeGreaterThan(0);
-    expect(statuses.every((status) => !["Marked done", "Marked shipped", "Marked superseded"].includes(status))).toBe(true);
+    expect(statuses.every((status) => !["Done", "Shipped", "Superseded"].includes(status))).toBe(true);
     await expect(page.locator('[data-item-id="large-item-06"]')).toBeVisible();
     await expect(page.locator('[data-item-id="large-item-07"]')).toHaveCount(0);
     await expect(page.locator('[data-item-id="large-item-08"]')).toHaveCount(0);
@@ -2252,7 +2253,7 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     await page.screenshot({ path: test.info().outputPath("compact-dense-list-desktop.png") });
     await page.setViewportSize({ width: 390, height: 840 });
     await activeCard.scrollIntoViewIfNeeded();
-    await expect(activeCard.locator(".recorded-status:visible")).toHaveText("Marked active");
+    await expect(activeCard.locator(".recorded-status:visible")).toHaveText("Active");
     await page.screenshot({ path: test.info().outputPath("compact-dense-list-narrow.png") });
     await page.setViewportSize({ width: 1440, height: 820 });
 
@@ -2276,7 +2277,7 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
     expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -2293,7 +2294,7 @@ test("quick milestone focus handles block-list metadata values", async ({ page }
     await expect(page.locator("[data-item-id=drag-source]")).toBeVisible();
     await expect(page.locator("[data-item-id=drag-target]")).toHaveCount(0);
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -2347,7 +2348,7 @@ test("filtered dense metadata views show only groups with matching cards", async
       }
     }
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 test("stress-tests large metadata boards in list and columns views", async ({ page }) => {
@@ -2656,7 +2657,7 @@ test("stress-tests large metadata boards in list and columns views", async ({ pa
     await expect(page.locator(".board-column").first().locator(".board-column-name")).toHaveAttribute("title", /Milestone/);
     await expect(page.locator("[data-drag-item-id]")).toHaveCount(0);
   } finally {
-    await fs.rm(fixture, { recursive: true, force: true });
+    await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 test("milestone columns stay browse-only without drag handles", async ({ page }) => {
@@ -2834,14 +2835,14 @@ test("uses restrained semantic badge tones without coloring every field", async 
   await expect(badges).toHaveCount(2);
   const primaryStatus = card.locator('.recorded-status:visible');
   await expect(primaryStatus).toHaveCount(1);
-  await expect(primaryStatus).toHaveText("Marked done");
+  await expect(primaryStatus).toHaveText("Done");
   await expect(primaryStatus).toHaveClass(/badge-tone-neutral/);
   await expect(badges.nth(1)).toHaveText("committed");
   await expect(badges.nth(1)).toHaveClass(/badge-tone-commitment-committed/);
   await expect(card).not.toContainText("high");
 
   await page.locator('[data-item-open="feature-column-board-view"]').first().click();
-  await expect(page.locator('#item-preview .recorded-status:visible')).toHaveText("Marked done");
+  await expect(page.locator('#item-preview .recorded-status:visible')).toHaveText("Done");
   await expect(page.locator('#item-preview .recorded-status:visible')).toHaveClass(/badge-tone-neutral/);
 });
 
@@ -2993,7 +2994,7 @@ test("spec session preserves selected-file status and matches the roadmap title 
   expect(expectedTitle).toBe(selectedFile.frontmatter.title);
   const rawStatus = String(selectedFile.frontmatter.status);
   const recordedStatus = ["active", "in-progress"].includes(rawStatus.trim().toLowerCase()) ? "active" : rawStatus;
-  await expect(page.locator("#item-preview .recorded-status:visible")).toHaveText(`Marked ${recordedStatus}`);
+  await expect(page.locator("#item-preview .recorded-status:visible")).toHaveText(`${recordedStatus.charAt(0).toUpperCase()}${recordedStatus.slice(1)}`);
   const normalizeBadgeText = (value) => value.replace(/\s+/g, " ").trim();
   const expectedBadges = (await page.locator(".preview-meta .badge").allTextContents()).map(normalizeBadgeText);
   expect(expectedBadges.length, "roadmap preview should retain non-status metadata").toBeGreaterThan(0);
@@ -4149,13 +4150,66 @@ A second paragraph for layout.
     const card = document.querySelector(".spec-margin-card");
     return {
       isOrphanClass: card.classList.contains("is-orphan"),
-      // Internal "Anchor orphaned" badge should still be present.
+      // Internal "Comment location not found" badge should still be present.
       hasOrphanBadge: !!card.querySelector(".spec-card-orphan"),
       top: parseInt(card.style.top || "0", 10),
     };
   });
   expect(placement.isOrphanClass, "card should not be in the bottom orphan stack").toBe(false);
   expect(placement.hasOrphanBadge, "card should still display the anchor-orphaned badge").toBe(true);
+  await expect(page.locator(".spec-card-orphan").first()).toHaveText("Comment location not found");
   // Top should be NEAR where the original paragraph was, not pushed all the way to the bottom.
   expect(placement.top, "card should be near top, not stacked at bottom").toBeLessThan(2000);
+});
+
+
+test("plain location warnings cover sections, ambiguous matches and unknown outcomes", async ({ page }, testInfo) => {
+  const createdAt = new Date().toISOString();
+  await page.route("**/api/spec-sessions/by-file/context?**", async (route) => {
+    const response = await route.fetch();
+    const context = await response.json();
+    const base = { by: "human", text: "Review this section", status: "open", createdAt, replies: [] };
+    context.comments = [
+      { ...base, id: "missing-section", anchor: { scope: "section", headingPath: ["Removed section"] }, anchorStatus: { status: "orphaned" } },
+      { ...base, id: "ambiguous-location", anchor: { scope: "quote", quote: "Repeated words" }, anchorStatus: { status: "ambiguous" } },
+      { ...base, id: "unknown-location", anchor: { scope: "section", headingPath: ["Other section"] }, anchorStatus: { status: "future-status" } },
+    ];
+    context.suggestions = [{ id: "missing-suggestion-section", by: "human", createdAt, status: "pending", kind: "replace", content: "Replacement section", rationale: "Clarify this section", anchor: { scope: "section", headingPath: ["Removed section"] }, anchorStatus: { status: "orphaned" }, replies: [] }];
+    await route.fulfill({ response, json: context });
+  });
+  await page.goto(repoUrl());
+  await openCurrentItemAsSpec(page);
+  await expect(page.locator('[data-comment-id="missing-section"] .spec-card-orphan')).toHaveText("Comment location not found");
+  await expect(page.locator('[data-comment-id="ambiguous-location"] .spec-card-orphan')).toHaveText("More than one matching location");
+  await expect(page.locator('[data-comment-id="unknown-location"] .spec-card-orphan')).toHaveText("Location unavailable");
+  await expect(page.locator('[data-suggestion-id="missing-suggestion-section"] .spec-card-orphan')).toHaveText("Suggestion location not found");
+  await expect(page.locator('[data-suggestion-id="missing-suggestion-section"]').getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: testInfo.outputPath("plain-location-warnings-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 840 });
+  await page.locator('[data-comment-id="missing-section"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("plain-location-warnings-narrow.png") });
+  await page.locator('[data-comment-id="ambiguous-location"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("plain-ambiguous-location-narrow.png") });
+  // Whole-file mode is a no-heading/no-selection fallback, not a visible authoring choice.
+  const fallbackRoot = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-plain-composer-"));
+  const fallbackFile = path.join(fallbackRoot, "plain.md");
+  try {
+    await fs.writeFile(fallbackFile, "A plain document without headings.\n", "utf8");
+    await page.unroute("**/api/spec-sessions/by-file/context?**");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator("#spec-attach-path").fill(fallbackFile);
+    await page.locator('#spec-attach-form button[type="submit"]').click();
+    await expect(page).toHaveURL((url) => new URLSearchParams(url.hash.slice(1)).get("file") === fallbackFile.replaceAll("\\", "/"));
+    await expect(page.locator("#spec-file-content")).toContainText("A plain document without headings.");
+    await page.evaluate(() => window.__minimapSpec.openCommentComposerWithSelection(""));
+    await expect(page.locator("#spec-comment-form")).toBeVisible();
+    await expect(page.locator('[data-comment-anchor-mode="global"]')).toBeHidden();
+    await expect(page.locator("#spec-comment-anchor-summary")).toHaveText("Whole file comment");
+    await expect(page.locator('#spec-comment-form label').filter({ has: page.locator('#spec-comment-by') })).toContainText("Author");
+    await page.screenshot({ path: testInfo.outputPath("plain-whole-file-composer-desktop.png") });
+  } finally {
+    await page.goto("about:blank");
+    await fs.rm(fallbackRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });

@@ -70,6 +70,7 @@ function detailParticipantPayload(alias) {
     partial: false,
     participants: [{
       alias, title: alias, runtime: "codex", lifecycle: "recent", state: "active", destination_health: "active",
+      container_ref: "container:fixture",
       session_ref: `relay-session-${alias.toLowerCase().replaceAll(" ", "-")}`,
       session_url: "http://127.0.0.1:19836/dashboard#relay?session=relay-session-00000000000000000000000000000000",
       last_seen_at: new Date().toISOString(), association: { origins: ["fixture"], updated_at: new Date().toISOString() },
@@ -135,18 +136,21 @@ for (const layout of ["list", "columns"]) {
         await route.fulfill({ json: result });
       });
     });
-    await expect(page.locator("#board-source-status-summary")).toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading worktrees");
     await expectHeaderFits(page);
+    await expect(page.locator("#board-source-status-summary .coverage-partial")).toHaveText(["Current worktree only", "Loading worktrees…"]);
     await page.screenshot({ path: testInfo.outputPath(`${layout}-loading-header-desktop.png`) });
     await page.setViewportSize({ width: 390, height: 840 });
     await expectHeaderFits(page);
     await page.screenshot({ path: testInfo.outputPath(`${layout}-loading-header-narrow.png`) });
     hold.release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
+    await expect(page.locator("#workspace-summary")).toHaveText("1 feature · 1 appearance · 1 group");
+    await expect(page.locator("#board-source-status-summary")).toHaveText("1 feature");
     await page.setViewportSize({ width: 1280, height: 900 });
     const card = page.locator(layout === "list" ? ".board-item" : ".board-column-card").first();
-    await expect(card.locator(".recorded-status:visible")).toHaveText("Marked active · blocked");
-    await expect(card.locator(".board-source-badge:visible")).toContainText(["3 checkouts · Statuses differ"]);
+    await expect(card.locator(".recorded-status:visible")).toHaveText("Active · Blocked");
+    await expect(card.locator(".board-source-badge:visible")).toContainText(["3 worktrees · Statuses differ"]);
     await expect(card).toHaveClass(/board-card-status-blocked/);
     await expect(card.locator(".badge-field-status:visible")).toHaveCount(0);
     await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
@@ -156,7 +160,7 @@ for (const layout of ["list", "columns"]) {
     await card.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`${layout}-version-activity-narrow.png`) });
     await page.getByRole("button", { name: "Open Alpha", exact: true }).first().click();
-    await expect(page.locator("#item-preview .recorded-status")).toHaveText("Marked active · blocked");
+    await expect(page.locator("#item-preview .recorded-status")).toHaveText("Active · Blocked");
     await expect(page.locator("#editor-source-summary")).toContainText("Statuses differ");
     await expect(page.locator("#item-preview .preview-meta")).toBeVisible();
     await expect(page.locator("#item-preview .badge-field-status")).not.toBeVisible();
@@ -180,6 +184,7 @@ for (const layout of ["list", "columns"]) {
     await page.locator(".item-participant-details > summary").click();
     await expect(page.locator(".item-participant-details")).toContainText("Lifecycle: dormant");
     await expect(page.locator(".item-participant-freshness")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-plain-session-details-narrow.png`) });
     if (await page.locator("#editor-overlay").isVisible()) await page.keyboard.press("Escape");
     data.setRecency(0, 1);
     await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
@@ -189,7 +194,7 @@ for (const layout of ["list", "columns"]) {
       params.set("f", "status:queued");
       location.hash = params.toString();
     });
-    await expect(page.locator("#board-groups .recorded-status:visible")).toHaveText("Marked queued");
+    await expect(page.locator("#board-groups .recorded-status:visible")).toHaveText("Queued");
     await expect(page.locator("#board-groups .board-source-badge:visible")).not.toContainText(["Statuses differ"]);
   });
 
@@ -206,15 +211,15 @@ for (const layout of ["list", "columns"]) {
         await route.fulfill(failFull ? { status: 503, json: { error: { message: "Full coverage unavailable" } } } : { json: payload });
       });
     });
-    await expect(page.locator("#board-source-status-summary")).toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Loading worktrees");
     hold.release();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
     await page.locator("#board-source-status-summary").click();
     await expect(page.locator("#board-source-status-details")).toContainText("could not be loaded");
     failFull = false;
     await page.locator("#refresh-button").click();
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Current worktree only");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading worktrees");
   });
 }
 
@@ -233,7 +238,7 @@ test("finished representative with an active shown sibling retains its linked-se
     payload.groups[0].items[0].versions.push(sibling);
   });
   const card = page.locator(".board-item").first();
-  await expect(card.locator(".recorded-status:visible")).toHaveText("Marked active");
+  await expect(card.locator(".recorded-status:visible")).toHaveText("Active");
   await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
   await expect(card.locator(".board-source-badge:visible")).toContainText(["Statuses differ"]);
 });
@@ -253,9 +258,9 @@ for (const layout of ["list", "columns"]) {
     }, { openItem: true });
     const section = page.locator("#related-work");
     const summary = section.locator(":scope > summary");
-    await expect(summary).toHaveText("Tasks linked to this feature · Loading");
+    await expect(summary).toHaveText("Linked tasks · Loading");
     held.release();
-    await expect(summary).toHaveText("Tasks linked to this feature (42) · List may be incomplete");
+    await expect(summary).toHaveText("Linked tasks (42) · May be incomplete");
     await expect(section).not.toHaveAttribute("open");
     await summary.click();
     await page.locator("[data-related-more]").click();
@@ -263,7 +268,7 @@ for (const layout of ["list", "columns"]) {
     await expect(summary).toContainText("(42)");
     result = { ...result, status: "stale", records: [record(1), record(2)], nextOffset: null };
     await page.locator("[data-related-refresh]").click();
-    await expect(summary).toHaveText("Tasks linked to this feature (42) · Last checked earlier");
+    await expect(summary).toHaveText("Linked tasks (42) · Last checked earlier");
     await summary.click();
     await page.screenshot({ path: testInfo.outputPath(`${layout}-task-count-desktop.png`) });
     await page.setViewportSize({ width: 390, height: 840 });
@@ -272,10 +277,10 @@ for (const layout of ["list", "columns"]) {
     await summary.click();
     result = { status: "ok", records: [], total: 0, nextOffset: null, generation: "empty-generation" };
     await page.locator("[data-related-refresh]").click();
-    await expect(summary).toHaveText("Tasks linked to this feature (0)");
+    await expect(summary).toHaveText("Linked tasks (0)");
     result = { status: "unavailable", records: [], total: 0 };
     await page.locator("[data-related-refresh]").click();
-    await expect(summary).toHaveText("Tasks linked to this feature · Unavailable");
+    await expect(summary).toHaveText("Linked tasks · Unavailable");
   });
 
   test(`${layout} keyboard search preserves spaces and caret while route and Clear still update`, async ({ page }, testInfo) => {
@@ -347,7 +352,7 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
     await expect.poll(() => participantReads).toBe(1);
     await expect.poll(() => relatedReads).toBe(1);
     await expect(page.locator("#item-participants-list")).toContainText("Old Session");
-    await expect(page.locator("#related-work > summary")).toContainText("Tasks linked to this feature");
+    await expect(page.locator("#related-work > summary")).toContainText("Linked tasks");
     await page.locator("#related-work > summary").focus();
     await page.keyboard.press("Enter");
     await expect(page.locator("#related-work")).toHaveAttribute("open", "");
@@ -430,7 +435,7 @@ test("detail reads completing while the overlay is closed remain reusable", asyn
   await settled;
   await page.getByRole("button", { name: "Open Alpha", exact: true }).click();
   await expect(page.locator("#item-participants-list")).toContainText("Closed Session");
-  await expect(page.locator("#related-work > summary")).toContainText("List may be incomplete");
+  await expect(page.locator("#related-work > summary")).toContainText("May be incomplete");
   expect(participantReads).toBe(1);
   expect(relatedReads).toBe(1);
 });
@@ -504,7 +509,7 @@ test("detail reads retain partial coverage, recover failures, and isolate rapid 
   await expect(page.locator("#item-participants-list")).toContainText("alpha Session 3");
   expect(reads.alpha).toBe(3);
   await expect(page.locator("#item-participants-status")).toContainText("+");
-  await expect(page.locator("#related-work > summary")).toContainText("List may be incomplete");
+  await expect(page.locator("#related-work > summary")).toContainText("May be incomplete");
   await page.locator("#related-work > summary").click();
   await expect(page.locator("#related-work-content")).toContainText("some records could not be checked");
   await expect(page.locator("#related-work-content")).not.toContainText("older task records");
@@ -563,7 +568,7 @@ test("temporary observation failure retains badges with an explicit stale state"
   await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   data.fail();
   await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
-  await expect(page.locator("#board-participant-status")).toContainText("last-known");
+  await expect(page.locator("#board-participant-status")).toContainText("earlier");
   await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   await page.screenshot({ path: testInfo.outputPath("stale-desktop.png") });
   await page.setViewportSize({ width: 390, height: 840 });
@@ -600,7 +605,7 @@ test("hash entry to Spec cancels a workspace read and retains badges on unchange
   hold.release();
   data.fail();
   await page.evaluate((hash) => { location.hash = hash; }, roadmapHash);
-  await expect(page.locator("#board-participant-status")).toContainText("last-known");
+  await expect(page.locator("#board-participant-status")).toContainText("earlier");
   await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   await expect(page.locator("#board-groups")).not.toContainText("Late Alpha");
 });
@@ -621,7 +626,7 @@ test("a provisional snapshot keeps its full read through hidden completion", asy
       await route.fulfill({ json: payload }).catch(() => {});
     });
   });
-  await expect(page.locator("#board-source-status-summary")).toContainText("Opened checkout only");
+  await expect(page.locator("#board-source-status-summary")).toContainText("Current worktree only");
   expect(fullReads).toBe(1);
   // Cross the provisional render turn; identity is still unresolved while full read is held.
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -634,7 +639,7 @@ test("a provisional snapshot keeps its full read through hidden completion", asy
     document.dispatchEvent(new Event("visibilitychange"));
   });
   hold.release();
-  await expect(page.locator("#board-source-status-summary")).not.toContainText("Opened checkout only");
+  await expect(page.locator("#board-source-status-summary")).not.toContainText("Current worktree only");
   expect(fullReads).toBe(1);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -720,7 +725,7 @@ for (const mode of ["this", "across"]) {
       document.dispatchEvent(new Event("visibilitychange"));
     });
     hold.release();
-    await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
+    await expect(page.locator("#board-source-status-summary")).toContainText("Showing earlier results");
     expect(intercepted).toBe(1);
     await page.evaluate(() => {
       const now = Date.now();
@@ -729,7 +734,7 @@ for (const mode of ["this", "across"]) {
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await expect.poll(() => intercepted).toBe(2);
-    await expect(page.locator("#board-source-status-summary")).not.toContainText("Last-known view");
+    await expect(page.locator("#board-source-status-summary")).not.toContainText("Showing earlier results");
   });
 }
 
@@ -797,7 +802,7 @@ test("a workspace timeout while hidden retains the board and retries once on res
     document.dispatchEvent(new Event("visibilitychange"));
     window.__expireWorkspaceTimeout();
   });
-  await expect(page.locator("#board-source-status-summary")).toContainText("Last-known view");
+  await expect(page.locator("#board-source-status-summary")).toContainText("Showing earlier results");
   await expect(page.locator("#board-groups")).toContainText("Alpha");
   expect(await page.evaluate(() => window.__workspaceTimeoutMs)).toBe(30_000);
   expect(reads).toBe(1);
@@ -810,7 +815,7 @@ test("a workspace timeout while hidden retains the board and retries once on res
     document.dispatchEvent(new Event("visibilitychange"));
   });
   await expect.poll(() => reads).toBe(2);
-  await expect(page.locator("#board-source-status-summary")).not.toContainText("Last-known view");
+  await expect(page.locator("#board-source-status-summary")).not.toContainText("Showing earlier results");
 });
 
 test("a newly ambiguous feature cannot retain its formerly confirmed participant badge", async ({ page }) => {
@@ -833,7 +838,7 @@ test("a newly ambiguous feature cannot retain its formerly confirmed participant
   } }));
   await page.locator("#refresh-button").click();
   await expect(page.locator("#board-groups")).toContainText("Independent Alpha");
-  await expect(page.locator("#board-participant-status")).toContainText("partial");
+  await expect(page.locator("#board-participant-status")).toContainText("incomplete");
   await expect(page.locator("#board-groups .board-item-participants:visible")).toHaveCount(0);
 });
 

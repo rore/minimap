@@ -83,7 +83,7 @@ async function openEditor(page, data, mode = "structured") {
 async function openAcross(page, data) {
   await page.route("**/api/worktree-workspace**", (route) => route.fulfill({ json: new URL(route.request().url()).searchParams.has("openedOnly") ? data.opened : data.full }));
   await page.goto(`/#repo=${encodeURIComponent(data.root)}&sources=across&item=alpha`);
-  await expect(page.locator("#board-source-status-details")).toContainText("2 roadmap checkouts loaded");
+  await expect(page.locator("#board-source-status-details")).toContainText("2 worktrees loaded");
   await expect(page.locator("#editor-title")).toContainText("alpha");
 }
 
