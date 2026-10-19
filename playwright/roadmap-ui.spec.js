@@ -593,15 +593,15 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
   await expect(details).toBeVisible();
-  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Seen within 24h 1", "Dormant 1", "Closed 1"]);
+  await expect(page.locator("#item-participants-status")).toHaveText(["2 linked sessions"]);
   expect(participantRequests).toEqual(["feature-setup-guidance"]);
 
   await details.locator(":scope > summary").click();
   await expect(page.locator("#item-participants-list")).toContainText("minimap-dev");
   await expect(page.locator("#item-participants-list .item-participant")).toHaveCount(3);
-  await expect(page.locator("#item-participants-list .item-participant:visible")).toHaveCount(1);
+  await expect(page.locator("#item-participants-list .item-participant:visible")).toHaveCount(2);
   await expect(page.locator("#item-participants-list .item-participant:visible").first()).toContainText("codex");
-  await expect(page.locator(".item-participant-freshness").first()).toContainText("Last seen");
+  await expect(page.locator(".item-participant-freshness").first()).not.toBeVisible();
   await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.screenshot({ path: test.info().outputPath("participant-detail-list-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -614,21 +614,21 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await expect(participantDetails).toHaveAttribute("open", "");
   await expect(participantDetails).toContainText("session-0");
   await expect(participantDetails).toContainText("Container");
+  await expect(participantDetails.locator(".item-participant-freshness")).toBeVisible();
+  await expect(participantDetails).toContainText("Session last seen");
   await expect(participantDetails).toContainText("Session: active");
   await expect(participantDetails).toContainText("Lifecycle: recent");
   await expect(participantDetails).toContainText("Destination: active");
   await expect(participantDetails).toContainText("git:github.com/rore/minimap");
   await expect(participantDetails).toContainText("Association updated");
   const lifecycleDetails = page.locator(".item-participant-lifecycle");
-  await expect(lifecycleDetails).toHaveCount(2);
-  await expect(lifecycleDetails.nth(0).locator(":scope > summary")).toContainText("Dormant sessions");
-  await expect(lifecycleDetails.nth(1).locator(":scope > summary")).toContainText("Closed sessions");
+  await expect(lifecycleDetails).toHaveCount(1);
+  await expect(lifecycleDetails.nth(0).locator(":scope > summary")).toContainText("Historical closed sessions");
+  await expect(page.locator(".item-participant:visible").nth(1)).toContainText("worker-1");
+  await expect(page.locator(".item-participant:visible").nth(1)).toContainText("claude-code");
   await lifecycleDetails.nth(0).locator(":scope > summary").click();
-  await expect(lifecycleDetails.nth(0)).toContainText("worker-1");
-  await expect(lifecycleDetails.nth(0)).toContainText("claude-code");
-  await lifecycleDetails.nth(1).locator(":scope > summary").click();
-  await expect(lifecycleDetails.nth(1)).toContainText("worker-2");
-  await expect(lifecycleDetails.nth(1)).toContainText("codex");
+  await expect(lifecycleDetails.nth(0)).toContainText("worker-2");
+  await expect(lifecycleDetails.nth(0)).toContainText("codex");
   const referenceDetails = page.locator("#item-participants-reference");
   await referenceDetails.locator(":scope > summary").click();
   await expect(referenceDetails).toHaveAttribute("open", "");
@@ -680,7 +680,7 @@ test("shows the same lazy participant details in List and Columns without per-ca
   await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.screenshot({ path: test.info().outputPath("participant-detail-columns-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Seen within 24h 1", "Dormant 1", "Closed 1"]);
+  await expect(page.locator("#item-participants-status")).toHaveText(["2 linked sessions"]);
   await page.locator(".item-participants-body").evaluate((element) => { element.scrollTop = 0; });
   await page.screenshot({ path: test.info().outputPath("participant-detail-columns-narrow.png") });
   // Reopening the same feature in Columns reuses the fresh manual-refresh result.
@@ -713,8 +713,8 @@ test("keeps participants usable for selected items on dense List and Columns boa
   const selectedTitle = "A deliberately long roadmap title for large-item-01 that must remain reachable without card overlap or hidden open controls";
   const participantRoute = /\/api\/items\/([^/]+)\/participants$/;
   const cases = [
-    { key: "empty", result: { ...participantPayload(selectedId), participants: [] }, status: "0 participants", message: "No sessions are associated with this item." },
-    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), badges: ["Seen within 24h 1", "Dormant 1"], message: "dense-session" },
+    { key: "empty", result: { ...participantPayload(selectedId), participants: [] }, status: "0 linked sessions", message: "No sessions are associated with this item." },
+    { key: "populated", result: participantPayload(selectedId, "dense-session", 2), badges: ["2 linked sessions"], message: "dense-session" },
     { key: "unreachable", result: { ...participantPayload(selectedId), status: "unreachable", participants: [] }, status: "Pallium unavailable", message: "could not be reached" },
   ];
 
@@ -759,7 +759,7 @@ test("keeps participants usable for selected items on dense List and Columns boa
           }, { currentLayout: layout, itemId: selectedId })).toEqual({ titleReadable: true, cardContained: true });
           const details = page.locator("#item-participants");
           await expect(details).toBeVisible();
-          if (scenario.badges) await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(scenario.badges);
+          if (scenario.badges) await expect(page.locator("#item-participants-status")).toHaveText(scenario.badges);
           else await expect(page.locator("#item-participants-status")).toHaveText(scenario.status);
           await details.locator(":scope > summary").click();
           await expect(page.locator("#item-participants-list")).toContainText(scenario.message);
@@ -796,7 +796,7 @@ test("keeps the item pane usable with 200 participant records", async ({ page })
 
   await page.goto(repoUrl("/#item=feature-setup-guidance"));
   const details = page.locator("#item-participants");
-  await expect(details.locator("summary .badge").filter({ hasText: /^Partial$/ })).toHaveText("Partial");
+  await expect(page.locator("#item-participants-status")).toContainText("+");
   await details.locator(":scope > summary").click();
   for (const section of await page.locator(".item-participant-lifecycle").all()) {
     if (!(await section.evaluate((element) => element.open))) {
@@ -2041,7 +2041,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
         : page.locator('.board-item[data-item-id="large-item-05"]');
 
       await expect(featuredCard.locator(".board-item-participants:visible")).toHaveCount(2);
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1", "Dormant 1"]);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["2 linked sessions"]);
       await expect(zeroCard.locator(".board-item-participants")).toHaveCount(0);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(0);
       await expect(completedCard.locator(".board-item-participants")).toHaveCount(0);
@@ -2110,9 +2110,9 @@ test("shows bounded recent and dormant session counts across dense List and Colu
       countForFeaturedItem = { recentParticipantCount: 1, dormantParticipantCount: 0 };
       countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 2 };
       await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 1"]);
+      await expect(featuredCard.locator(".board-item-participants:visible")).toHaveText(["1 linked session"]);
       await expect(queuedCard.locator(".board-item-participants:visible")).toHaveCount(1);
-      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveText("Dormant 2");
+      await expect(queuedCard.locator(".board-item-participants:visible")).toHaveText("2 linked sessions");
       if (layout === "columns") {
         const columnPositionAfterRefresh = await page.evaluate(() => ({
           horizontal: document.querySelector(".board-columns").scrollLeft,
@@ -2126,7 +2126,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
       if (layout === "columns") await page.locator('[data-item-open="large-item-02"]').click();
       else await featuredCard.click();
       await expect(page.locator("#editor-title")).toHaveText("Large project item large-item-02 — usable title");
-      await expect(page.locator("#item-participants-status .board-item-participants")).toHaveText(["Seen within 24h 1", "Dormant 1"]);
+      await expect(page.locator("#item-participants-status")).toHaveText(["2 linked sessions"]);
       expect(detailRequests).toHaveLength(1);
       expect(boardRequests).toHaveLength(2);
     }
@@ -2136,7 +2136,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
     countForQueuedItem = { recentParticipantCount: 0, dormantParticipantCount: 2 };
     await page.goto(`/?presenceLayout=columns-positive#repo=${encodeURIComponent(fixture)}&layout=columns`);
     const queuedColumnsCard = page.locator('.board-column-card-main[data-item-dblopen="large-item-05"]');
-    await expect(queuedColumnsCard.locator(".board-item-participants:visible")).toHaveText("Dormant 2");
+    await expect(queuedColumnsCard.locator(".board-item-participants:visible")).toHaveText("2 linked sessions");
     await page.screenshot({ path: "artifacts/board-presence-columns-queued-refresh.png", fullPage: false });
     expect(boardRequests).toHaveLength(1);
   } finally {
@@ -2210,10 +2210,10 @@ test("ignores a delayed board count response after switching repositories", asyn
       location.hash = params.toString();
     }, newFixture);
     const currentCard = page.locator('.board-item[data-item-id="large-item-02"]');
-    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
+    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("1 linked session");
     releaseOldResponse();
-    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
-    await expect(currentCard.locator(".board-item-participants:visible")).not.toContainText("Seen within 24h 9");
+    await expect(currentCard.locator(".board-item-participants:visible")).toHaveText("1 linked session");
+    await expect(currentCard.locator(".board-item-participants:visible")).not.toContainText("9 linked sessions");
   } finally {
     releaseOldResponse();
     await fs.rm(oldFixture, { recursive: true, force: true });
@@ -2229,7 +2229,7 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     const originalBoard = await fs.readFile(boardFile, "utf8");
     const activeCard = page.locator('[data-item-id="large-item-02"]');
     await expect(activeCard).toHaveClass(/board-card-status-progress/);
-    await expect(activeCard.locator(".badge-row .badge-field-status")).toHaveText("active");
+    await expect(activeCard.locator(".badge-row .recorded-status")).toHaveText("Marked active");
     await expect(activeCard.locator(".badge-row .badge-field-priority")).toHaveText("P1");
     await expect(activeCard.locator(".badge-row .badge-field-priority")).toHaveAttribute("title", "Priority 1");
     await expect(page.locator('[data-item-id="large-item-03"]')).toHaveClass(/board-card-status-blocked/);
@@ -2241,31 +2241,37 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     await page.locator("#board-focus-unfinished").click();
     await expect(page.locator("#board-focus-unfinished")).toHaveAttribute("aria-pressed", "true");
     await page.locator("#board-focus-milestone").selectOption("");
-    const statuses = await page.locator(".board-item .badge-field-status").allTextContents();
+    const statuses = await page.locator(".board-item .recorded-status:visible").allTextContents();
     expect(statuses.length).toBeGreaterThan(0);
-    expect(statuses.every((status) => !["done", "shipped", "superseded"].includes(status))).toBe(true);
+    expect(statuses.every((status) => !["Marked done", "Marked shipped", "Marked superseded"].includes(status))).toBe(true);
     await expect(page.locator('[data-item-id="large-item-06"]')).toBeVisible();
     await expect(page.locator('[data-item-id="large-item-07"]')).toHaveCount(0);
     await expect(page.locator('[data-item-id="large-item-08"]')).toHaveCount(0);
     expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
+    await page.screenshot({ path: test.info().outputPath("compact-dense-list-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await activeCard.scrollIntoViewIfNeeded();
+    await expect(activeCard.locator(".recorded-status:visible")).toHaveText("Marked active");
+    await page.screenshot({ path: test.info().outputPath("compact-dense-list-narrow.png") });
+    await page.setViewportSize({ width: 1440, height: 820 });
 
     await page.locator("#board-layout-columns").click();
     const activeColumnCard = page.locator(".board-column-card").filter({ has: page.locator('[data-item-dblopen="large-item-02"]') });
     const blockedColumnCard = page.locator(".board-column-card").filter({ has: page.locator('[data-item-dblopen="large-item-03"]') });
     await expect(activeColumnCard).toHaveClass(/board-card-status-progress/);
     await expect(blockedColumnCard).toHaveClass(/board-card-status-blocked/);
-    await expect(activeColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-signals .recorded-status")).toBeVisible();
     await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
-    await expect(blockedColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
+    await expect(blockedColumnCard.locator(".board-card-signals .recorded-status")).toBeVisible();
     await expect(activeColumnCard.getByRole("button", { name: /Open / })).toBeVisible();
     await page.screenshot({ path: "test-results/board-focus-desktop.png" });
 
-    await page.setViewportSize({ width: 760, height: 700 });
+    await page.setViewportSize({ width: 390, height: 840 });
     await page.locator(".board-columns").evaluate((root) => { root.scrollLeft = 0; });
     await page.screenshot({ path: "test-results/board-focus-narrow.png" });
     const toolbarOverflow = await page.locator(".board-toolbar-row").evaluate((row) => row.scrollWidth - row.clientWidth);
     expect(toolbarOverflow).toBeLessThanOrEqual(2);
-    await expect(activeColumnCard.locator(".board-card-signals .badge-field-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-signals .recorded-status")).toBeVisible();
     await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
     expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
   } finally {

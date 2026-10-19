@@ -4,6 +4,23 @@ const UNASSIGNED_KEY = "__unassigned__";
 const UNASSIGNED_LABEL = "Unassigned";
 const CONFLICT_FIELDS = ["title", "status", "priority", "commitment", "milestone", "kind", "revision"];
 
+// Summarize saved file states in this placement/filter, never session activity.
+export function recordedStatusSummary(item) {
+  const values = item?.matchingVersions
+    ? item.matchingVersions.map((version) => version.summary?.status ?? version.summary?.metadata?.status)
+    : [item?.metadata?.status ?? item?.status];
+  const statuses = [...new Set(values.map((value) => {
+    const token = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+    return ["active", "in-progress"].includes(token) ? "active" : token || "unknown";
+  }))];
+  const active = statuses.includes("active"), blocked = statuses.includes("blocked");
+  const differs = statuses.length > 1;
+  const label = active && blocked ? "Marked active · blocked" : active ? "Marked active" : blocked ? "Marked blocked"
+    : differs ? "Statuses differ" : !statuses.length || statuses[0] === "unknown" ? "Status unavailable"
+      : `Marked ${statuses[0].replaceAll("-", " ")}`;
+  return { label, differs, tone: blocked ? "blocked" : active ? "progress" : "" };
+}
+
 export function versionDifferences(version, selected) {
   if (!selected || version.sourceKey === selected.sourceKey) return [];
   const differences = CONFLICT_FIELDS.filter((field) => field !== "revision")

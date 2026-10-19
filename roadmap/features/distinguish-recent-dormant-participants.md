@@ -68,3 +68,8 @@ Live witness, 2026-09-27: the exact feature reference returned status ok and par
 Participant detail now prioritizes the recent session name, provider and last seen. Dormant/closed sessions, technical metadata and reference/guidance remain available in native disclosures; partial/error notices stay visible. Same-item refresh preserves expanded details. The one-recent desktop panel measures 192px; desktop and 390px List/Columns captures were checked. Work Record: .agent-workflow/tasks/compact-participants.md. Independent review and focused checks passed; full CI remains the delivery gate. No live update is included.
 
 Delivery: [PR #59](https://github.com/rore/minimap/pull/59).
+
+
+## Compact summary follow-up — 2026-10-19
+
+Implemented, awaiting delivery in `.agent-workflow/tasks/compact-feature-summary.md`: one primary recorded-status summary reflects only versions represented in the current card placement and filters. Active aliases fold; active and blocked remain visible together; conflicting saved states retain a visible Statuses differ cue. Literal selected-file status stays under Selected version status in Across; other selected metadata remains visible. Neutral linked-session counts include nonclosed dormant links; session timing and lifecycle appear only inside Session details. In play and provider semantics remain unchanged. Focused semantic, participant and source-version checks pass; desktop/narrow List/Columns captures are available for final review. Full CI remains the delivery gate; no live update is authorized.

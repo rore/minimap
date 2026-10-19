@@ -3141,6 +3141,10 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   margin: 0 0 20px;
 }
 
+.preview-activity { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.preview-selected-version { margin-bottom: 16px; }
+.preview-selected-version > summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+
 .related-work { margin: 0 0 20px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; overflow-wrap: anywhere; }
 .related-work summary { cursor: pointer; font-weight: 600; }
 .related-work ul { margin: 8px 0; padding: 0; list-style: none; }
