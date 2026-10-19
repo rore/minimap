@@ -2600,7 +2600,7 @@ function buildBoardParticipantBadge(item) {
 
 function buildRecordedStatusMarkup(item, { detail = false } = {}) {
   const summary = recordedStatusSummary(item);
-  const tone = summary.tone === "blocked" ? "status-blocked" : summary.tone === "progress" ? "status-progress" : "neutral";
+  const tone = summary.tone === "blocked" ? "status-blocked" : summary.tone === "progress" ? "status-progress" : summary.tone === "done" ? "status-done" : "neutral";
   const coverage = detail && [state.workspaceStale ? "Showing earlier results" : "", state.worktreeData?.provisional ? "Current worktree only" : state.worktreeData?.partial ? "Board may be incomplete" : ""].filter(Boolean).join(" · ");
   const filtered = detail && state.worktreeMode === "across" && item && !getWorktreeProjection().items.has(item.id);
   return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" title="Status from feature files shown here.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Earlier view · outside current filters</span>' : ""}`;

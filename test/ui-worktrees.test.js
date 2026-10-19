@@ -9,7 +9,12 @@ test("recorded status summary keeps conflicts without choosing a newest file or 
     [["queued", "active", "blocked"], ["Active · Blocked", true, "blocked"]],
     [["active", "done", "queued"], ["Active", true, "progress"]],
     [["done", "queued"], ["Statuses differ", true, ""]],
-    [["done", "done"], ["Done", false, ""]],
+    [["done", "done"], ["Done", false, "done"]],
+    [[" DONE ", "Done"], ["Done", false, "done"]],
+    [["done", null], ["Statuses differ", true, ""]],
+    [["done", "complete"], ["Statuses differ", true, ""]],
+    [["done", "shipped"], ["Statuses differ", true, ""]],
+    [["complete", "complete"], ["Complete", false, ""]],
     [["queued"], ["Queued", false, ""]],
     [["blocked", "done"], ["Blocked", true, "blocked"]],
     [["active", null], ["Active", true, "progress"]],
@@ -21,6 +26,7 @@ test("recorded status summary keeps conflicts without choosing a newest file or 
     assert.deepEqual([result.label, result.differs, result.tone], expected, JSON.stringify(statuses));
   }
   assert.equal(recordedStatusSummary({ metadata: { status: "queued" }, participantCount: 99 }).label, "Queued");
+  assert.equal(recordedStatusSummary({ metadata: { status: "done" } }).tone, "done");
 });
 
 function fixture(versions, { availableLenses = [] } = {}) {

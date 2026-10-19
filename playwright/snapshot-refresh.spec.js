@@ -101,6 +101,78 @@ async function expectHeaderFits(page) {
   expect(boxes.header.bottom).toBeLessThanOrEqual(boxes.controls.top + 1);
 }
 
+for (const mode of ["this", "across"]) for (const layout of ["list", "columns"]) {
+  test(`${mode} ${layout} Done badges use the existing green palette without coloring mixed statuses`, async ({ page }, testInfo) => {
+    let sibling;
+    const data = await fixture(page, mode, layout, async ({ root, payload }) => {
+      const file = path.join(root, "roadmap", "features", "alpha.md");
+      await fs.writeFile(file, (await fs.readFile(file, "utf8")).replace("status: queued", "status: done"));
+      Object.assign(payload, mode === "across" ? await loadWorktreeAggregate(root) : await loadWorkspace(root));
+      if (mode === "across") {
+        sibling = structuredClone(payload.features[0].versions[0]);
+        sibling.sourceKey += "-done";
+        sibling.sourceContext.sourceKey = sibling.sourceKey;
+        sibling.sourceContext.git.branchRef = "refs/heads/feat/done-copy";
+        payload.features[0].versions.push(sibling);
+        payload.groups[0].items[0].versions.push(sibling);
+      }
+    });
+    const card = page.locator(layout === "list" ? ".board-item" : ".board-column-card").first();
+    const badge = card.locator(".recorded-status:visible");
+    await expect(badge).toHaveText("Done");
+    await expect(badge).toHaveClass(/badge-tone-status-done/);
+    await expect(badge).toHaveCSS("color", "rgb(21, 121, 90)");
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-done-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-done-narrow.png`) });
+    await page.getByRole("button", { name: "Open Alpha", exact: true }).first().click();
+    const detailBadge = page.locator("#item-preview .recorded-status:visible");
+    await expect(detailBadge).toHaveText("Done");
+    await expect(detailBadge).toHaveClass(/badge-tone-status-done/);
+    await expect(detailBadge).toHaveCSS("color", "rgb(21, 121, 90)");
+    await detailBadge.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-done-detail-narrow.png`) });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await detailBadge.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-done-detail-desktop.png`) });
+    if (mode === "across") {
+      sibling.summary.status = "queued";
+      if (sibling.summary.metadata) sibling.summary.metadata.status = "queued";
+      if (await page.locator("#editor-overlay").isVisible()) await page.keyboard.press("Escape");
+      await page.locator("#refresh-button").click();
+      await expect(badge).toHaveText("Statuses differ");
+      await expect(badge).toHaveClass(/badge-tone-neutral/);
+      await page.getByRole("button", { name: "Open Alpha", exact: true }).first().click();
+      await expect(detailBadge).toHaveClass(/badge-tone-neutral/);
+      await expect(badge).toHaveCSS("color", "rgb(108, 115, 133)");
+      await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-mixed-neutral.png`) });
+      await page.evaluate(() => {
+        const params = new URLSearchParams(location.hash.slice(1));
+        params.set("f", "status:done");
+        location.hash = params.toString();
+      });
+      await expect(badge).toHaveText("Done");
+      await expect(badge).toHaveClass(/badge-tone-status-done/);
+      await expect(detailBadge).toHaveClass(/badge-tone-status-done/);
+      sibling.summary.status = null;
+      if (sibling.summary.metadata) sibling.summary.metadata.status = null;
+      await page.evaluate(() => {
+        const params = new URLSearchParams(location.hash.slice(1));
+        params.delete("f");
+        location.hash = params.toString();
+      });
+      if (await page.locator("#editor-overlay").isVisible()) await page.keyboard.press("Escape");
+      await page.locator("#refresh-button").click();
+      await expect(badge).toHaveText("Statuses differ");
+      await expect(badge).toHaveClass(/badge-tone-neutral/);
+      await page.getByRole("button", { name: "Open Alpha", exact: true }).first().click();
+      await expect(detailBadge).toHaveClass(/badge-tone-neutral/);
+      expect(data.payload.features[0].versions[0].summary.status).toBe("done");
+    }
+  });
+}
+
 for (const layout of ["list", "columns"]) {
   test(`${layout} represented activity, wrapped coverage and session recency remain source-specific`, async ({ page }, testInfo) => {
     const hold = responseHold();
