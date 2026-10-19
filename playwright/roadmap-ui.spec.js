@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { parseItemText } from "../package/minimap/src/roadmap.js";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
 const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
@@ -2982,28 +2983,29 @@ test("spec session of a roadmap item strips YAML frontmatter from the rendered b
   expect(bodyText).toMatch(/Summary/i);
 });
 
-test("spec session of a roadmap item shows the same title + badges as the roadmap Read view", async ({ page }) => {
-  // Open the roadmap item first to capture the roadmap-mode header values.
+test("spec session preserves selected-file status and matches the roadmap title and other metadata", async ({ page }) => {
   await page.goto(repoUrl());
   await page.locator(".board-item").first().click();
-  // Read mode is the default editor mode; the preview surface holds the title + badges.
   const expectedTitle = (await page.locator(".preview-title").first().textContent())?.trim() ?? "";
   expect(expectedTitle.length, "roadmap preview should have a title").toBeGreaterThan(0);
-  const expectedBadgesRaw = (await page.locator(".preview-meta").first().textContent()) ?? "";
-  // Normalize whitespace; the spec doc renders the same badge HTML.
-  const normalizeBadgeText = (s) => s.replace(/\s+/g, " ").trim();
-  const expectedBadges = normalizeBadgeText(expectedBadgesRaw);
-  expect(expectedBadges.length, "roadmap preview should have at least one badge").toBeGreaterThan(0);
+  const selectedPath = (await page.locator("#editor-subtitle").textContent()).trim();
+  const selectedFile = parseItemText(await fs.readFile(path.join(process.cwd(), selectedPath), "utf8"), selectedPath);
+  expect(expectedTitle).toBe(selectedFile.frontmatter.title);
+  const rawStatus = String(selectedFile.frontmatter.status);
+  const recordedStatus = ["active", "in-progress"].includes(rawStatus.trim().toLowerCase()) ? "active" : rawStatus;
+  await expect(page.locator("#item-preview .recorded-status:visible")).toHaveText(`Marked ${recordedStatus}`);
+  const normalizeBadgeText = (value) => value.replace(/\s+/g, " ").trim();
+  const expectedBadges = (await page.locator(".preview-meta .badge").allTextContents()).map(normalizeBadgeText);
+  expect(expectedBadges.length, "roadmap preview should retain non-status metadata").toBeGreaterThan(0);
 
-  // Now open the same item as a spec session.
   await openCurrentItemAsSpec(page);
   await expect(page.locator("#mode-title")).toContainText("Spec sessions");
   await expect(page.locator(".spec-doc-header")).toBeVisible({ timeout: 5000 });
-
-  const specTitle = (await page.locator(".spec-doc-title").textContent())?.trim() ?? "";
-  const specBadges = normalizeBadgeText(await page.locator(".spec-doc-meta").textContent() ?? "");
-  expect(specTitle, "spec doc title should match roadmap preview title").toBe(expectedTitle);
-  expect(specBadges, "spec doc badges should match roadmap preview badges").toBe(expectedBadges);
+  await expect(page.locator(".spec-doc-title")).toHaveText(expectedTitle);
+  // Spec describes the selected file literally, independently of the board summary.
+  await expect(page.locator(".spec-doc-meta .badge-field-status")).toHaveText(rawStatus);
+  const specBadges = (await page.locator(".spec-doc-meta .badge:not(.badge-field-status)").allTextContents()).map(normalizeBadgeText);
+  expect(specBadges, "spec and roadmap must retain the same non-status metadata").toEqual(expectedBadges);
 });
 
 test("orphan board ids render as inert placeholder cards and surface a warning banner", async ({ page }) => {
