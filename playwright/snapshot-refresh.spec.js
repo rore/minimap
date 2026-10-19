@@ -145,34 +145,52 @@ for (const layout of ["list", "columns"]) {
     await expect(page.locator("#board-source-status-summary")).not.toContainText("Loading other worktrees");
     await page.setViewportSize({ width: 1280, height: 900 });
     const card = page.locator(layout === "list" ? ".board-item" : ".board-column-card").first();
-    await expect(card.locator(".board-version-activity:visible")).toHaveText(["Active in another version", "Blocked in another version"]);
-    await expect(card.locator(".board-version-activity:visible").first()).toHaveAttribute("title", /feat\/active-delivery/);
-    await expect(card).not.toHaveClass(/board-card-status-progress|board-card-status-blocked/);
-    await expect(card.locator(".board-item-participants:visible")).toHaveText("Seen within 24h 1");
-    await expect(card.locator(".board-item-participants:visible")).toHaveAttribute("aria-label", /Session seen within 24 hours at the last Pallium observation/);
+    await expect(card.locator(".recorded-status:visible")).toHaveText("Marked active · blocked");
+    await expect(card.locator(".board-source-badge:visible")).toContainText(["3 checkouts · Statuses differ"]);
+    await expect(card).toHaveClass(/board-card-status-blocked/);
+    await expect(card.locator(".badge-field-status:visible")).toHaveCount(0);
+    await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
+    await expect(card.locator(".board-item-participants:visible")).not.toContainText(/recent|dormant|24h/i);
     await page.screenshot({ path: testInfo.outputPath(`${layout}-version-activity-desktop.png`) });
     await page.setViewportSize({ width: 390, height: 840 });
     await card.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`${layout}-version-activity-narrow.png`) });
     await page.getByRole("button", { name: "Open Alpha", exact: true }).first().click();
+    await expect(page.locator("#item-preview .recorded-status")).toHaveText("Marked active · blocked");
+    await expect(page.locator("#editor-source-summary")).toContainText("Statuses differ");
+    await expect(page.locator("#item-preview .preview-meta")).toBeVisible();
+    await expect(page.locator("#item-preview .badge-field-status")).not.toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator("#item-preview .recorded-status").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-compact-detail-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await page.locator("#item-preview .recorded-status").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-compact-detail-narrow.png`) });
+    await page.locator(".preview-selected-version > summary").click();
     await expect(page.locator("#item-preview .badge-field-status")).toHaveText("queued");
-    await expect(page.locator("#item-participants-status")).toContainText("Seen within 24h 1");
-    await expect(page.locator(".item-participants-hint")).toContainText("not attachment age or work on this feature");
+    await expect(page.locator("#item-preview .badge-field-status")).toBeVisible();
+    await expect(page.locator("#item-participants-status")).toContainText("1 linked session");
+    await expect(page.locator(".item-participants-hint")).toHaveCount(0);
     lifecycle = "dormant";
     await page.locator("#item-participants > summary").click();
     await page.locator("#item-participants-refresh").click();
-    await expect(page.locator("#item-participants-status")).toContainText("Dormant 1");
-    await expect(page.locator(".item-participants-no-recent")).toHaveText("No sessions seen within 24h.");
+    await expect(page.locator("#item-participants-status")).toContainText("1 linked session");
+    await expect(page.locator(".item-participant")).toHaveCount(1);
+    await expect(page.locator(".item-participant-freshness")).not.toBeVisible();
+    await page.locator(".item-participant-details > summary").click();
+    await expect(page.locator(".item-participant-details")).toContainText("Lifecycle: dormant");
+    await expect(page.locator(".item-participant-freshness")).toBeVisible();
     if (await page.locator("#editor-overlay").isVisible()) await page.keyboard.press("Escape");
     data.setRecency(0, 1);
     await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
-    await expect(card.locator(".board-item-participants:visible")).toHaveText("Dormant 1");
+    await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
     await page.evaluate(() => {
       const params = new URLSearchParams(location.hash.slice(1));
       params.set("f", "status:queued");
       location.hash = params.toString();
     });
-    await expect(page.locator("#board-groups .board-version-activity:visible")).toHaveCount(0);
+    await expect(page.locator("#board-groups .recorded-status:visible")).toHaveText("Marked queued");
+    await expect(page.locator("#board-groups .board-source-badge:visible")).not.toContainText(["Statuses differ"]);
   });
 
   test(`${layout} failed full coverage settles and can recover without a stuck loading label`, async ({ page }) => {
@@ -199,6 +217,26 @@ for (const layout of ["list", "columns"]) {
     await expect(page.locator("#board-source-status-summary")).not.toContainText("Updating");
   });
 }
+
+test("finished representative with an active shown sibling retains its linked-session count", async ({ page }) => {
+  await fixture(page, "across", "list", async ({ payload }) => {
+    const feature = payload.features[0];
+    const base = feature.versions[0];
+    base.summary.status = "done";
+    if (base.summary.metadata) base.summary.metadata.status = "done";
+    const sibling = structuredClone(base);
+    sibling.sourceKey += "-active";
+    sibling.sourceContext.sourceKey = sibling.sourceKey;
+    sibling.summary.status = "in-progress";
+    if (sibling.summary.metadata) sibling.summary.metadata.status = "in-progress";
+    feature.versions.push(sibling);
+    payload.groups[0].items[0].versions.push(sibling);
+  });
+  const card = page.locator(".board-item").first();
+  await expect(card.locator(".recorded-status:visible")).toHaveText("Marked active");
+  await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
+  await expect(card.locator(".board-source-badge:visible")).toContainText(["Statuses differ"]);
+});
 
 for (const layout of ["list", "columns"]) {
   test(`${layout} collapsed task header keeps known totals and status through pagination`, async ({ page }, testInfo) => {
@@ -465,7 +503,7 @@ test("detail reads retain partial coverage, recover failures, and isolate rapid 
   await open("Alpha");
   await expect(page.locator("#item-participants-list")).toContainText("alpha Session 3");
   expect(reads.alpha).toBe(3);
-  await expect(page.locator("#item-participants-status")).toContainText("Partial");
+  await expect(page.locator("#item-participants-status")).toContainText("+");
   await expect(page.locator("#related-work > summary")).toContainText("List may be incomplete");
   await page.locator("#related-work > summary").click();
   await expect(page.locator("#related-work-content")).toContainText("some records could not be checked");
@@ -491,11 +529,11 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
   test(`${mode} ${layout} refreshes observations without a full scan and pauses observations while hidden`, async ({ page }, testInfo) => {
     const data = await fixture(page, mode, layout);
     await expect.poll(data.observations).toBeGreaterThan(0);
-    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
+    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
     const reads = data.reads();
     data.setRecent(2);
     await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
-    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 2");
+    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("2 linked sessions");
     expect(data.reads()).toBe(reads);
     const calls = data.observations();
     await page.evaluate(() => {
@@ -509,7 +547,7 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 3");
+    await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("3 linked sessions");
     await page.screenshot({ path: testInfo.outputPath(`${mode}-${layout}-desktop.png`) });
     await page.setViewportSize({ width: 390, height: 840 });
     await page.locator("#board-groups").scrollIntoViewIfNeeded();
@@ -522,11 +560,11 @@ for (const mode of ["this", "across"]) for (const layout of ["list", "columns"])
 test("temporary observation failure retains badges with an explicit stale state", async ({ page }, testInfo) => {
   const data = await fixture(page, "across", "columns");
   await expect.poll(data.observations).toBeGreaterThan(0);
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   data.fail();
   await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
   await expect(page.locator("#board-participant-status")).toContainText("last-known");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   await page.screenshot({ path: testInfo.outputPath("stale-desktop.png") });
   await page.setViewportSize({ width: 390, height: 840 });
   await expect(page.locator("#board-participant-status")).toHaveClass(/is-incomplete/);
@@ -536,7 +574,7 @@ test("temporary observation failure retains badges with an explicit stale state"
 
 test("hash entry to Spec cancels a workspace read and retains badges on unchanged return", async ({ page }) => {
   const data = await fixture(page, "this", "columns");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   const roadmapHash = await page.evaluate(() => location.hash);
   const hold = responseHold();
   let started = false, cancelled = false;
@@ -563,7 +601,7 @@ test("hash entry to Spec cancels a workspace read and retains badges on unchange
   data.fail();
   await page.evaluate((hash) => { location.hash = hash; }, roadmapHash);
   await expect(page.locator("#board-participant-status")).toContainText("last-known");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   await expect(page.locator("#board-groups")).not.toContainText("Late Alpha");
 });
 
@@ -777,7 +815,7 @@ test("a workspace timeout while hidden retains the board and retries once on res
 
 test("a newly ambiguous feature cannot retain its formerly confirmed participant badge", async ({ page }) => {
   const data = await fixture(page, "across", "columns");
-  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("Seen within 24h 1");
+  await expect(page.locator("#board-groups .board-item-participants:visible").first()).toHaveText("1 linked session");
   const original = data.payload.features[0];
   const independent = structuredClone(original);
   independent.key = "independent-alpha";

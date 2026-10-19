@@ -85,7 +85,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     });
     expect(requests).toBe(1);
     releaseFirst();
-    await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 2", "Dormant 1"]);
+    await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["3 linked sessions"]);
     await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
     await expect(page.locator("#board-source-status-details")).toContainText("Session information has partial coverage.");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
@@ -98,7 +98,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
     const firstColumnCard = page.locator('.board-column-card-main[data-item-dblopen="dense-001"]');
-    await expect(firstColumnCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 2", "Dormant 1"]);
+    await expect(firstColumnCard.locator(".board-item-participants:visible")).toHaveText(["3 linked sessions"]);
     await page.screenshot({ path: test.info().outputPath("dense-columns-desktop.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: test.info().outputPath("dense-columns-narrow.png") });
@@ -112,8 +112,7 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     await expect(page.locator("#board-participant-status")).toHaveText("Session badges limited to 200 items");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
     const lastKnownBadges = await listCard.locator(".board-item-participants").allTextContents();
-    expect(lastKnownBadges).toContain("Seen within 24h 2");
-    expect(lastKnownBadges).toContain("Dormant 1");
+    expect(lastKnownBadges).toEqual(["3 linked sessions", "3 linked sessions"]);
     expect(requests).toBe(1);
 
     await page.evaluate(() => {
@@ -135,11 +134,11 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
 
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await expect.poll(() => requests).toBe(3);
-    await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["Seen within 24h 2", "Dormant 1"]);
+    await expect(listCard.locator(".board-item-participants:visible")).toHaveText(["3 linked sessions"]);
     await expect(page.locator("#board-source-status-details")).toContainText("Session information has partial coverage.");
     await page.locator("#board-layout-columns").click();
     await expect(page.locator("#board-groups .board-column")).toHaveCount(205);
-    await expect(page.locator('.board-column-card-main[data-item-dblopen="dense-001"] .board-item-participants:visible')).toHaveText(["Seen within 24h 2", "Dormant 1"]);
+    await expect(page.locator('.board-column-card-main[data-item-dblopen="dense-001"] .board-item-participants:visible')).toHaveText(["3 linked sessions"]);
     expect(requests).toBe(3);
     console.log("dense-board measured render: Columns " + columnsMs + "ms, List " + listMs + "ms; 205 groups, 200-count partial batch");
   } finally {

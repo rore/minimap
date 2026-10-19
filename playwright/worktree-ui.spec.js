@@ -136,6 +136,9 @@ test("combined large board stays usable in List and Columns at desktop and narro
     await expect(filteredMain).toContainText("filtered out");
     await filteredMain.click();
     await expect(page.locator("#field-status")).toHaveValue("done");
+    await expect(page.locator("#item-preview .recorded-status")).toHaveText("Marked active");
+    await expect(page.locator("#item-preview .preview-meta")).toBeVisible();
+    await expect(page.locator("#editor-source-summary")).not.toContainText("Statuses differ");
     await expect(filteredMain).toHaveAttribute("aria-pressed", "true");
     await page.locator("#editor-source-summary").click();
     await expect(page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "feature/blue/with-an-intentionally-long-name-for-narrow-version-controls" }))
@@ -730,7 +733,10 @@ test("Across participant badges refresh independently and remain scoped through 
   try {
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across`);
     const badges = page.locator(".board-item-participants:visible");
-    await expect(badges).toContainText(["Seen within 24h 1", "Dormant 2", "Seen within 24h 1", "Dormant 1"]);
+    await expect(page.getByRole("button", { name: /Open large-02/ }).locator(".board-item-participants:visible")).toHaveText("1 linked session");
+    await expect(page.getByRole("button", { name: /Open large-03/ }).locator(".board-item-participants:visible")).toHaveText("2 linked sessions");
+    await expect(page.getByRole("button", { name: /Open large-04/ }).locator(".board-item-participants:visible")).toHaveText("2 linked sessions");
+    await expect(badges).toHaveCount(3);
     const completedBadge = page.getByRole("button", { name: /Open large-01/ }).locator(".board-item-participants").first();
     await expect(page.getByRole("button", { name: /Open large-05/ }).locator(".board-item-participants")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Open large-06/ }).locator(".board-item-participants")).toHaveCount(0);
@@ -750,17 +756,17 @@ test("Across participant badges refresh independently and remain scoped through 
     expect(initialReads).toBeGreaterThan(0);
     await page.locator("#board-focus-in-play").click();
     await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "true");
-    await expect(completedBadge).toHaveText("Seen within 24h 3");
-    await expect(page.locator(".board-item-participants:visible")).toHaveCount(5);
+    await expect(completedBadge).toHaveText("3 linked sessions");
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
     await page.locator("#board-focus-in-play").click();
     await expect(page.locator("#board-focus-in-play")).toHaveAttribute("aria-pressed", "false");
     await expect(completedBadge).toHaveCount(0);
-    await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(3);
 
     for (const layout of ["list", "columns"]) {
       if (layout === "columns") {
         await page.locator("#board-layout-columns").click();
-        await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+        await expect(page.locator(".board-item-participants:visible")).toHaveCount(3);
         const columnsScreenshotCard = page.getByRole("button", { name: /Open large-02/ }).first();
         await columnsScreenshotCard.scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath("across-participant-badges-columns-desktop.png") });
@@ -779,7 +785,7 @@ test("Across participant badges refresh independently and remain scoped through 
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
         document.dispatchEvent(new Event("visibilitychange"));
       });
-      await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+      await expect(page.locator(".board-item-participants:visible")).toHaveCount(3);
       await expect(page.locator("#board-participant-status")).toContainText(/partial/i);
       expect(aggregateReads).toHaveLength(initialReads);
       await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeVisibility);
@@ -790,7 +796,7 @@ test("Across participant badges refresh independently and remain scoped through 
       await expect(page.locator("#spec-workbench")).toBeVisible();
       await page.locator("#roadmap-mode-button").click();
       await expect(page.locator("#spec-workbench")).toBeHidden();
-      await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+      await expect(page.locator(".board-item-participants:visible")).toHaveCount(3);
       expect(aggregateReads).toHaveLength(initialReads);
       await expect.poll(() => boardCountReads.length).toBeGreaterThan(beforeSpec);
       expect(participantReads).toHaveLength(initialDetailReads);
@@ -801,12 +807,12 @@ test("Across participant badges refresh independently and remain scoped through 
     await expect(page.locator(".board-item-participants:visible")).toHaveCount(0);
     await page.locator("#board-source-toggle").click();
     await page.locator('#board-source-menu [data-source-choice="across"]').click();
-    await expect(page.locator(".board-item-participants:visible")).toHaveCount(4);
+    await expect(page.locator(".board-item-participants:visible")).toHaveCount(3);
 
     recentCount = 2;
     await page.locator("#refresh-button").click();
     const large02Card = page.locator(".board-column-card-main").filter({ hasText: "large-02" }).first();
-    await expect(large02Card.locator(".board-item-participants").first()).toHaveText("Seen within 24h 2");
+    await expect(large02Card.locator(".board-item-participants").first()).toHaveText("2 linked sessions");
 
     injectCounts = false;
     await page.evaluate((hash) => { window.location.hash = hash; }, `repo=${encodeURIComponent(other.root)}&sources=across`);

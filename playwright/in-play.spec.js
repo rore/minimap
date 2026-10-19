@@ -103,7 +103,7 @@ test("In play combines status or attached sessions with every existing filter an
     await expect.poll(() => batches).toEqual([false, true]);
     await expect(card(page, 1)).toBeVisible(); // Status branch, confirmed zero.
     await expect(card(page, 2)).toBeVisible(); // Recent participant branch.
-    await expect(card(page, 3).locator(".board-item-participants:visible")).toHaveText("Dormant 1");
+    await expect(card(page, 3).locator(".board-item-participants:visible")).toHaveText("1 linked session");
     await expect(card(page, 4)).toBeVisible(); // Completed but still attached.
     await expect(card(page, 5)).toHaveCount(0); // Confirmed zero, not in progress.
     await expect(card(page, 205)).toHaveCount(0); // Unobserved, not assumed zero or attached.
@@ -116,7 +116,7 @@ test("In play combines status or attached sessions with every existing filter an
     changedCount = true;
     await refresh(page);
     await expect.poll(() => batches.length).toBe(3);
-    await expect(card(page, 7).locator(".board-item-participants:visible")).toHaveText("Seen within 24h 2");
+    await expect(card(page, 7).locator(".board-item-participants:visible")).toHaveText("2 linked sessions");
     await expect(card(page, 1)).toBeFocused();
     expect(await page.locator("#board-groups").evaluate((board) => board.scrollTop)).toBe(scrollTop);
 

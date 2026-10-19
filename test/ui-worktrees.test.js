@@ -1,6 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { countDistinctWorktreeFeatures, createWorktreeProjector, projectWorktreeGroups, versionDifferences } from "../package/minimap/ui/worktrees.js";
+import { countDistinctWorktreeFeatures, createWorktreeProjector, projectWorktreeGroups, versionDifferences, recordedStatusSummary } from "../package/minimap/ui/worktrees.js";
+
+test("recorded status summary keeps conflicts without choosing a newest file or inferring execution", () => {
+  for (const [statuses, expected] of [
+    [["queued", "active"], ["Marked active", true, "progress"]],
+    [["ACTIVE", "in-progress", "in progress"], ["Marked active", false, "progress"]],
+    [["queued", "active", "blocked"], ["Marked active · blocked", true, "blocked"]],
+    [["active", "done", "queued"], ["Marked active", true, "progress"]],
+    [["done", "queued"], ["Statuses differ", true, ""]],
+    [["done", "done"], ["Marked done", false, ""]],
+    [["queued"], ["Marked queued", false, ""]],
+    [["blocked", "done"], ["Marked blocked", true, "blocked"]],
+    [["active", null], ["Marked active", true, "progress"]],
+    [[null], ["Status unavailable", false, ""]],
+    [[], ["Status unavailable", false, ""]],
+  ]) {
+    const item = { status: "done", participantCount: 99, matchingVersions: statuses.map((status) => ({ summary: { status } })) };
+    const result = recordedStatusSummary(item);
+    assert.deepEqual([result.label, result.differs, result.tone], expected, JSON.stringify(statuses));
+  }
+  assert.equal(recordedStatusSummary({ metadata: { status: "queued" }, participantCount: 99 }).label, "Marked queued");
+});
 
 function fixture(versions, { availableLenses = [] } = {}) {
   const features = versions.map(({ key, id, entries }) => ({ key, id, versions: entries, conflicts: [] }));
