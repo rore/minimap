@@ -86,6 +86,84 @@ test.afterEach(async () => {
   }
 });
 
+for (const layout of ["list", "columns"]) {
+  test(`${layout} collapsed task header keeps known totals and status through pagination`, async ({ page }, testInfo) => {
+    const held = responseHold();
+    let first = true;
+    const record = (id) => ({ id: `agent-workflow:${id}`, title: `Delivery ${id}`, recordedState: "Ready for review", pullRequests: [] });
+    let result = { status: "partial", records: [record(1)], total: 42, nextOffset: 20, generation: "count-generation", coverage: { legacy: 1 } };
+    await fixture(page, "this", layout, async () => {
+      await page.route(/\/api\/items\/alpha\/related-work(?:\?|$)/, async (route) => {
+        if (first) { first = false; await held.pending; }
+        const offset = new URL(route.request().url()).searchParams.get("offset");
+        await route.fulfill({ json: offset ? { ...result, records: [record(2)], nextOffset: null } : result });
+      });
+    }, { openItem: true });
+    const section = page.locator("#related-work");
+    const summary = section.locator(":scope > summary");
+    await expect(summary).toHaveText("Tasks linked to this feature · Loading");
+    held.release();
+    await expect(summary).toHaveText("Tasks linked to this feature (42) · List may be incomplete");
+    await expect(section).not.toHaveAttribute("open");
+    await summary.click();
+    await page.locator("[data-related-more]").click();
+    await expect(page.locator(".related-work-row")).toHaveCount(2);
+    await expect(summary).toContainText("(42)");
+    result = { ...result, status: "stale", records: [record(1), record(2)], nextOffset: null };
+    await page.locator("[data-related-refresh]").click();
+    await expect(summary).toHaveText("Tasks linked to this feature (42) · Last checked earlier");
+    await summary.click();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-task-count-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await summary.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-task-count-narrow.png`) });
+    await summary.click();
+    result = { status: "ok", records: [], total: 0, nextOffset: null, generation: "empty-generation" };
+    await page.locator("[data-related-refresh]").click();
+    await expect(summary).toHaveText("Tasks linked to this feature (0)");
+    result = { status: "unavailable", records: [], total: 0 };
+    await page.locator("[data-related-refresh]").click();
+    await expect(summary).toHaveText("Tasks linked to this feature · Unavailable");
+  });
+
+  test(`${layout} keyboard search preserves spaces and caret while route and Clear still update`, async ({ page }, testInfo) => {
+    await fixture(page, "this", layout);
+    const search = page.locator("#board-search");
+    await search.pressSequentially("Generic");
+    await search.press("Space");
+    await expect(search).toHaveValue("Generic ");
+    await search.press("Space");
+    await expect(search).toHaveValue("Generic  ");
+    await search.press("Backspace");
+    await search.pressSequentially("feature");
+    await expect(search).toHaveValue("Generic feature");
+    await expect(page.locator("#board-groups")).toContainText("Alpha");
+    await search.evaluate((input) => input.setSelectionRange(7, 7));
+    await search.press("Space");
+    await expect(search).toHaveValue("Generic  feature");
+    expect(await search.evaluate((input) => input.selectionStart)).toBe(8);
+    await search.press("Backspace");
+    await expect(search).toHaveValue("Generic feature");
+    expect(await search.evaluate((input) => input.selectionStart)).toBe(7);
+    await expect(page.locator("#board-groups")).toContainText("Alpha");
+    await expect(page).toHaveURL(/q=generic(?:%20|\+)feature/);
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-multiword-search-desktop.png`) });
+    await page.setViewportSize({ width: 390, height: 840 });
+    await search.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${layout}-multiword-search-narrow.png`) });
+    await page.locator("#board-clear-filters").click();
+    await expect(search).toHaveValue("");
+    await search.pressSequentially("Generic ");
+    await page.evaluate(() => {
+      const params = new URLSearchParams(location.hash.slice(1));
+      params.set("q", "alpha");
+      location.hash = params.toString();
+    });
+    await expect(search).toHaveValue("alpha");
+    await expect(page.locator("#board-groups")).toContainText("Alpha");
+  });
+}
+
 for (const mode of ["this", "across"]) for (const layout of ["list", "columns"]) {
   test(`${mode} ${layout} reuses feature-detail reads through reopen and short hide-resume, then refreshes at expiry`, async ({ page }, testInfo) => {
     const heldParticipantRead = responseHold();
@@ -228,7 +306,7 @@ test("manual Refresh supersedes pending automatic detail reads", async ({ page }
   await expect(page.locator("#item-participants-list")).toContainText("Manual Session");
   held.release();
   await expect(page.locator("#item-participants-list")).not.toContainText("Obsolete Session");
-  await expect(page.locator("#related-work > summary")).toContainText("None");
+  await expect(page.locator("#related-work > summary")).toContainText("(0)");
 });
 
 test("detail reads retain partial coverage, recover failures, and isolate rapid item and uncommitted revision changes", async ({ page }) => {

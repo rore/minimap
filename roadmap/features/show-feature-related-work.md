@@ -12,6 +12,8 @@ labels:
 
 ## Summary
 
+2026-10-19 follow-up (`feat/task-count-search`, pending delivery): the collapsed task section shows its known total as `(N)`, including zero and the total across pages. Partial and stale results retain their count and status; an unknown loading or unavailable result does not imply zero. This UI correction leaves the deferred rollout scope unchanged.
+
 2026-10-18 UI follow-up (implementation and qualification in `feat/clear-task-details`, pending merge): feature detail names linked development task records explicitly, explains missing legacy links separately from records that could not be checked, and retains partial warnings with valid results. Participant and task reads reuse exact-scope successful results for at most 30 seconds and share pending reads across brief reopen/visibility cycles; manual Refresh forces fresh reads. This slice does not complete the deferred rollout below.
 
 Delivery update (2026-10-17): [PR #49](https://github.com/rore/minimap/pull/49) is merged and verified in the restarted shared service. Personal Spec Review and Dictation's roadmap skill are updated. The feature remains in progress for rollout reconciliation: Pallium's canonical and stable copies are deferred at its manager's request during wake-delivery diagnosis. Implementation and installed UI acceptance are complete; do not repeat them because of delayed messages.
@@ -80,3 +82,5 @@ The consumer implementation runs in an isolated preview and remains **in progres
 The implementation is under review in [rore/minimap#49](https://github.com/rore/minimap/pull/49), opened at consumer commit `c41ffb6c4c0457dab7785ac43ec27c9cc7de9139`. This link records delivery provenance for this feature; it is not an inferred Work Record relationship or evidence of merge. The feature remains in progress until review, CI, upstream release, and rollout are complete.
 
 Delivery PR: https://github.com/rore/minimap/pull/60 (reviewed; CI and merge pending).
+
+Task-count correction: [PR #61](https://github.com/rore/minimap/pull/61).
