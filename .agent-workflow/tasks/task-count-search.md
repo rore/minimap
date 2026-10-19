@@ -59,3 +59,7 @@ Agent technical review: `/root/scan_review`, independent non-implementer, approv
 Reviewed revision: canonical app SHA256 `0AD06338027AABC7957AD5E2416C524E6DD2EA0AE61CD5594C2CA180C8D46A25`, independently verified identical in both runtime mirrors.
 
 Verification adequacy: reviewer read all four new browser cases and updated zero-count assertion and accepted the reported four browser plus 25 filter/lint/mirror checks as targeted evidence. The subsequent broader 35-case local browser regression passed; full CI remains an owner delivery gate. Reviewer ran no tests and relied on the parent screenshot inspection while the broader test run regenerated artifacts.
+
+## Delivery
+
+PR: https://github.com/rore/minimap/pull/61. See the PR for authoritative CI and merge status. No live service update is included in this change.

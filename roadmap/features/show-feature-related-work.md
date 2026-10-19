@@ -82,3 +82,5 @@ The consumer implementation runs in an isolated preview and remains **in progres
 The implementation is under review in [rore/minimap#49](https://github.com/rore/minimap/pull/49), opened at consumer commit `c41ffb6c4c0457dab7785ac43ec27c9cc7de9139`. This link records delivery provenance for this feature; it is not an inferred Work Record relationship or evidence of merge. The feature remains in progress until review, CI, upstream release, and rollout are complete.
 
 Delivery PR: https://github.com/rore/minimap/pull/60 (reviewed; CI and merge pending).
+
+Task-count correction: [PR #61](https://github.com/rore/minimap/pull/61).
