@@ -101,6 +101,70 @@ async function expectHeaderFits(page) {
   expect(boxes.header.bottom).toBeLessThanOrEqual(boxes.controls.top + 1);
 }
 
+test("loaded task pages survive same-generation cache and refresh while new generations and scopes replace them", async ({ page }, testInfo) => {
+  const now = Date.now();
+  await page.clock.setFixedTime(now);
+  let generation = "pages-a", status = "ok", total = 60, label = "Original";
+  const reads = [];
+  await page.route(/\/api\/items\/alpha\/related-work(?:\?|$)/, async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    const offset = Number(query.get("offset") || 0);
+    reads.push({ offset, generation: query.get("generation"), fresh: query.get("fresh") });
+    await route.fulfill({ json: { status, generation, total,
+      records: Array.from({ length: Math.min(20, total - offset) }, (_, index) => ({
+        id: `${label}-${offset + index + 1}`, title: `${label} task ${offset + index + 1}`, recordedState: "Ready for review", pullRequests: [],
+      })), nextOffset: offset + 20 < total ? offset + 20 : null,
+      coverage: status === "partial" ? { legacy: 1 } : {},
+    } });
+  });
+  await fixture(page, "this", "list", null, { openItem: true });
+  await expect(page.locator("#related-work > summary")).toHaveText("Linked tasks (60)");
+  await page.locator("#related-work > summary").click();
+  await page.locator("[data-related-more]").click();
+  await expect(page.locator(".related-work-row")).toHaveCount(40);
+  await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
+  await expect(page.locator(".related-work-row")).toHaveCount(40);
+  expect(reads).toHaveLength(2);
+  await page.clock.setFixedTime(now + 31_000);
+  await page.evaluate(() => window.__refreshTicks.forEach((tick) => tick()));
+  await expect.poll(() => reads.length).toBe(3);
+  await expect(page.locator("#related-work > summary")).toHaveText("Linked tasks (60)");
+  expect(reads.at(-1)).toEqual({ offset: 0, generation: null, fresh: null });
+  await expect(page.locator(".related-work-row")).toHaveCount(40);
+  await page.locator("[data-related-refresh]").click();
+  await expect.poll(() => reads.length).toBe(4);
+  await expect(page.locator("#related-work > summary")).toHaveText("Linked tasks (60)");
+  await expect(page.locator(".related-work-row")).toHaveCount(40);
+  await page.locator("[data-related-more]").click();
+  await expect(page.locator(".related-work-row")).toHaveCount(60);
+  expect(reads.at(-1)).toEqual({ offset: 40, generation: "pages-a", fresh: null });
+  await expect(page.locator("[data-related-more]")).toHaveCount(0);
+  status = "partial";
+  await page.locator("[data-related-refresh]").click();
+  await expect(page.locator("#related-work > summary")).toContainText("May be incomplete");
+  await expect(page.locator(".related-work-row")).toHaveCount(60);
+  status = "stale";
+  await page.locator("[data-related-refresh]").click();
+  await expect(page.locator("#related-work > summary")).toContainText("Last checked earlier");
+  await expect(page.locator(".related-work-row")).toHaveCount(60);
+  await page.screenshot({ path: testInfo.outputPath("retained-task-pages-desktop.png"), fullPage: true });
+  generation = "pages-b"; status = "ok"; total = 21; label = "Replacement";
+  await page.locator("[data-related-refresh]").click();
+  await expect(page.locator(".related-work-row")).toHaveCount(20);
+  await expect(page.locator("#related-work-content")).not.toContainText("Original task");
+  await page.locator("[data-related-more]").click();
+  await expect(page.locator(".related-work-row")).toHaveCount(21);
+  expect(reads.at(-1)).toEqual({ offset: 20, generation: "pages-b", fresh: null });
+  label = "Other scope";
+  await page.clock.setFixedTime(now);
+  await fixture(page, "this", "list", null, { openItem: true });
+  await expect(page.locator("#related-work > summary")).toHaveText("Linked tasks (21)");
+  await page.locator("#related-work > summary").click();
+  await expect(page.locator(".related-work-row")).toHaveCount(20);
+  await expect(page.locator("#related-work-content")).toContainText("Other scope task 20");
+  await expect(page.locator("#related-work-content")).not.toContainText("Replacement task");
+});
+
 for (const mode of ["this", "across"]) for (const layout of ["list", "columns"]) {
   test(`${mode} ${layout} Done badges use the existing green palette without coloring mixed statuses`, async ({ page }, testInfo) => {
     let sibling;

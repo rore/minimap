@@ -1203,7 +1203,7 @@ async function handleApi(request, response, requestUrl) {
   if (!isTrustedLocalRequest(request)) {
     throw new AppError("Minimap API is available only from this local origin.", 403, "forbidden");
   }
-  const readBudget = bound && routedUrl.pathname === "/api/source/workspace"
+  const readBudget = bound && routedUrl.pathname === "/api/workspace"
     ? requestAbortSignal(request, response) : null;
   try {
   if (bound) {
@@ -1242,6 +1242,10 @@ async function handleApi(request, response, requestUrl) {
     throw error;
   }
   return true;
+  } catch (error) {
+    if (!readBudget) throw error;
+    if (!response.destroyed) throw snapshotAppError(error, readBudget.signal, readBudget.timeoutMs);
+    return true;
   } finally { readBudget?.cleanup(); }
 }
 

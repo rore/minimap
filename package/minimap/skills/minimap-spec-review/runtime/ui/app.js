@@ -4274,7 +4274,9 @@ async function refreshRelatedWork({ generation, offset, append = false, fresh = 
   if (!append && !fresh) {
     const cached = readCacheGet(relatedWorkCache, key);
     if (cached) {
-      relatedWorkView = { ...cached };
+      const keepPages = cached.generation && cached.generation === relatedWorkView.generation
+        && relatedWorkView.records.length > cached.records.length;
+      relatedWorkView = { ...cached, ...(keepPages ? { records: relatedWorkView.records, nextOffset: relatedWorkView.nextOffset } : {}) };
       renderRelatedWork();
       return;
     }
@@ -4303,7 +4305,10 @@ async function refreshRelatedWork({ generation, offset, append = false, fresh = 
       if (relatedWorkRequest !== intent || controller.signal.aborted || consumer.itemId !== state.selectedItemId
         || consumer.scope !== currentReadScopeKey() || consumer.generation !== state.itemLoadGeneration
         || consumer.key !== currentDetailReadKey()) return;
-      relatedWorkView = { ...result, records: append ? [...relatedWorkView.records, ...result.records] : result.records };
+      const keepPages = !append && result.generation && result.generation === relatedWorkView.generation
+        && relatedWorkView.records.length > result.records.length;
+      relatedWorkView = { ...result, records: append ? [...relatedWorkView.records, ...result.records] : keepPages ? relatedWorkView.records : result.records,
+        ...(keepPages ? { nextOffset: relatedWorkView.nextOffset } : {}) };
       renderRelatedWork();
       if (!fresh && !append && result.status === "stale" && result.reason === "validation_due"
         && document.visibilityState === "visible") void refreshRelatedWork({ fresh: true });

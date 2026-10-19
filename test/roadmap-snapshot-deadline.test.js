@@ -8,6 +8,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { initializeWorkspace } from "../package/minimap/src/roadmap.js";
+import { readWorktreeIdentity } from "../package/minimap/src/worktree-sources.js";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,6 +25,94 @@ async function freePort() {
 async function git(repo, ...args) {
   await execFileAsync("git", ["-C", repo, ...args], { windowsHide: true });
 }
+
+test("bound workspace validation shares its original read budget and cancels on disconnect", { timeout: 30_000 }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-bound-read-budget-"));
+  const home = path.join(root, "home"), repo = path.join(root, "repo");
+  await Promise.all([fs.mkdir(home), fs.mkdir(repo)]);
+  await initializeWorkspace(repo);
+  await git(repo, "init", "--initial-branch=main");
+  await git(repo, "config", "user.email", "test@example.invalid");
+  await git(repo, "config", "user.name", "Budget Test");
+  await git(repo, "add", ".");
+  await git(repo, "commit", "-m", "fixture");
+  const source = { ...await readWorktreeIdentity(repo), roadmapBinding: { roadmapPath: "roadmap", resolvedPath: path.join(repo, "roadmap") } };
+  const modeFile = path.join(root, "mode"), eventsFile = path.join(root, "events.jsonl");
+  const preload = path.join(root, "bound-budget.mjs");
+  await fs.writeFile(preload, [
+    'import fs from "node:fs/promises";',
+    'import childProcess from "node:child_process";',
+    'import { promisify } from "node:util";',
+    'import { syncBuiltinESMExports } from "node:module";',
+    'import { ServerResponse } from "node:http";',
+    'import path from "node:path";',
+    'const log = (event) => fs.appendFile(process.env.MINIMAP_TEST_EVENTS, JSON.stringify(event)+"\\n");',
+    'let mode = "", initial = false;',
+    'const timeout = AbortSignal.timeout.bind(AbortSignal);',
+    'AbortSignal.timeout = (ms) => { if(ms===30_000) void log({type:"budget"}); return timeout(ms===30_000 ? 1500 : ms); };',
+    'const run = promisify(childProcess.execFile), original = childProcess.execFile;',
+    'function wrapped(...args) { return original.apply(this,args); }',
+    'Object.defineProperty(wrapped,promisify.custom,{value:async (...args) => {',
+    ' if(args[0]==="git" && path.resolve(args[2]?.cwd||"").toLowerCase()===path.resolve(process.env.MINIMAP_TEST_REPO).toLowerCase() && args[1]?.includes("--show-toplevel")) {',
+    '  const next=await fs.readFile(process.env.MINIMAP_TEST_MODE,"utf8"); if(next!==mode) {mode=next;initial=false;}',
+    '  if(!initial) { initial=true; const signal=args[2]?.signal; await log({type:"validation",mode,signaled:!!signal});',
+    '   if(mode!=="reuse" && signal) await new Promise((resolve,reject)=>{',
+    '    const abort=()=>{ void log({type:"aborted",mode,reason:signal.reason?.name}).then(()=>reject(signal.reason)); };',
+    '    signal.addEventListener("abort",abort,{once:true}); if(signal.aborted) abort();',
+    '   });',
+    '  }',
+    ' } return run(...args);',
+    '}}); childProcess.execFile=wrapped; syncBuiltinESMExports();',
+    'const writeHead=ServerResponse.prototype.writeHead;',
+    'ServerResponse.prototype.writeHead=function(...args){if(this.req?.url?.startsWith("/api/source/workspace")) void log({type:"response",mode,destroyed:this.destroyed});return writeHead.apply(this,args);};',
+  ].join("\n"));
+  const port = await freePort();
+  const env = { ...process.env, MINIMAP_HOME: home, PORT: String(port), MINIMAP_PALLIUM_ENDPOINT: "",
+    MINIMAP_TEST_REPO: repo, MINIMAP_TEST_MODE: modeFile, MINIMAP_TEST_EVENTS: eventsFile,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${pathToFileURL(preload).href}`].filter(Boolean).join(" ") };
+  let launcher;
+  t.after(async () => {
+    await execFileAsync(process.execPath, [path.join(scripts, "stop-server.mjs")], { env, windowsHide: true, timeout: 10_000 }).catch(() => {});
+    if (launcher && launcher.exitCode === null) await new Promise((resolve) => launcher.once("exit", resolve));
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+  launcher = spawn(process.execPath, [path.join(scripts, "start-server.cjs")], { cwd: projectRoot, env, windowsHide: true, stdio: "ignore" });
+  let ready = false;
+  for (let attempt = 0; attempt < 100 && !ready; attempt++) {
+    if (launcher.exitCode !== null) throw new Error(`Packaged launcher exited ${launcher.exitCode}.`);
+    try { ready = (await fetch(`http://127.0.0.1:${port}/health`)).ok; } catch {}
+    if (!ready) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(ready, true);
+  const events = async () => (await fs.readFile(eventsFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const mode of ["timeout", "disconnect", "reuse"]) await t.test(mode, async () => {
+    await fs.writeFile(modeFile, mode);
+    const before = (await events()).filter((event) => event.type === "budget").length;
+    const controller = new AbortController();
+    const pending = fetch(`http://127.0.0.1:${port}/api/source/workspace`, {
+      headers: { "X-Minimap-Repo": repo, "X-Minimap-Source-Context": JSON.stringify(source) }, signal: controller.signal,
+    }).then((response) => ({ response }), (error) => ({ error }));
+    for (let attempt = 0; attempt < 100 && !(await events()).some((event) => event.type === "validation" && event.mode === mode); attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    if (mode === "disconnect") controller.abort();
+    const outcome = await pending;
+    if (mode === "disconnect") {
+      assert.equal(outcome.error?.name, "AbortError");
+      for (let attempt = 0; attempt < 100 && !(await events()).some((event) => event.type === "aborted" && event.mode === mode); attempt++)
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      const recorded = await events();
+      assert.equal(recorded.find((event) => event.type === "aborted" && event.mode === mode)?.reason, "AbortError");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal((await events()).some((event) => event.type === "response" && event.mode === mode), false, "disconnected bound read must not write or fall through to static routing");
+    } else {
+      assert.equal(outcome.response?.status, mode === "timeout" ? 503 : 200, await outcome.response?.clone().text());
+      if (mode === "timeout") assert.equal((await outcome.response.json()).error.code, "snapshot_unavailable");
+    }
+    const recorded = await events();
+    assert.equal(recorded.find((event) => event.type === "validation" && event.mode === mode)?.signaled, true);
+    assert.equal(recorded.filter((event) => event.type === "budget").length - before, 1, "validation and workspace handler must share one original request budget");
+  });
+});
 
 test("participant routes return 503 when the snapshot read deadline expires", { timeout: 30_000 }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-snapshot-deadline-"));
