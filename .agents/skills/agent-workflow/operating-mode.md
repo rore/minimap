@@ -35,7 +35,7 @@ Keep exact source IDs/links in prose; maintain Relationships per [capture rules]
 
 |When|Action|
 |---|---|
-|Pickup/resume/leaving|Optional Pallium association: follow installed `pallium-memory` attach/detach guidance; never duplicate/remove hook-owned branch/Work Record refs.|
+|Assignment acceptance/pickup/resume/end/handoff|Follow installed `pallium-memory` work participation lifecycle when available, separately from permanent Relationships; never duplicate/remove hook-owned refs.|
 |PR creation|Link PR from source item under tracker rules.|
 |Verified merge|Record delivered contribution/remaining scope; don't infer whole-feature completion from one PR.|
 |Owner-managed tracker/checkout|Hand owner item/PR/contribution/remaining scope; keep update pending in Work Record until confirmed.|
@@ -139,16 +139,18 @@ CI green is not "ready to merge." Before invoking the merge:
 
 The repo SHOULD enable GitHub's `required_conversation_resolution` branch-protection rule so the platform refuses merge while threads are open. Bootstrap proposes it; the harness assumes it.
 
-## Step 8 — Stop and handoff
+## Step 8 — Stop, handoff and completion
 
-When coordinating a handoff, forward a received approval immediately; do not leave a task `Blocked` solely awaiting that approval.
+At handoff, forward a received approval immediately; don't leave a task `Blocked` solely awaiting it.
 
-Before ending a session, even if the task is not done:
+Before ending any session:
 
-- Update State to the correct value (most often `Blocked` with one-line reason, or leave `Ready to implement` if you haven't started).
-- In surrounding prose, note: current branch, last good revision (`git rev-parse HEAD` when working tree is clean), what's unfinished, what the next agent should do first.
-- Carry the exact source-item identity, Work Record identity, and resolved repository-relative path when known.
-- Commit the Work Record update. Uncommitted state buys nothing if the session crashes.
+- Set the correct State; give a reason if blocked.
+- Record branch, last good revision (`git rev-parse HEAD` when clean), unfinished work and next action in prose.
+- Carry exact source-item identity, Work Record identity and resolved repository-relative path when known.
+- Commit the Work Record update.
+
+After authorized merge/delivery and verification, clean only task-created worktrees no agent, process, installation or follow-up needs. Preserve uncommitted/unpushed work and necessary ignored evidence. Use host-managed archive where applicable, native Git otherwise; never force removal or touch a shared/canonical checkout. Handoff is not completion. If unsafe or unauthorized, retain and report why.
 
 ## CI predicates surfaced at PR time
 
