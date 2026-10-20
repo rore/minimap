@@ -13,7 +13,7 @@
 {"source":"parent:authorized-scoped-workflow-consumer-sync:2026-10-20","outcome":"Minimap's two repository-local Workflow skill copies and root Redline reporter match the approved merged upstream package at 9e05090f4ee4c23a2ce7d458774742b17a4d3db3.","scope":"Seven files only: operating-mode.md, manifest.txt and agent-redline/scripts/agent-redline-report.py under both .agents/skills/agent-workflow and .claude/skills/agent-workflow; scripts/agent-redline-report.py; plus this Work Record.","constraints":"Copy only exact pinned upstream Git blobs, never dirty/current source files. No root checker, runtime/config/hooks/services/global/Pallium installation changes, product changes, policy relaxation, push, merge or live update. Preserve primary, previous participation evidence, unrelated dirty source hooks and unfinished PR52 checkout. Parent owns publication and cross-tool delivery.","completion_criteria":"All seven consumer files match the pinned source mapping byte-for-byte; both manifests accurately describe their installed skill files; reporter copies preserve NUL behavior and correctly decode quoted legacy changed-file/numstat paths while rejecting invalid/duplicate paths. Only seven authorized consumer files plus this record change, focused checks and governance pass, and upstream reviews are reused only for verified identical compatible application."}
 
 **Relationships:**
-{"schema_version":1,"sources":null,"pull_requests":[]}
+{"schema_version":1,"sources":null,"pull_requests":["https://github.com/rore/minimap/pull/70"]}
 
 **Risk:** High
 
@@ -45,7 +45,7 @@
 
 ## Implementation and recovery
 
-Checkout .local/workflow-consumer-sync; branch feat/workflow-consumer-sync; base470ea1050b32b54e485d8185010b6a6a36c4745c. Initial record8817c8e was committed before the seven consumer edits. Parent approved the exact mapping and review reuse before application. Seven pinned files are now applied and focused destination verification passes; next action is final governance, evidence commit and parent publication. Root owns publication; previous participation evidence and primary/live remain untouched. No real association or cleanup action is part of this change.
+Checkout .local/workflow-consumer-sync; branch feat/workflow-consumer-sync; base470ea1050b32b54e485d8185010b6a6a36c4745c. Initial record8817c8e was committed before the seven consumer edits. Parent approved the exact mapping and review reuse before application. Seven pinned files are committed at76dd1fe and focused destination verification passes. Parent created PR70 with architecture-reviewed; next action is parent-owned CI verification and merge. Root owns publication; previous participation evidence and primary/live remain untouched. No real association or cleanup action is part of this change.
 
 ## Pinned source mapping
 
@@ -84,3 +84,5 @@ Reviewed revision: pinned merged upstream9e05090f4ee4c23a2ce7d458774742b17a4d3db
 Verification adequacy: exact pinned byte identity plus complete destination manifest checks establishes unchanged package application and compatibility, including the excluded already-current root checker. The18 focused destination reporter checks retain input/error behavior; upstream174-test receipt and guidance reviews are reused for unchanged logic. No undocumented additional paths or runtime/environment migration is introduced. Parent owns PR/CI/merge and any cross-tool delivery; no live update, push, merge or cleanup performed.
 
 Local governance: fresh Redline/reporting inputs and Workflow check pass every blocking predicate; exit1 is solely the expected architecture-review checkpoint advisory pending parent PR label/CODEOWNER evidence. Evidence is retained in ignored tmp/workflow-consumer-sync-evidence/governance/. Initial record prefix parsing was corrected to the harness exact Agent technical review: form; no approval or review substance changed.
+
+Parent result acceptance: root reviewed the exact76dd1fe diff and focused.log and accepted the consumer result with the cited unchanged upstream technical reviews. PR70 is https://github.com/rore/minimap/pull/70 and carries architecture-reviewed, addressing the previously recorded checkpoint advisory. CI and merge remain pending and parent-owned; no successful CI, merge or live update is claimed. This delivery note changes only this Work Record.
