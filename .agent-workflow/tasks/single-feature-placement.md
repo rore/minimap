@@ -37,6 +37,11 @@ Implementation: project once per proven feature after per-version filtering; ret
 
 Handoff: independent result review, full required checks, publication, merge and authorized local update remain root-owned. Implementation performed no installs or persistent environment changes.
 
+## Result review
+Agent technical review: /root/placement_review, approved 2026-10-21 with no blocking findings.
+Reviewed revision: a64ca93 (final source/test/docs diff).
+Verification adequacy: 43 focused checks, three browser regressions and real Pallium List/Columns/version-detail verification cover the duplicate-card trigger, filters, ordering, source selection and unavailable-source guard. Root inspected all three visual captures. Full CI remains the merge gate. Standing user authorization covers driving this fix through merge and the local service update without another approval loop.
+
 ## Checkpoint: architecture-review
 Change: one visible card per proven feature, with opened-first matching placement and differences retained in details. This removes misleading repeated placement without collapsing unproven identities or inventing recency. Test filters, grouping and source selection; no migration or extra I/O.
 
