@@ -12,7 +12,7 @@ labels:
 
 ## Summary
 
-2026-10-21 follow-up: Across worktrees combines linked tasks from the loaded versions of a feature, rather than only the displayed document. Duplicate task references share a row with source-specific versions, and Open reads the chosen source. Focused tests and real Pallium desktop/narrow checks pass; review, CI and delivery are recorded in `.agent-workflow/tasks/across-linked-tasks.md`. Broader rollout scope below remains unfinished.
+2026-10-21 follow-up in [PR #73](https://github.com/rore/minimap/pull/73): Across worktrees combines linked tasks from the loaded versions of a feature, rather than only the displayed document. Duplicate task references share a row with source-specific versions, and Open reads the chosen source. Focused tests and real Pallium desktop/narrow checks pass; review, CI and delivery are recorded in `.agent-workflow/tasks/across-linked-tasks.md`. Broader rollout scope below remains unfinished.
 
 2026-10-19 follow-up merged in [PR #61](https://github.com/rore/minimap/pull/61) (`79370e8`), with installed-runtime rollout still pending: the collapsed task section shows its known total as `(N)`, including zero and the total across pages. Partial and stale results retain their count and status; an unknown loading or unavailable result does not imply zero. This UI correction leaves the deferred rollout scope unchanged.
 

@@ -7,7 +7,7 @@
 **Requirement baseline:**
 {"source":"user:so-again-fix","outcome":"Across worktrees shows linked tasks from all loaded versions of the proven feature, without duplicate task rows or losing source-specific records.","scope":"Browser task-read composition, source-bound API read support, related-task rendering/caches/pagination, regression tests, canonical documentation and generated runtime mirrors.","constraints":"Reuse guarded endpoints and existing caches; bounded asynchronous reads; no repository scans beyond loaded proven feature sources, no inferred links, no merged conflicting task states, no changes to Pallium task data or installation configuration.","completion_criteria":"Hermes opened from main shows its sibling task records and recorded PR links; task opens read the correct source; duplicate copies do not multiply rows; missing sources and pagination never imply confirmed zero; filters, version switching and reopen retain correct data. Tests, independent review, CI, merge and authorized local update complete."}
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:show-feature-related-work"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:show-feature-related-work"}],"pull_requests":["https://github.com/rore/minimap/pull/73"]}
 **Risk:** High
 **Complexity:** Moderate
 **Reason:** Source-specific task reads, canonical behavior contract and browser safety acceptance change; cache, paging and record-opening provenance must remain correct.
@@ -44,7 +44,7 @@ Implementation and focused verification complete; full CI, publication, merge an
 
 ## Result review
 Agent technical review: /root/placement_review approved after correcting source-generation change notices and updating first-page caches after pagination recovery. Final documentation says notices clear at the next fresh validation. No remaining blocking findings.
-Reviewed revision: product diff based on60ed5a8, final implementation commit recorded in PR evidence.
+Reviewed revision: 645b301 (product implementation); 2c6921d changes only the required CI verification reference. Delivery PR: https://github.com/rore/minimap/pull/73.
 Verification adequacy: focused units, browser source/provenance/cache checks and real desktop/narrow UI/body checks cover the reported bug and regression paths; full CI remains the merge gate.
 
 ## Checkpoint: architecture-review
