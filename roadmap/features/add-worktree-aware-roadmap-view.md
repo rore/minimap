@@ -18,6 +18,8 @@ Implemented on 2026-09-30 by minimap-dev, with Minimap-manager owning design, in
 
 ## Why
 
+2026-10-21 correction: [PR #72](https://github.com/rore/minimap/pull/72) removes repeated cards caused by differing worktree placements. Each proven feature appears once; all versions and board placements remain available in details. Regression and real-Pallium visual checks passed; merge and local rollout are tracked in the PR.
+
 Parallel agents work on separate features in separate worktrees. Their roadmap edits and newly created feature files live there, while Minimap usually serves the primary checkout. Consequently the board and In play filter can miss the work the user wants to see, even when agents correctly update files and attach themselves to features.
 
 There can be several real versions of a file-backed roadmap at once. Neither the newest file nor the furthest-progressed status is automatically authoritative. Minimap should expose these versions clearly while remaining a small view and editor over files.
