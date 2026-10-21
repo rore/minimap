@@ -207,7 +207,7 @@ test("feature read view shows live related records and keeps failed refresh expl
   }
 });
 
-test("Across keeps conflicting Work Record versions scoped to the selected checkout", async ({ page }, testInfo) => {
+test("Across combines task versions independently of the selected document and opens each origin", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-related-across-"));
   const root = path.join(owned, "main"), sibling = path.join(owned, "blue");
@@ -240,28 +240,55 @@ test("Across keeps conflicting Work Record versions scoped to the selected check
     .replace("__RELATIONSHIPS__", `**Relationships:**\n${JSON.stringify({ schema_version: 1, sources: [source], pull_requests: [pr] })}`));
   await write(root, "Main delivery", "Ready to implement", "https://github.com/rore/minimap/pull/10");
   await write(sibling, "Blue delivery", "Blocked", "https://github.com/rore/minimap/pull/20");
+  let releaseBlue;
+  const heldBlue = new Promise((resolve) => { releaseBlue = resolve; });
+  let blueStarted = false, listReads = 0;
+  await page.route("**/api/source/items/alpha/related-work**", async (route) => {
+    if (!new URL(route.request().url()).searchParams.has("record")) {
+      listReads++;
+      const context = JSON.parse(route.request().headers()["x-minimap-source-context"]);
+      if (context.git.branchRef === "refs/heads/blue") { blueStarted = true; await heldBlue; }
+    }
+    await route.continue();
+  });
   try {
     await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&item=alpha`);
     await expect(page.locator("#editor-source-label")).toBeVisible();
     await page.locator("#editor-source-label").evaluate((details) => { details.open = true; });
     await expect(page.locator("#editor-source-label [data-editor-source]")).toHaveCount(2);
     await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "main" }).click();
-    await expect(page.locator("#related-work > summary")).toContainText("1");
+    await expect.poll(() => blueStarted).toBe(true);
+    await expect(page.locator("#related-work > summary")).toContainText("Loading");
+    await page.locator("#editor-source-label").evaluate((details) => { details.open = true; });
+    await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "blue" }).click();
+    await expect(page.locator("#item-preview")).toContainText("Blue version.");
+    expect(listReads).toBe(2);
+    releaseBlue();
+    await expect(page.locator("#related-work > summary")).toHaveText("Linked tasks (1)");
     await page.locator("#related-work > summary").click();
+    await expect(page.locator(".related-work-row")).toHaveCount(1);
+    await page.getByText("2 worktree versions", { exact: true }).click();
     await expect(page.locator("#related-work-content")).toContainText("Main delivery");
     await expect(page.locator("#related-work-content")).toContainText("Worktree:");
-    await expect(page.locator("#related-work-content")).not.toContainText("Blue delivery");
+    await expect(page.locator("#related-work-content")).toContainText("Blue delivery");
+    for (const title of ["Main delivery", "Blue delivery"]) {
+      await page.locator(".related-work-version").filter({ hasText: title }).getByRole("button", { name: "Open task" }).click();
+      await expect(page.locator("#related-record-title")).toHaveText(title);
+      await expect(page.locator("#related-record-content")).toContainText("Outcome");
+      await page.locator("#related-record-close").click();
+    }
     await page.locator(".related-work-details > summary").click();
     await expect(page.locator(".related-work-details")).toHaveAttribute("open", "");
     await page.locator("#editor-source-label").evaluate((details) => { details.open = true; });
-    await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "blue" }).click();
+    await page.locator('#editor-source-label [data-editor-source]').filter({ hasText: "main" }).click();
     await expect(page.locator("#related-work > summary")).toContainText("1");
     await page.locator("#related-work").evaluate((details) => { details.open = true; });
     await expect(page.locator("#related-work-content")).toContainText("Blue delivery");
-    await expect(page.locator(".related-work-details")).not.toHaveAttribute("open", "");
-    await page.locator(".related-work-details > summary").click();
-    await expect(page.locator(".related-work-details p").last()).toBeVisible();
-    await expect(page.locator("#related-work-content")).not.toContainText("Main delivery");
+    await expect(page.locator("#related-work-content")).toContainText("Main delivery");
+    expect(listReads).toBe(2);
+    await page.locator("#related-work > summary").click();
+    await page.locator("#related-work > summary").click();
+    expect(listReads).toBe(2);
     await expect(page.locator("#related-work-content")).toContainText("PR #20");
     await page.locator("#related-work").evaluate((details) => { details.open = true; });
     await page.screenshot({ path: testInfo.outputPath("related-across-conflict-desktop.png"), fullPage: true });
@@ -274,6 +301,7 @@ test("Across keeps conflicting Work Record versions scoped to the selected check
     const newHead = selectedResponse.source.headCommit === "f".repeat(40) ? "e".repeat(40) : "f".repeat(40);
     injected.source.headCommit = newHead;
     injected.records[0].title = "Stale HEAD response";
+    await page.unroute("**/api/source/items/alpha/related-work**");
     let release, started;
     const held = new Promise((resolve) => { release = resolve; });
     const reached = new Promise((resolve) => { started = resolve; });
@@ -290,5 +318,5 @@ test("Across keeps conflicting Work Record versions scoped to the selected check
     await expect(page.locator("#related-work-content")).not.toContainText("Stale HEAD response");
     await expect(page.locator("#related-work-content")).toContainText("Blue delivery");
     await page.unroute("**/api/source/items/alpha/related-work**");
-  } finally { await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+  } finally { releaseBlue(); await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

@@ -39,7 +39,7 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource, onMutation } =
   const repo = typeof getRepo === "function" ? getRepo : () => "";
   const source = typeof getSource === "function" ? getSource : () => null;
 
-  async function request(url, init = {}, { unbound = false, repoRoot = null } = {}) {
+  async function request(url, init = {}, { unbound = false, repoRoot = null, sourceContext } = {}) {
     const headers = new Headers(init.headers || {});
     const setRepoHeader = (value) => {
       if (/[^\x20-\x7e]/.test(value)) headers.set("X-Minimap-Repo-Encoded", encodeURIComponent(value));
@@ -48,7 +48,7 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource, onMutation } =
     if (init.body && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json; charset=utf-8");
     }
-    const selection = unbound ? null : source();
+    const selection = sourceContext ? { mode: "across", identity: sourceContext } : unbound ? null : source();
     if (selection?.mode === "across") {
       if (!selection.identity) throw new Error("Select one checkout before opening or changing an item.");
       const { repoRoot, sourceKey, git, roadmapBinding } = selection.identity;
@@ -100,13 +100,13 @@ export function createApi({ fetch: fetchImpl, getRepo, getSource, onMutation } =
     reorderLensGroup: (field, payload) => postJson(`/api/lenses/${id(field)}/order`, payload),
     saveScope: (scopeText, expectedRevision = null) => postJson("/api/scope", { scopeText, expectedRevision }),
     readItem: (itemId, options = {}) => request(`/api/items/${id(itemId)}`, options),
-    readRelatedWork: (itemId, { generation, offset, record, fresh = false, ...options } = {}) => {
+    readRelatedWork: (itemId, { generation, offset, record, fresh = false, sourceContext, ...options } = {}) => {
       const query = new URLSearchParams();
       if (generation) query.set("generation", generation);
       if (offset != null) query.set("offset", String(offset));
       if (record) query.set("record", record);
       if (fresh) query.set("fresh", "1");
-      return request(`/api/items/${id(itemId)}/related-work${query.size ? `?${query}` : ""}`, options);
+      return request(`/api/items/${id(itemId)}/related-work${query.size ? `?${query}` : ""}`, options, { sourceContext });
     },
     readBoardParticipantCounts: ({ includeCompleted = false, ...options } = {}) => request(
       `/api/board/participant-counts${includeCompleted === true ? "?includeCompleted=1" : ""}`, options,

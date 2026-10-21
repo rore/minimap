@@ -19,6 +19,21 @@ function fakeFetch(responses) {
   return f;
 }
 
+test("related-work source override is confined to that read and retains cancellation", async () => {
+  const f = fakeFetch([{}]);
+  const selected = { repoRoot: "C:/main", sourceKey: "main", git: { headCommit: "main" }, roadmapBinding: {} };
+  const origin = { repoRoot: "C:/blue", sourceKey: "blue", git: { headCommit: "blue" }, roadmapBinding: {} };
+  const api = createApi({ fetch: f, getSource: () => ({ mode: "across", identity: selected }) });
+  const signal = new AbortController().signal;
+  await api.readRelatedWork("feature", { sourceContext: origin, generation: "g", record: "task", signal });
+  await api.readItem("feature");
+  assert.equal(f.calls[0].url, "/api/source/items/feature/related-work?generation=g&record=task");
+  assert.equal(f.calls[0].opts.signal, signal);
+  assert.deepEqual(JSON.parse(f.calls[0].opts.headers.get("X-Minimap-Source-Context")), origin);
+  assert.deepEqual(JSON.parse(f.calls[1].opts.headers.get("X-Minimap-Source-Context")), selected);
+  assert.equal(Object.hasOwn(f.calls[0].opts, "sourceContext"), false);
+});
+
 test("loadWorkspace calls /api/workspace and returns the parsed body", async () => {
   const f = fakeFetch([{ body: { items: {}, boardGroups: [] } }]);
   const api = createApi({ fetch: f });

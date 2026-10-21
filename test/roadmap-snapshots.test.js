@@ -22,6 +22,17 @@ function makeCoordinator(overrides = {}) {
 
 const result = (value, manifest = { refs: [] }, admission = { root: "repo" }) => ({ value, manifest, admission });
 
+test("related-work entry budget retains generations for 25 small source indexes", async () => {
+  const { coordinator } = makeCoordinator({ maxEntries: 32, maxBytes: 16 * 1024 * 1024 });
+  const snapshots = [];
+  for (let index = 0; index < 25; index++) {
+    snapshots.push(await coordinator.read({ key: `source-${index}`, load: async () => result({ records: [] }, { source: index }) }));
+  }
+  for (let index = 0; index < snapshots.length; index++) {
+    assert.deepEqual(coordinator.getManifest(snapshots[index].snapshot.id, `source-${index}`), { source: index });
+  }
+});
+
 test("coalesces identical scans and returns detached values", async () => {
   const { coordinator } = makeCoordinator();
   const gate = deferred();
