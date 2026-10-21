@@ -4,7 +4,7 @@ const UNASSIGNED_KEY = "__unassigned__";
 const UNASSIGNED_LABEL = "Unassigned";
 const CONFLICT_FIELDS = ["title", "status", "priority", "commitment", "milestone", "kind", "revision"];
 
-// Summarize saved file states in this placement/filter, never session activity.
+// Summarize saved file states matching the filters, never session activity.
 export function recordedStatusSummary(item) {
   const values = item?.matchingVersions
     ? item.matchingVersions.map((version) => version.summary?.status ?? version.summary?.metadata?.status)
@@ -44,6 +44,24 @@ function canonicalId(id) {
   return encodeURIComponent(String(id).normalize("NFC")).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+export function worktreeCardId(feature) {
+  return JSON.stringify([feature.key, feature.versions[0].groupKind, feature.versions[0].group]);
+}
+
+export function normalizeWorktreeCardId(aggregate, id) {
+  let placement;
+  try { placement = JSON.parse(id); } catch { return id; }
+  if (!Array.isArray(placement) || placement.length !== 3) return id;
+  const feature = aggregate?.features?.find((entry) => entry.key === placement[0]);
+  if (!feature) return id;
+  const known = feature.versions.some((version) =>
+    (placement[1] === version.groupKind && placement[2] === version.group)
+    || (placement[1] === "derived" && version.groupKind !== "unlisted"
+      && aggregate.workspace?.availableLenses?.some((lens) => lens.key !== "board"
+        && placement[2] === (getItemLensGroupValue(version.summary, lens.key, { defaultLensKey: "board", unassignedKey: UNASSIGNED_LABEL }) || UNASSIGNED_LABEL))));
+  return known ? worktreeCardId(feature) : id;
+}
+
 export function projectWorktreeGroups(aggregate, {
   lens = "board", searchQuery = "", activeFilters = {}, inPlay = false,
   participantCounts = new Map(), showEmptyGroups = false,
@@ -55,11 +73,9 @@ export function projectWorktreeGroups(aggregate, {
   const derived = lens !== "board" && Boolean(definition);
   const preferred = derived ? definition.values || [] : [];
   const groups = new Map();
-  const cardsByGroup = new Map();
   const addGroup = (key, name, kind, originalIndex) => {
     if (!groups.has(key)) {
       groups.set(key, { name, kind, groupKey: key, originalIndex, items: [] });
-      if (derived) cardsByGroup.set(key, new Map());
     }
     return groups.get(key);
   };
@@ -73,6 +89,13 @@ export function projectWorktreeGroups(aggregate, {
     const id = canonicalId(feature.id);
     idCounts.set(id, (idCounts.get(id) || 0) + 1);
   }
+  const matching = new Map(aggregate.features.map((feature) => [feature.key, feature.versions.filter((version) => itemMatchesFilters({
+    ...version.summary, id: version.itemId, searchText: version.summary.searchText,
+  }, {
+    searchQuery, activeFilters, inPlay,
+    participantCounts: new Map([[version.itemId, { participantCount: idCounts.get(canonicalId(feature.id)) > 1 ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]),
+  }))]));
+  const emitted = new Set();
   for (const group of aggregate.groups || []) {
     for (const item of group.items || []) {
       const feature = featuresByKey.get(item.key);
@@ -80,51 +103,23 @@ export function projectWorktreeGroups(aggregate, {
         if (!filtersActive && !derived) addGroup(`${group.kind}:${group.name}`, group.name, group.kind, 0).items.push({ ...item, title: item.id, sourceVersion: item.versions?.[0] });
         continue;
       }
-      if (!feature) continue;
-      const versions = item.versions.filter((version) => itemMatchesFilters({
-        ...version.summary, id: version.itemId, searchText: version.summary.searchText,
-      }, {
-        searchQuery, activeFilters,
-        inPlay,
-        participantCounts: new Map([[version.itemId, { participantCount: idCounts.get(canonicalId(feature.id)) > 1 ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]),
-      }));
+      if (!feature || emitted.has(feature.key)) continue;
+      const versions = matching.get(feature.key);
       if (!versions.length) continue;
-      const byGroup = new Map();
-      for (const version of versions) {
-        const name = derived && version.groupKind !== "unlisted"
-          ? (getItemLensGroupValue(version.summary, lens, { defaultLensKey: "board", unassignedKey: UNASSIGNED_KEY }) || UNASSIGNED_KEY)
-          : version.group;
-        const kind = derived && version.groupKind !== "unlisted" ? "derived" : version.groupKind;
-        const key = derived && kind === "derived" ? name : `${kind}:${name}`;
-        if (!byGroup.has(key)) byGroup.set(key, { name: name === UNASSIGNED_KEY ? UNASSIGNED_LABEL : name, kind, versions: [] });
-        byGroup.get(key).versions.push(version);
-      }
-      for (const [key, entry] of byGroup) {
-        const index = derived ? preferred.indexOf(entry.name) : aggregate.groups.findIndex((value) => value.kind === entry.kind && value.name === entry.name);
-        const projected = addGroup(key, entry.name, entry.kind, index < 0 ? preferred.length + groups.size : index);
-        const appearanceId = JSON.stringify([feature.key, entry.kind, entry.name]);
-        const existing = derived && cardsByGroup.get(key).get(feature.key);
-        if (existing) {
-          const sources = new Set(existing.matchingVersions.map((version) => `${version.sourceKey}\0${version.groupKind}\0${version.group}`));
-          existing.matchingVersions.push(...entry.versions.filter((version) => !sources.has(`${version.sourceKey}\0${version.groupKind}\0${version.group}`)));
-          const sourceOrder = new Map(feature.versions.map((version, order) => [`${version.sourceKey}\0${version.groupKind}\0${version.group}`, order]));
-          existing.matchingVersions.sort((left, right) => sourceOrder.get(`${left.sourceKey}\0${left.groupKind}\0${left.group}`) - sourceOrder.get(`${right.sourceKey}\0${right.groupKind}\0${right.group}`));
-          existing.versions = existing.matchingVersions;
-          existing.sourceVersion = existing.matchingVersions[0];
-          existing.conflicts = conflictsForVersions(existing.matchingVersions);
-          Object.assign(existing, existing.sourceVersion.summary, {
-            id: appearanceId, featureKey: feature.key, versions: existing.matchingVersions,
-            matchingVersions: existing.matchingVersions, conflicts: existing.conflicts,
-            sourceVersion: existing.sourceVersion,
-          });
-          continue;
-        }
-        const card = { ...entry.versions[0].summary, id: appearanceId, featureKey: feature.key,
-          title: entry.versions[0].summary.title || feature.id, versions: entry.versions, matchingVersions: entry.versions,
-          conflicts: conflictsForVersions(entry.versions), sourceVersion: entry.versions[0] };
-        projected.items.push(card);
-        if (derived) cardsByGroup.get(key).set(feature.key, card);
-      }
+      const version = versions[0];
+      if (!derived && (group.kind !== version.groupKind || group.name !== version.group)) continue;
+      emitted.add(feature.key);
+      const name = derived && version.groupKind !== "unlisted"
+        ? (getItemLensGroupValue(version.summary, lens, { defaultLensKey: "board", unassignedKey: UNASSIGNED_KEY }) || UNASSIGNED_KEY)
+        : version.group;
+      const kind = derived && version.groupKind !== "unlisted" ? "derived" : version.groupKind;
+      const key = derived && kind === "derived" ? name : `${kind}:${name}`;
+      const index = derived ? preferred.indexOf(name) : aggregate.groups.findIndex((value) => value.kind === kind && value.name === name);
+      const projected = addGroup(key, name === UNASSIGNED_KEY ? UNASSIGNED_LABEL : name, kind, index < 0 ? preferred.length + groups.size : index);
+      const card = { ...version.summary, id: worktreeCardId(feature), featureKey: feature.key,
+        title: version.summary.title || feature.id, versions, matchingVersions: versions,
+        conflicts: conflictsForVersions(versions), sourceVersion: version };
+      projected.items.push(card);
     }
   }
   return [...groups.values()].filter((group) => group.items.length || (showEmptyGroups && !inPlay && derived))

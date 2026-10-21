@@ -46,7 +46,7 @@ This checkout keeps today's behavior. Across worktrees discovers new eligible wo
 - Selecting the indicator opens the existing detail pane with a source selector. Show the selected source's actual metadata and document together; do not construct a synthetic document from several files.
 - Keep full paths and secondary provenance in details or the source menu, rather than filling every card with labels.
 
-The default target is one card per logical feature. An unresolved status or grouping difference must not be hidden behind an arbitrary representative. The implementation sketch below defines limited repeated appearances for divergent groups, distinct-feature totals, and disclosure for differences within one group.
+The combined board shows one card per logical feature. It uses the opened checkout's placement when that version matches the filters, otherwise the first matching source in discovery order. This is a display preference, not a claim that the chosen version is newest. Status differences remain visible; other placements and documents remain available in version details.
 
 ### Filtering must explain the result
 
@@ -121,6 +121,8 @@ The implementation sketch below resolves these concrete choices using two ordina
 Use the sketch to keep the first implementation bounded. Do not turn these questions into a new assignment or synchronization system.
 
 ## Implementation Sketch — 2026-09-30
+
+The repeated-card behavior in this historical sketch is superseded by the 2026-10-21 single-placement correction described above. The correction preserves whole-version filtering, identity proofs and source-bound navigation.
 
 The following owner decisions replace the three open questions above. Astra reviewed the sketch; the same-group metadata and mandatory source-context clarifications below incorporate that feedback. Keep the implementation on one feature branch; no parallel product redesign.
 
