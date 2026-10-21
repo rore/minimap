@@ -12,6 +12,8 @@ labels:
 
 ## Summary
 
+2026-10-21 follow-up: Across worktrees combines linked tasks from the loaded versions of a feature, rather than only the displayed document. Duplicate task references share a row with source-specific versions, and Open reads the chosen source. Focused tests and real Pallium desktop/narrow checks pass; review, CI and delivery are recorded in `.agent-workflow/tasks/across-linked-tasks.md`. Broader rollout scope below remains unfinished.
+
 2026-10-19 follow-up merged in [PR #61](https://github.com/rore/minimap/pull/61) (`79370e8`), with installed-runtime rollout still pending: the collapsed task section shows its known total as `(N)`, including zero and the total across pages. Partial and stale results retain their count and status; an unknown loading or unavailable result does not imply zero. This UI correction leaves the deferred rollout scope unchanged.
 
 2026-10-18 UI follow-up merged in [PR #60](https://github.com/rore/minimap/pull/60) (`833ae31`): feature detail names linked development task records explicitly, explains missing legacy links separately from records that could not be checked, and retains partial warnings with valid results. Participant and task reads reuse exact-scope successful results for at most 30 seconds and share pending reads across brief reopen/visibility cycles; manual Refresh forces fresh reads. This slice does not complete the deferred rollout below.
@@ -55,7 +57,7 @@ Measure a representative large record corpus with concurrent board and lightweig
 ### Feature detail
 
 - In the existing read-first feature detail, show a compact Related work section with each record's name, recorded state, source/version when needed, Open record action, and safe PR links. Keep the ordinary feature readable while discovery runs. Distinguish Loading, confirmed none, partial/stale, unavailable, and error with a retry/Refresh path. Do not add a backlink editor or dense card badge by default.
-- Preserve the selected feature/version, unsaved drafts, source confirmation, and navigation during background updates. This checkout and Across worktrees must show relationships for the selected version and clearly disclose bounded/ambiguous coverage. A source switch must not apply an old response or open a different checkout's record by accident.
+- Preserve the selected feature/version, unsaved drafts, source confirmation, and navigation during background updates. This checkout shows its own task records; Across worktrees combines records from the loaded, proven versions of the feature. Keep differing task versions inspectable and disclose incomplete coverage. Changing the displayed feature version must not restart an unchanged combined task read or open a different checkout's record by accident.
 
 ## Out of Scope
 

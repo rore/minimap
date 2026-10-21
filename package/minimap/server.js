@@ -78,7 +78,7 @@ const palliumConfig = parsePalliumConfig(
   process.env.MINIMAP_PALLIUM_DASHBOARD_ENDPOINT,
 );
 const roadmapSnapshots = createRoadmapSnapshotCoordinator();
-const relatedWorkSnapshots = createRoadmapSnapshotCoordinator({ limits: { jobTimeoutMs: 10_000, maxBytes: 16 * 1024 * 1024 } });
+const relatedWorkSnapshots = createRoadmapSnapshotCoordinator({ limits: { maxEntries: 32, jobTimeoutMs: 10_000, maxBytes: 16 * 1024 * 1024 } });
 const scanRelatedWork = createRelatedWorkScanner();
 const relatedWorkLastGood = new Map();
 

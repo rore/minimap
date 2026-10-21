@@ -1,4 +1,5 @@
 import { createApi } from "/api.js";
+import { acrossRelatedWorkKey, createAcrossRelatedWork, cacheAcrossRelatedWork, readAcrossRelatedWork } from "/related-work.js";
 import { renderMarkdownToHtml } from "/markdown.js";
 import {
   normalizeFilterValues,
@@ -3764,6 +3765,17 @@ function currentDetailReadKey(displayItemId = state.selectedItemId) {
   ]);
 }
 
+function currentRelatedFeature(displayItemId = state.selectedItemId) {
+  const key = getBoardItemById(displayItemId)?.featureKey;
+  return state.worktreeData?.features?.find((feature) => feature.key === key);
+}
+
+function currentRelatedReadKey(displayItemId = state.selectedItemId) {
+  return state.worktreeMode === "across"
+    ? JSON.stringify([state.appMode, acrossRelatedWorkKey(state.repoPath, currentRelatedFeature(displayItemId), Boolean(state.worktreeData?.provisional))])
+    : currentDetailReadKey(displayItemId);
+}
+
 function readCacheGet(cache, key) {
   const entry = cache.get(key);
   if (!entry) return null;
@@ -4224,7 +4236,7 @@ function renderRelatedWork() {
       : view.status === "stale" ? " · Last checked earlier"
         : view.status === "error" || view.status === "unavailable" ? " · Unavailable"
           : " · May be incomplete";
-  if (summary) summary.textContent = `Linked tasks${total == null ? "" : ` (${total})`}${statusLabel}`;
+  if (summary) summary.textContent = `Linked tasks${total == null ? "" : ` (${total}${view.incomplete ? "+" : ""})`}${statusLabel}`;
   const message = view.status === "loading" ? (records.length ? "Checking linked task records…" : "Loading linked task records…")
     : view.status === "unavailable" ? "Linked task records are unavailable for this worktree."
       : view.status === "error" ? "Could not load linked task records. Try Refresh."
@@ -4235,7 +4247,7 @@ function renderRelatedWork() {
               : "Some older task records do not declare feature links, so this list may be incomplete.")
             : "Some task links could not be verified or some records could not be checked. This list may be incomplete."
             : records.length ? "" : "No task records link to this feature.";
-  const recordHtml = records.map((record) => {
+  const renderVersion = (record, versionIndex) => {
     const urls = record.pullRequests || [];
     const repositories = new Set(urls.map((url) => new URL(url).pathname.split("/").slice(1, 3).join("/")));
     const prLinks = urls.map((url) => {
@@ -4243,12 +4255,21 @@ function renderRelatedWork() {
       const label = repositories.size > 1 ? `${segments[0]}/${segments[1]}#${segments.at(-1)}` : `PR #${segments.at(-1)}`;
       return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
     });
-    return `<li class="related-work-row"><div class="related-work-main"><strong>${escapeHtml(record.title)}</strong>
+    const branch = record.sourceContext?.git?.branchRef?.replace(/^refs\/heads\//, "") || record.sourceContext?.git?.headCommit?.slice(0, 8);
+    return `<div class="related-work-main"><strong>${escapeHtml(record.title)}</strong>
     <span class="muted">${escapeHtml(record.recordedState)}</span></div>
-    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}">Open task</button>
-    ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div></li>`;
+    ${branch ? `<p class="muted" title="${escapeHtml(record.sourceContext.repoRoot)}">Worktree: ${escapeHtml(branch)}</p>` : ""}
+    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}" ${versionIndex == null ? "" : `data-related-version="${versionIndex}"`}>Open task</button>
+    ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div>`;
+  };
+  const recordHtml = records.map((record) => {
+    const versions = record.versions;
+    return `<li class="related-work-row">${versions?.length > 1
+      ? `<strong>${escapeHtml(record.title)}</strong><details><summary>${versions.length} worktree versions</summary>${versions.map((version, index) => `<div class="related-work-version">${renderVersion(version, index)}</div>`).join("")}</details>`
+      : renderVersion(versions?.[0] || record, versions ? 0 : null)}</li>`;
   }).join("");
   host.innerHTML = `${message && view.status !== "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
+    ${(view.notices || []).map((notice) => `<p class="muted">${escapeHtml(notice)}</p>`).join("")}
     <details class="related-work-details" ${detailsOpen ? "open" : ""}><summary>Task details</summary><p class="muted">Saved task records; PR status may have changed.</p>${view.status === "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}</details>
     ${records.length ? `<ul>${recordHtml}</ul>` : ""}
     ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-more>More records</button>' : ""}
@@ -4259,10 +4280,66 @@ function renderRelatedWork() {
     provenance.textContent = `Worktree: ${view.source.repoRoot}. Other versions may differ.`;
     host.querySelector(".related-work-details").append(provenance);
   }
+  if (view.across) {
+    const provenance = document.createElement("p");
+    provenance.className = "muted";
+    provenance.textContent = `Across ${view.states.length} proven feature worktrees. Task versions retain their own saved state, PR links and source.`;
+    host.querySelector(".related-work-details").append(provenance);
+    for (const source of view.states.filter((entry) => entry.error || entry.result?.status !== "ok")) {
+      const notice = document.createElement("p");
+      notice.className = "muted";
+      notice.textContent = `${source.version.sourceContext.repoRoot}: ${source.error || source.result?.status || "not checked"}`;
+      host.querySelector(".related-work-details").append(notice);
+    }
+  }
+}
+
+async function refreshAcrossRelatedWork({ append = false, fresh = false } = {}) {
+  const key = currentRelatedReadKey();
+  if (!append && relatedWorkRequest?.key === key && (!fresh || relatedWorkRequest.fresh)) return relatedWorkRequest.promise;
+  if (!append && !fresh) {
+    const cached = readCacheGet(relatedWorkCache, key);
+    if (cached) {
+      if (relatedWorkView.key !== key || relatedWorkView.generation !== cached.generation) relatedWorkView = { ...cached, key };
+      renderRelatedWork();
+      return;
+    }
+  }
+  const previous = relatedWorkView.key === key ? relatedWorkView
+    : createAcrossRelatedWork(currentRelatedFeature(), Boolean(state.worktreeData?.provisional));
+  relatedWorkRequest?.controller.abort();
+  const controller = new AbortController();
+  const intent = { key, controller, fresh, promise: null };
+  relatedWorkRequest = intent;
+  relatedWorkView = { ...previous, key, status: "loading" };
+  renderRelatedWork();
+  intent.promise = (async () => {
+    try {
+      const result = await readAcrossRelatedWork(previous, { read: api.readRelatedWork, signal: controller.signal, fresh, append });
+      if (controller.signal.aborted || relatedWorkRequest !== intent) return;
+      readCacheSet(relatedWorkCache, key, cacheAcrossRelatedWork(result));
+      if (key !== currentRelatedReadKey() || !state.currentItem) return;
+      relatedWorkView = { ...result, key };
+      renderRelatedWork();
+      if (!fresh && !append && result.reason === "validation_due" && document.visibilityState === "visible") {
+        relatedWorkRequest = null;
+        void refreshRelatedWork({ fresh: true });
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && relatedWorkRequest === intent && key === currentRelatedReadKey()) {
+        relatedWorkView = { ...previous, key, status: previous.records.length ? "stale" : "error", incomplete: true };
+        renderRelatedWork();
+      }
+    } finally {
+      if (relatedWorkRequest === intent) relatedWorkRequest = null;
+    }
+  })();
+  return intent.promise;
 }
 
 async function refreshRelatedWork({ generation, offset, append = false, fresh = false } = {}) {
   if (!state.currentItem || !state.selectedItemId) return;
+  if (state.worktreeMode === "across") return refreshAcrossRelatedWork({ append, fresh });
   const key = currentDetailReadKey();
   const displayItemId = state.selectedItemId;
   const scope = currentReadScopeKey();
@@ -4330,8 +4407,13 @@ previewElement.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-related-record]");
   if (!button) return;
   const recordId = button.dataset.relatedRecord;
-  const scope = currentReadScopeKey();
+  const scope = currentRelatedReadKey();
   const itemId = state.currentItem?.id;
+  const record = relatedWorkView.records.find((entry) => entry.id === recordId);
+  const version = record?.versions?.[Number(button.dataset.relatedVersion)];
+  if (state.worktreeMode === "across" && !version) return;
+  const origin = version ? { sourceContext: version.sourceContext, generation: version.generation, itemId: version.itemId }
+    : { generation: relatedWorkView.generation, itemId };
   const requestId = ++relatedRecordRequestId;
   const title = relatedWorkView.records.find((entry) => entry.id === recordId)?.title || "Task record";
   document.querySelector("#related-record-title").textContent = title;
@@ -4339,9 +4421,10 @@ previewElement.addEventListener("click", async (event) => {
   document.querySelector("#related-record-content").textContent = "Loading record…";
   relatedRecordDialog.showModal();
   try {
-    const result = await api.readRelatedWork(itemId, { generation: relatedWorkView.generation, record: recordId });
+    const result = await api.readRelatedWork(origin.itemId, { generation: origin.generation, sourceContext: origin.sourceContext, record: recordId });
     if (requestId !== relatedRecordRequestId || !relatedRecordDialog.open) return;
-    if (scope !== currentReadScopeKey() || itemId !== state.currentItem?.id) { relatedRecordDialog.close(); return; }
+    if (scope !== currentRelatedReadKey()) { relatedRecordDialog.close(); return; }
+    if (result.id !== recordId) throw new Error("Task identity changed. Refresh linked tasks.");
     document.querySelector("#related-record-title").textContent = result.title;
     document.querySelector("#related-record-meta").textContent = `${result.recordedState}`;
     // The decoder validates relationship metadata; it is omitted from the reading view.
@@ -5400,6 +5483,10 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     state.worktreeData = aggregate;
     state.selectedSource = (keepEditor ? state.selectedSource : draftSource) || aggregate?.sources?.[0] || sourceWorkspace?.source || state.pinnedSource || null;
     state.workspace = workspace;
+    if (relatedWorkRequest && worktreeMode === "across" && relatedWorkRequest.key !== currentRelatedReadKey()) {
+      relatedWorkRequest.controller.abort();
+      relatedWorkRequest = null;
+    }
     const nextSnapshot = aggregate?.snapshot || workspace?.snapshot || null;
     if (nextSnapshot?.id !== workspaceSnapshot?.id) invalidateBoardPresence({ keepCounts: sameScope || presented });
     workspaceSnapshot = nextSnapshot;
@@ -5489,7 +5576,9 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     // loadItem owns freshly loaded details; only retained editors need a separate refresh.
     if (stillCurrent() && !aggregate?.provisional && state.currentItem && state.currentItem === previousItem && !state.itemLoadController) {
       void loadItemParticipants(state.selectedItemId, state.itemLoadGeneration, { forceFresh: options.forceFreshParticipants === true });
-      if (options.forceFreshRelated) void refreshRelatedWork({ fresh: true });
+      if (options.forceFreshRelated || state.worktreeMode === "across" && relatedWorkView.key !== currentRelatedReadKey()) {
+        void refreshRelatedWork({ fresh: options.forceFreshRelated === true });
+      }
     }
     if (stillCurrent()) void refreshBoardPresence();
   };
@@ -5634,12 +5723,13 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
-  if (relatedWorkRequest && (relatedWorkRequest.displayItemId !== itemId
-    || relatedWorkRequest.consumer.scope !== currentReadScopeKey())) {
+  const keepAcrossRelated = state.worktreeMode === "across" && relatedWorkView.key === currentRelatedReadKey(itemId);
+  if (relatedWorkRequest && (state.worktreeMode === "across" ? relatedWorkRequest.key !== currentRelatedReadKey(itemId)
+    : relatedWorkRequest.displayItemId !== itemId || relatedWorkRequest.consumer?.scope !== currentReadScopeKey())) {
     relatedWorkRequest.controller.abort();
     relatedWorkRequest = null;
   }
-  relatedWorkView = { status: "loading", records: [] };
+  if (!keepAcrossRelated) relatedWorkView = { status: "loading", records: [] };
   renderEditorSourceSelect();
   renderEditorChrome();
 
