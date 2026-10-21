@@ -65,7 +65,7 @@ import {
 import { initSpec } from "/spec/index.js";
 import { detectSpecFileChange } from "/spec/file-change.js";
 import { createState } from "/state.js";
-import { projectWorktreeGroups, createWorktreeProjector, countDistinctWorktreeFeatures, versionDifferences, recordedStatusSummary } from "/worktrees.js";
+import { projectWorktreeGroups, createWorktreeProjector, countDistinctWorktreeFeatures, normalizeWorktreeCardId, versionDifferences, recordedStatusSummary } from "/worktrees.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -2650,7 +2650,8 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
   const sourceName = item.sourceVersion?.sourceContext;
   const sourceLabel = sourceName ? `${sourceName.label} · ${sourceName.git.branchRef?.replace(/^refs\/heads\//, "") || sourceName.git.headCommit.slice(0, 8)}` : "";
   const differingFields = [...new Set((item.conflicts || []).map((entry) => entry.field))].filter((field) => field !== "status");
-  const sourceBadgeLabel = item.matchingVersions?.length > 1 ? `${item.matchingVersions.length} worktrees${activity.differs ? " · Statuses differ" : ""}` : sourceLabel;
+  const sourceCount = new Set(item.matchingVersions?.map((version) => version.sourceKey)).size;
+  const sourceBadgeLabel = sourceCount > 1 ? `${sourceCount} worktrees${activity.differs ? " · Statuses differ" : ""}` : sourceLabel;
   const sourceBadge = item.sourceVersion
     ? `<span class="board-source-badge" title="${escapeHtml(sourceLabels.join("\n"))}">${escapeHtml(sourceBadgeLabel)}</span>` : "";
   const conflictDetail = (item.conflicts || []).map((entry) => {
@@ -2658,8 +2659,6 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
   }).join("\n");
   const conflictBadge = differingFields.length ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(conflictDetail)}" aria-label="${escapeHtml(conflictDetail)}">${escapeHtml(differingFields.filter((field) => field !== "revision").map((field) => `${humanizeFilterKey(field)} differs`).join(" · ") || "Versions differ")}</span>` : "";
-  const otherGroups = [...new Set((activeLensKey === "board" ? feature?.groups || [] : []).filter((group) => group.kind === "board" && group.name !== item.sourceVersion?.group).map((group) => group.name))];
-  const groupCue = otherGroups.length ? `<span class="board-source-badge" role="note" title="${escapeHtml(otherGroups.join("\n"))}">${escapeHtml(`Also in ${otherGroups[0]}${otherGroups.length > 1 ? ` +${otherGroups.length - 1}` : ""}`)}</span>` : "";
   const statusSignal = `<span class="board-card-signals">${signalBadges}${sourceBadge}</span>`;
 
   return `
@@ -2670,7 +2669,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     ${statusSignal}
     <span class="board-item-id">${escapeHtml(item.sourceVersion?.itemId || item.id)}</span>
     ${overview}
-    <span class="badge-row">${summaryHtml}${renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}${groupCue}</span>
+    <span class="badge-row">${summaryHtml}${renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}</span>
   `;
 }
 
@@ -4388,10 +4387,13 @@ function renderEditorSourceSelect() {
   const branchName = (version) => version?.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version?.sourceContext.git.headCommit.slice(0, 8) || "Unavailable worktree";
   editorSourceSummaryElement.textContent = `${versions.length === 1 ? "Worktree" : `${versions.length} versions`}${recordedStatusSummary(card).differs ? " · Statuses differ" : ""} · ${branchName(selected)}`;
   editorSourceSummaryElement.title = branchName(selected);
+  const placementsDiffer = new Set(feature?.versions.map((version) => JSON.stringify([version.groupKind, version.group]))).size > 1;
   editorSourceSelectElement.innerHTML = versions.map((version) => {
     const active = version.sourceKey === selected?.sourceKey;
     const differences = versionDifferences(version, selected);
-    const label = active ? "Selected version" : differences.length ? differences.join(" · ") : "Same content and metadata";
+    const placements = [...new Set(feature.versions.filter((entry) => entry.sourceKey === version.sourceKey).map((entry) => entry.group))];
+    const label = [active ? "Selected version" : differences.length ? differences.join(" · ") : "Same content and metadata",
+      ...(placementsDiffer ? [`Board: ${placements.join(" · ")}`] : [])].join(" · ");
     return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${renderBadge(version.summary.status || "unknown", "status")}${matchingSources.has(version.sourceKey) ? "" : " filtered out"}</span><span class="editor-source-difference${differences.length ? " board-source-conflict" : ""}">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Worktree path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
   }).join("");
   positionEditorSourceMenu();
@@ -5063,7 +5065,16 @@ function resetAncillaryEditModes() {
 async function syncVisibleSelection(options = {}) {
   if (options.refreshPresence !== false && boardParticipantIncludeCompleted !== boardPresenceIncludesCompleted()) void refreshBoardPresence();
   const visibleItemIds = getVisibleBoardItemIds();
-  const preferredItemId = options.preferredItemId || "";
+  const normalizeSelection = (itemId) => {
+    const normalized = state.worktreeMode === "across" ? normalizeWorktreeCardId(state.worktreeData, itemId) : itemId;
+    if (normalized !== itemId && state.preferredVersions.has(itemId)) {
+      state.preferredVersions.set(normalized, state.preferredVersions.get(itemId));
+      state.preferredVersions.delete(itemId);
+    }
+    return normalized;
+  };
+  const preferredItemId = normalizeSelection(options.preferredItemId || "");
+  state.selectedItemId = normalizeSelection(state.selectedItemId);
   const pendingPresenceItemId = state.inPlay && ["idle", "loading"].includes(boardParticipantStatus)
     && preferredItemId && getBoardItemById(preferredItemId) ? preferredItemId : "";
   const useOverlay = shouldUseEditorOverlay();

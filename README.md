@@ -93,7 +93,7 @@ Only local linked Git worktrees are included, not separate clones or remote bran
 
 The combined view selects up to **25 checkouts**: the opened checkout, then the 24 most recent eligible siblings. Recency uses the latest recorded local HEAD Git event (such as checkout, commit, reset, or rebase); plain uncommitted edits do not affect it. Missing activity timestamps sort last, with path order breaking ties. Stale or missing checkouts do not consume slots. Selection updates on fresh validation; cached reads retain their existing selection.
 
-**Partial coverage** means some sources were excluded—for example, because of that limit or an unreadable roadmap. Expand the board summary for the reasons. Counts describe loaded sources, and a feature can appear in multiple groups when its versions differ.
+**Partial coverage** means some sources were excluded—for example, because of that limit or an unreadable roadmap. Expand the board summary for the reasons. Counts describe loaded sources; each proven feature appears once, and differing placements remain in its checkout-version details.
 
 ### File layout and configuration
 

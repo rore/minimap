@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { countDistinctWorktreeFeatures, createWorktreeProjector, projectWorktreeGroups, versionDifferences, recordedStatusSummary } from "../package/minimap/ui/worktrees.js";
+import { countDistinctWorktreeFeatures, createWorktreeProjector, projectWorktreeGroups, normalizeWorktreeCardId, versionDifferences, recordedStatusSummary } from "../package/minimap/ui/worktrees.js";
 
 test("recorded status summary keeps conflicts without choosing a newest file or inferring execution", () => {
   for (const [statuses, expected] of [
@@ -87,27 +87,32 @@ test("Across In play includes a blocked version without participants and compose
   assert.equal(projectWorktreeGroups(aggregate, { inPlay: true, activeFilters: { milestone: ["v2"] } })[0].items.length, 1);
 });
 
-test("the same feature in separate groups counts once", () => {
+test("the same feature projects once with all matching placement evidence", () => {
   const aggregate = fixture([{ key: "f", id: "x", entries: [
     version("opened", "A", { id: "x", title: "x", searchText: "", metadata: {} }),
     version("sibling", "B", { id: "x", title: "x", searchText: "", metadata: {} }),
   ] }]);
   const groups = projectWorktreeGroups(aggregate);
-  assert.equal(groups.length, 2);
-  assert.notEqual(groups[0].items[0].id, groups[1].items[0].id);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].name, "A");
+  assert.equal(groups[0].items[0].id, JSON.stringify(["f", "board", "A"]));
   assert.equal(groups[0].items[0].featureKey, "f");
-  assert.equal(groups[0].items[0].matchingVersions.length, 1);
+  assert.equal(groups[0].items[0].matchingVersions.length, 2);
   assert.equal(countDistinctWorktreeFeatures(groups), 1);
 });
 
-test("derived lens groups each version by its own value", () => {
+test("derived lens chooses the first matching version and retains other statuses", () => {
   const aggregate = fixture([{ key: "f", id: "x", entries: [
     version("opened", "A", { id: "x", title: "x", searchText: "", metadata: { status: "queued" } }),
     version("sibling", "A", { id: "x", title: "x", searchText: "", metadata: { status: "done" } }),
   ] }], { availableLenses: [{ key: "status", values: ["queued", "done"] }] });
   const groups = projectWorktreeGroups(aggregate, { lens: "status" });
-  assert.deepEqual(groups.map((group) => group.name), ["queued", "done"]);
-  assert.deepEqual(groups.map((group) => group.items[0].sourceVersion.sourceKey), ["opened", "sibling"]);
+  assert.deepEqual(groups.map((group) => group.name), ["queued"]);
+  assert.deepEqual(groups[0].items[0].matchingVersions.map((entry) => entry.sourceKey), ["opened", "sibling"]);
+  const [filtered] = projectWorktreeGroups(aggregate, { lens: "status", activeFilters: { status: ["done"] } });
+  assert.equal(filtered.name, "done");
+  assert.equal(filtered.items[0].sourceVersion.sourceKey, "sibling");
+  assert.equal(filtered.items[0].id, groups[0].items[0].id);
 });
 
 test("derived lens merges same feature appearances across board groups", () => {
@@ -203,4 +208,61 @@ test("projection does not invent a revision conflict for display-equivalent copi
     { ...version("sibling", "A", { id: "x", title: "same", revision: "raw-crlf", metadata: {} }), displayRevision: "normalized" },
   ] }]);
   assert.deepEqual(projectWorktreeGroups(aggregate)[0].items[0].conflicts, []);
+});
+
+test("chosen board placement preserves board order rather than feature-array or sibling order", () => {
+  const aggregate = fixture([
+    { key: "first", id: "same", entries: [version("opened", "B", { id: "same", title: "first", metadata: { status: "done" } }), version("sibling", "A", { id: "same", metadata: { status: "active" } })] },
+    { key: "second", id: "same", entries: [version("opened", "B", { id: "same", title: "second", metadata: { status: "done" } })] },
+  ], { availableLenses: [{ key: "status", values: ["done", "active"] }] });
+  aggregate.groups.find((group) => group.name === "B").items.reverse();
+  aggregate.groups.reverse();
+  const before = JSON.stringify(aggregate);
+  const [board] = projectWorktreeGroups(aggregate);
+  assert.equal(board.name, "B");
+  assert.deepEqual(board.items.map((item) => item.title), ["second", "first"]);
+  assert.equal(new Set(board.items.map((item) => item.id)).size, 2);
+  const [filtered] = projectWorktreeGroups(aggregate, { inPlay: true });
+  assert.equal(filtered.name, "A");
+  assert.equal(filtered.items[0].id, board.items[1].id);
+  assert.equal(filtered.items[0].sourceVersion.sourceKey, "sibling");
+  assert.equal(JSON.stringify(aggregate), before);
+});
+
+test("derived ordering retains aggregate traversal while representative placement stays opened-first", () => {
+  const aggregate = fixture([
+    { key: "a", id: "a", entries: [version("opened", "A", { id: "a", metadata: { status: "done" } })] },
+    { key: "b", id: "b", entries: [version("opened", "A", { id: "b", metadata: { status: "done" } })] },
+  ], { availableLenses: [{ key: "status", values: ["done"] }] });
+  aggregate.groups[0].items.reverse();
+  assert.deepEqual(projectWorktreeGroups(aggregate, { lens: "status" })[0].items.map((item) => item.featureKey), ["b", "a"]);
+});
+
+test("known legacy placements normalize by exact feature identity only", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "A", { id: "x", metadata: { status: "queued" } }),
+    version("sibling", "B", { id: "x", metadata: { status: "done" } }),
+  ] }], { availableLenses: [{ key: "status", values: ["queued", "done"] }] });
+  const canonical = JSON.stringify(["f", "board", "A"]);
+  for (const placement of [["f", "board", "A"], ["f", "board", "B"], ["f", "derived", "done"]]) {
+    assert.equal(normalizeWorktreeCardId(aggregate, JSON.stringify(placement)), canonical);
+  }
+  for (const id of ["x", "invalid", JSON.stringify(["x", "board", "B"]), JSON.stringify(["f", "board", "unknown"]), JSON.stringify(["f", "derived", "unknown"])]) {
+    assert.equal(normalizeWorktreeCardId(aggregate, id), id);
+  }
+  aggregate.features[0].versions[1].summary.metadata = {};
+  assert.equal(normalizeWorktreeCardId(aggregate, JSON.stringify(["f", "derived", "Unassigned"])), canonical);
+});
+
+test("multiple memberships from one source stay evidence on one card and missing references survive", () => {
+  const aggregate = fixture([{ key: "f", id: "x", entries: [
+    version("opened", "A", { id: "x", metadata: { status: "done" } }),
+    version("opened", "B", { id: "x", metadata: { status: "done" } }),
+  ] }]);
+  aggregate.groups[1].items.push({ id: "missing", key: "missing", missing: true });
+  const groups = projectWorktreeGroups(aggregate);
+  assert.equal(countDistinctWorktreeFeatures(groups), 1);
+  assert.equal(groups[0].items[0].matchingVersions.length, 2);
+  assert.equal(groups[1].items[0].missing, true);
+  assert.equal(projectWorktreeGroups(aggregate, { searchQuery: "x" }).flatMap((group) => group.items).some((item) => item.missing), false);
 });

@@ -612,7 +612,7 @@ test("scope drafts survive Refresh and canceled checkout or URL navigation", asy
   }
 });
 
-test("cross-group versions and missing board references stay visible in derived lenses", async ({ page }) => {
+test("cross-group versions project once in both layouts and retain placement details and missing references", async ({ page }) => {
   const { owned, root, sibling } = await fixture(2);
   try {
     const boardPath = path.join(sibling, "roadmap", "board.md");
@@ -626,9 +626,20 @@ test("cross-group versions and missing board references stay visible in derived 
     await page.locator("#board-source-status-summary").click();
     await expect(page.locator("#board-groups .board-group")).toHaveCount(3);
     await page.locator('[data-group-toggle="unlisted:Not on a board"]').click();
-    await expect(page.locator("#board-groups .board-item:not(.board-item-missing)")).toHaveCount(4);
+    await expect(page.locator("#board-groups .board-item:not(.board-item-missing)")).toHaveCount(3);
     await expect(page.locator("#board-source-status-details")).toContainText("1 missing feature files");
-    await expect(page.getByText("Also in Lane 02")).toBeVisible();
+    await page.locator("#board-source-status-summary").click();
+    await expect(page.getByText(/Also in Lane/)).toHaveCount(0);
+    const card = page.getByRole("button", { name: /Open large-01/ });
+    await expect(card).toHaveCount(1);
+    await card.click();
+    await page.locator("#editor-source-summary").click();
+    await expect(page.locator('[data-editor-source]').filter({ hasText: "main" })).toContainText("Board: Lane 01");
+    await expect(page.locator('[data-editor-source]').filter({ hasText: "feature/blue" })).toContainText("Board: Lane 02");
+    await page.locator("#editor-source-summary").click();
+    await page.locator("#board-layout-columns").click();
+    await expect(card).toHaveCount(1);
+    await page.locator("#board-layout-list").click();
     await page.locator("#board-source-toggle").click();
     await expect(page.locator("#board-source-menu")).toContainText("1 missing feature file");
     await page.locator("#board-source-menu .board-source-missing summary").click();
@@ -646,12 +657,47 @@ test("cross-group versions and missing board references stay visible in derived 
   }
 });
 
-test("an unavailable version deep link needs confirmation before opening another checkout", async ({ page, request }) => {
-  const { owned, root } = await fixture(2);
+test("legacy placement links retain the pinned source across filters and grouping", async ({ page, request }) => {
+  const { owned, root, sibling } = await fixture(2);
   try {
+    const boardPath = path.join(sibling, "roadmap", "board.md");
+    await fs.writeFile(boardPath, (await fs.readFile(boardPath, "utf8")).replace("- large-01\n", "")
+      .replace("- large-02\n", "- large-02\n- large-01\n"));
+    const mainBoard = path.join(root, "roadmap", "board.md");
+    await fs.writeFile(mainBoard, (await fs.readFile(mainBoard, "utf8")).replace("- large-02\n", "- large-02\n- large-01\n"));
     const aggregate = await (await request.get("/api/worktree-workspace", { headers: { "X-Minimap-Repo": root } })).json();
     const feature = aggregate.features.find((entry) => entry.id === "large-01");
-    const appearance = JSON.stringify([feature.key, "board", "Lane 01 · long release workstream"]);
+    const blue = feature.versions.find((version) => version.sourceContext.git.branchRef.includes("feature/blue"));
+    const canonical = JSON.stringify([feature.key, feature.versions[0].groupKind, feature.versions[0].group]);
+    for (const [kind, group] of [["board", blue.group], ["derived", "in-progress"]]) {
+      const params = new URLSearchParams({ repo: root, sources: "across", view: "board", layout: "list", lens: kind === "derived" ? "status" : "board", item: JSON.stringify([feature.key, kind, group]),
+        source: blue.sourceKey, sourceRef: blue.sourceContext.git.branchRef });
+      await page.goto(`/#${params}`);
+      await expect(page.locator("#editor-title")).toContainText("large-01");
+      await page.locator("#editor-source-summary").click();
+      await expect(page.locator('[data-editor-source][aria-pressed="true"]')).toContainText("feature/blue");
+      await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.slice(1)).get("item")).toBe(canonical);
+      await expect(page.getByRole("button", { name: /Open large-01/ })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: /Open large-01/ })).toContainText("2 worktrees");
+      await expect(page.getByText("3 worktrees", { exact: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "In play", exact: true }).click();
+      await expect(page.getByRole("button", { name: /Open large-01/ })).toHaveCount(1);
+      await expect(page.locator('[data-editor-source][aria-pressed="true"]')).toContainText("feature/blue");
+    }
+  } finally {
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("an unavailable version on a legacy placement link needs confirmation before opening another checkout", async ({ page, request }) => {
+  const { owned, root, sibling } = await fixture(2);
+  try {
+    const boardPath = path.join(sibling, "roadmap", "board.md");
+    await fs.writeFile(boardPath, (await fs.readFile(boardPath, "utf8")).replace("- large-01\n", "")
+      .replace("- large-02\n", "- large-02\n- large-01\n"));
+    const aggregate = await (await request.get("/api/worktree-workspace", { headers: { "X-Minimap-Repo": root } })).json();
+    const feature = aggregate.features.find((entry) => entry.id === "large-01");
+    const appearance = JSON.stringify([feature.key, "board", "Lane 02 · long release workstream"]);
     const params = new URLSearchParams({ repo: root, sources: "across", item: appearance,
       source: "unavailable-source", sourceRef: "refs/heads/gone" });
     page.on("dialog", (dialog) => dialog.dismiss());

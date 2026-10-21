@@ -11,6 +11,8 @@ An optional top-level `defaultLens` in `roadmap.config.json` selects the initial
 
 Filters use the common planning fields `status`, `priority`, `commitment`, `kind`, `milestone`, `lane`, and `labels` when each has two to eight distinct values. Add repo-specific frontmatter keys with `filters.fields`; fields configured under `lenses.fields` are also filterable. Explicitly configured fields may have more than eight values. `id` and `title` remain search-only.
 
+Across worktrees displays each proven logical feature once. Filters match each checkout version independently; the first matching version in opened-checkout-first source order chooses the card's group and default content. This is a display preference, not proof of the latest feature edit. All matching evidence contributes to status and conflict cues, and checkout-version details retain every version and differing board placements. Changing filters or grouping preserves the card identity and a pinned checkout version; independent features with the same item ID remain separate.
+
 ## Ownership
 
 Within the resolved roadmap root:
