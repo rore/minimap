@@ -14,6 +14,8 @@ All server interaction goes through scripts in `<skill>/scripts/`:
 - `stop-server.mjs` — graceful shutdown via `POST /api/shutdown`; cleans stale registry
 - `restart-server.mjs` — compose stop + start
 
+When a user service is installed, these scripts manage its stable runtime. Restart does **not** deploy checkout or skill changes: run `node <new-skill>/scripts/service.mjs update` explicitly to deploy that skill's bundled runtime. Copying a skill refreshes its files, including its bundled runtime, without deploying them to the service. Refresh older skill copies before using managed lifecycle commands; they may reuse a compatible healthy service but do not understand service ownership. Service installation/update requires explicit environment-change approval; follow the [migration guide](package/minimap/skills/minimap-roadmap/references/server.md#migrate-from-a-standalone-server).
+
 The canonical `start-server.cjs` bootstrap defaults `UV_THREADPOOL_SIZE` to 8 only when absent, before importing the existing launcher in the same process. Restart applies the same default to its new child. Explicit overrides are retained; reused servers are unchanged. The legacy `start-server.mjs` entrypoint remains supported without this bootstrap default.
 
 **Do not** curl the server directly, send signals to it (`process.kill`, `taskkill`), poke `$MINIMAP_HOME/server.json` by hand, or invoke `node package/minimap/server.js` directly. The scripts handle every state (running, stale registry, port busy, race with another launcher) and stay correct on Windows where signal-based stop is unreliable.

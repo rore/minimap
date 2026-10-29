@@ -41,15 +41,16 @@ For a project-scoped Claude Code installation, use `<your-repo>/.claude/skills/`
 
 On Windows and Linux, you can optionally install one background service for your user account. It serves both modes across repositories and starts after login, independently of your agent application. Windows uses Task Scheduler; Linux requires a working user systemd manager. No administrator privileges or Linux lingering are needed.
 
-After choosing the Minimap data directory and coordinating any running server, run from either installed skill:
+To migrate an existing standalone server, use a current skill copy and obtain explicit approval for the service installation:
 
-```bash
-node <path-to-skill>/scripts/service.mjs install
-```
+1. Explicitly set `MINIMAP_HOME` to the existing data directory for every command. Defaults are `%LOCALAPPDATA%\minimap` on Windows (`%USERPROFILE%\AppData\Local\minimap` if `LOCALAPPDATA` is absent) and `~/.minimap` on Linux. Keep the same user account and back up that home, including review records and settings, while clients are idle.
+2. Run `node <path-to-skill>/scripts/status.mjs`, inspect the live PID/source, and coordinate with other views before running `node <path-to-skill>/scripts/stop-server.mjs`. If ownership cannot be verified, stop and investigate.
+3. Set `PORT` to the intended existing port (default 4312), then run `node <path-to-skill>/scripts/service.mjs install`.
+4. Run `node <path-to-skill>/scripts/status.mjs` and verify its live source is under the chosen home, its port is unchanged, and participant settings are preserved. Open the printed URL. If the port is occupied, installation fails; investigate the conflict without killing another process or deleting the registry by hand.
 
 This is an explicit installation step, not something an agent should run merely to open a board. It copies the runtime to a stable location under the Minimap home; later changes to a repository checkout do not change that copy. Your project Roadmap skill and personal Spec Review skill keep their existing scopes and connect to the same service. The ordinary start, stop, restart and status scripts then manage that installation.
 
-To update, run `service.mjs update` from the new skill copy. `service.mjs rollback` restores the previous runtime. Both preserve whether the service was running or stopped. `service.mjs uninstall` removes service registration and its runtime, retaining review records and settings. These operations affect all views using that server; see the [service lifecycle guide](package/minimap/skills/minimap-roadmap/references/server.md) before changing an installation.
+To update, run `node <new-skill>/scripts/service.mjs update` from the new skill copy. Copying a skill refreshes that folder; restarting a managed service uses its existing installed runtime. Older skill copies may reuse a compatible healthy service, but must be refreshed before managing it. `service.mjs rollback` restores the previous runtime. Both update and rollback preserve whether the service was running or stopped. `service.mjs uninstall` removes service registration and its runtime, retaining review records and settings. These operations affect all views using that server; see the [service lifecycle guide](package/minimap/skills/minimap-roadmap/references/server.md) before changing an installation.
 
 Without this optional installation, the existing standalone launch still works.
 
