@@ -215,6 +215,19 @@ test("Windows query normalizes account names to SID and returns native failure d
   assert.match(query, /NTAccount/);
   assert.match(query, /Translate\(\[Security.Principal.SecurityIdentifier\]\)/);
   assert.match(query, /LastTaskResult/);
+  assert.match(query, /Get-ScheduledTask -TaskPath '\\' -ErrorAction Stop\|Where-Object \{\$_\.TaskName -eq 'test'\}/);
+  assert.doesNotMatch(query, /-TaskName|SilentlyContinue/);
+});
+
+test("Windows native query returns null for a unique absent task without registration", { skip: process.platform !== "win32" }, async () => {
+  const native = createNativeService({ platform: "win32", paths: { name: `Minimap-readonly-absent-${randomUUID()}` } });
+  assert.equal(await native.query(), null);
+});
+
+test("Windows native query preserves genuine Scheduler errors", async () => {
+  const failure = new Error("Scheduler access denied");
+  const native = createNativeService({ platform: "win32", paths: { name: "test" }, run: async () => { throw failure; } });
+  await assert.rejects(native.query(), (error) => error === failure);
 });
 
 test("stop tolerates its own disappearing registry while exact health PID finishes exiting", async (t) => {
