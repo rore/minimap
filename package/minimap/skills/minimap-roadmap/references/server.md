@@ -24,7 +24,18 @@ Windows uses a hidden login Scheduled Task under the ordinary user account. Linu
 
 Existing start/stop/restart/status commands route to this installation when configured. Managed restart uses the installed runtime; `--replace-runtime` is not a way to replace it. Use the explicit update command. Managed startup keeps its configured port rather than silently moving to another port. A foreign process or inconsistent installation produces an error; it does not authorize killing a process or falling back to another runtime.
 
+Copying or linking a refreshed skill updates its own files; it does not deploy them to the installed service. Deploy with `node <new-skill>/scripts/service.mjs update`: the invoking skill supplies the new runtime. Older skill copies can reuse a compatible healthy server, but do not understand managed ownership; refresh them before using lifecycle commands against the service.
+
 Installation, update, rollback and removal affect every board/spec tab using this service. Obtain explicit environment-change approval, preserve the current data directory, and verify readiness and settings after the operation. Never install a service just to satisfy a request to show a board. Tests must use isolated homes/ports; native registration tests need a separately isolated environment. On hosts without supported service management, retain standalone mode.
+
+### Migrate from a standalone server
+
+1. Obtain approval for the migration and use a current skill copy under the same user account. Explicitly set `MINIMAP_HOME` to the existing data directory for every command. Defaults are `%LOCALAPPDATA%\minimap` on Windows (`%USERPROFILE%\AppData\Local\minimap` if `LOCALAPPDATA` is absent) and `~/.minimap` on Linux. Back up the home, including review records and settings, while clients are idle.
+2. Run `node <skill>/scripts/status.mjs`; inspect the live PID/source and coordinate with shared clients before `node <skill>/scripts/stop-server.mjs`. If ownership cannot be verified, stop and investigate rather than stopping an uncertain process.
+3. Set `PORT` to the intended existing port (default 4312) and run `node <skill>/scripts/service.mjs install`. Keep the same explicit home. A pinned-port conflict is a refusal; never kill its owner, change ports silently or edit the registry to bypass it.
+4. Run `node <skill>/scripts/status.mjs` and verify the live source is under that home's service directory, the port matches, and participant settings are preserved. Open its printed URL. Retain the backup until normal use is verified.
+
+Native Windows installation and explicit restart have been verified. Login/crash recovery and native Linux supervision remain unqualified; mocked lifecycle tests do not establish those results.
 
 ## Standalone lifecycle commands
 
@@ -53,7 +64,7 @@ Historical events are not proof of the current failure's cause. A verified live 
 
 `start-server.cjs` reads `$MINIMAP_HOME/server.json` and probes `/health`. A compatible running API is reused even when package versions or runtime sources differ. Unknown/legacy or incompatible API identity is refused without shutdown or saved preference changes. The same checks apply to a race winner on the requested port. Both skills share one registry/server across repositories.
 
-## Shared runtime replacement
+## Standalone runtime replacement
 
 Health reports `runtime: { version, apiCompatibility, sourcePath }` and live `pid`. API compatibility is integer 1; it changes only for incompatible server API changes, independently of package release versions.
 
@@ -101,4 +112,4 @@ When disabled, Minimap makes no Pallium HTTP requests and all normal roadmap beh
 http://localhost:<port>/#repo=<absolute-path-to-active-repo>&view=board
 ```
 
-If the default port 4312 is busy the server falls forward; the actual bound port is in `$MINIMAP_HOME/server.json` and `status.mjs` prints it.
+Use the port printed by `status.mjs`. Standalone startup may fall forward from a busy default port; a managed service keeps its installed port and refuses a conflict.

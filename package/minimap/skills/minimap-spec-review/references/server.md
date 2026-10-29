@@ -24,7 +24,18 @@ Windows uses a hidden login Scheduled Task under the ordinary user account. Linu
 
 Existing start/stop/restart/status commands route to this installation when configured. Managed restart uses the installed runtime; `--replace-runtime` is not a way to replace it. Use the explicit update command. Managed startup keeps its configured port rather than silently moving to another port. A foreign process or inconsistent installation produces an error; it does not authorize killing a process or falling back to another runtime.
 
+Copying or linking a refreshed skill updates its own files; it does not deploy them to the installed service. Deploy with `node <new-skill>/scripts/service.mjs update`: the invoking skill supplies the new runtime. Older skill copies can reuse a compatible healthy server, but do not understand managed ownership; refresh them before using lifecycle commands against the service.
+
 Installation, update, rollback and removal affect every board/spec tab using this service. Obtain explicit environment-change approval, preserve the current data directory, and verify readiness and settings after the operation. Never install a service just to satisfy a request to show a board. Tests must use isolated homes/ports; native registration tests need a separately isolated environment. On hosts without supported service management, retain standalone mode.
+
+### Migrate from a standalone server
+
+1. Obtain approval for the migration and use a current skill copy under the same user account. Explicitly set `MINIMAP_HOME` to the existing data directory for every command. Defaults are `%LOCALAPPDATA%\minimap` on Windows (`%USERPROFILE%\AppData\Local\minimap` if `LOCALAPPDATA` is absent) and `~/.minimap` on Linux. Back up the home, including review records and settings, while clients are idle.
+2. Run `node <skill>/scripts/status.mjs`; inspect the live PID/source and coordinate with shared clients before `node <skill>/scripts/stop-server.mjs`. If ownership cannot be verified, stop and investigate rather than stopping an uncertain process.
+3. Set `PORT` to the intended existing port (default 4312) and run `node <skill>/scripts/service.mjs install`. Keep the same explicit home. A pinned-port conflict is a refusal; never kill its owner, change ports silently or edit the registry to bypass it.
+4. Run `node <skill>/scripts/status.mjs` and verify the live source is under that home's service directory, the port matches, and participant settings are preserved. Open its printed URL. Retain the backup until normal use is verified.
+
+Native Windows installation and explicit restart have been verified. Login/crash recovery and native Linux supervision remain unqualified; mocked lifecycle tests do not establish those results.
 
 ## Standalone lifecycle commands
 
@@ -69,7 +80,7 @@ Automatic reads reuse a validated snapshot for 30 seconds; the visible board val
 
 Both modes refresh participant observations independently through `/api/board/observations?snapshot=<id>`, using the opened repository header. The retained manifest supplies validated references without rescanning Git; unfinished candidates precede completed candidates within the 200-reference cap. Counts have separate timestamps, and failed observations retain prior counts as stale rather than zero. Observation refresh stops while hidden or in Spec and resumes on return. An expired or invalid manifest returns HTTP 409 `snapshot_expired` and requires roadmap validation; invalidated reads return HTTP 409 `snapshot_invalidated`, and queue/deadline failures return HTTP 503 `snapshot_unavailable`. Legacy count endpoints remain supported. Ordinary spec-session APIs are unchanged. The UI adds `includeCompleted=1` only when In play can include completed statuses; ordinary observations omit completed candidates.
 
-## Shared runtime replacement
+## Standalone runtime replacement
 
 Health reports `runtime: { version, apiCompatibility, sourcePath }` and live `pid`. API compatibility is integer 1; it changes only for incompatible server API changes, independently of package release versions.
 

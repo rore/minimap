@@ -27,4 +27,8 @@ Both skills connect to the same managed server. Intentional stop remains stopped
 
 2026-10-29: implementation authorized after research; Windows and Linux are required. Local activation remains a separate explicitly scoped environment change. Work Record: `.agent-workflow/tasks/persistent-user-service.md`.
 
-PR: https://github.com/rore/minimap/pull/74. Implementation reviewed at 46ac0e6; Windows focused and full Linux Node regressions pass. Native definitions validated without service registration. Pending CI/merge; native login/crash recovery and local activation are not yet qualified.
+Delivered in [PR #74](https://github.com/rore/minimap/pull/74), with the first-time Windows task lookup corrected in [PR #75](https://github.com/rore/minimap/pull/75). Both merged after independent review and passing CI. The missing-task regression was reproduced and verified against the real Windows read-only task query.
+
+2026-10-29: Windows service installed locally with user approval. Native task startup, managed restart, Roadmap/global Spec Review reuse, and preservation of review records and Pallium settings verified. A recoverable pre-installation backup is retained. Skill/runtime updates remain explicit operations; repository updates alone do not deploy to the service.
+
+Remaining qualification: actual login startup and crash recovery on Windows, and native user-systemd supervision on Linux. Linux tests and unit syntax validation passed, but do not establish those native outcomes.
