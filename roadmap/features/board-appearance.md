@@ -38,6 +38,16 @@ Proposed shape (subject to technical review):
 
 ## Done When
 
+## Reviewed edge-case rules
+
+- Supported fields are status, priority, commitment, milestone and scalar custom metadata. Exclude id, title, kind, labels and object/array values. Field names must match `[A-Za-z][A-Za-z0-9_-]{0,63}`; reject prototype, constructor and __proto__. Valid but absent fields remain accepted. Lookup uses the original case-sensitive key and existing normalized scalar string before CSS token normalization, so repo/Repo and team_name/team-name cannot collide. Numeric and boolean scalar values use their existing string form.
+- Explicit cardFields controls every card metadata row, including compact/dense signals. When status is present, insert the existing combined/recorded status badge at that position. When omitted, hide only that badge, not status computation or conflict/coverage cues. A configured row remains visible in dense columns with ten or more items. Legacy defaults remain unchanged. Detail retains its existing supported metadata display.
+- Configured borders retain their mapped/neutral color on hover, selection and focus. Selection uses a separate outline rather than the existing overlapping blue stripe. Suppress both progress and blocked status background tints when cardColorBy is enabled; keep status text/color semantic.
+- Limits: appearance JSON at most 64 KiB, cardFields at most 32 entries, tagColors at most 32 fields and 64 values per field, color-value keys at most 120 characters. Reject an oversized appearance object as a whole; for oversized lists/maps process only the bounded prefix and warn. Absent or invalid cardFields restores defaults; a valid array drops malformed entries and preserves valid [] as no metadata badges. Drop invalid color entries. Invalid/forbidden cardColorBy restores status styling, while a valid field with no mapping uses a neutral border. Unknown appearance properties are ignored. Use own-key-safe maps/lookups. Produce at most one appearance warning with at most eight detail entries, not per-card warnings.
+- Normalize appearance once in loadWorkspace and carry it on the existing opened workspace through aggregate/compact/expanded snapshots. Test contradictory sibling settings, provisional-to-full load, configuration-only refresh, and switching to a board with no appearance.
+
+## Acceptance checks
+
 - Default and configured boards behave correctly in List and Columns, This and Across, including group changes, filtering, refresh, detail open/close and repository switches.
 - Regression tests cover config validation, empty/missing/duplicate/unknown fields, unknown colors, malicious keys/values, missing field values, status-color protection, field order, custom-field truncation, and precedence with active/blocked/done/selected cards.
 - Real rendered desktop and narrow screenshots are inspected for both layouts with two different boards/configurations, long field values, multiple statuses, and keyboard focus. Tests use isolated homes and fixture repos; never mutate KEIR/Pallium or the live service.
@@ -46,4 +56,4 @@ Proposed shape (subject to technical review):
 
 ## Delivery
 
-2026-10-29: user authorized design, implementation using minimap-dev, regression and actual visual testing across boards/views, and public documentation. Manager owns this feature; developer implementation offer is pending acceptance. No live environment changes are part of this assignment.
+2026-10-29: user authorized design, implementation using minimap-dev, regression and actual visual testing across boards/views, and public documentation. Developer accepted without competing work. Clean-context plan review identified dense-row, combined-status, exact-key, selection and validation gaps; the rules above resolve them. Manager owns this feature. No live environment changes are part of this assignment.

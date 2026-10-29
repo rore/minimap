@@ -19,10 +19,10 @@ Canonical design: [Customize card fields and tag colors](../../roadmap/features/
 **Material assumptions:** Existing snapshot transport can carry opened-board appearance without extra reads; inspect all provisional/full paths before implementation. If unsupported, adjust reviewed plan before adding a new endpoint or persistence mechanism. Current user approval covers the discussed design/implementation scope, not live environment changes.
 **Plan:** First invoke Agent Workflow to create this record and classify risk before code edits (done). Review canonical feature design against current rendering/config/snapshot code; resolve gaps with a clean-context non-implementer. Normalize optional appearance configuration using a bounded named palette; thread opened-board config through existing snapshots; share metadata/border helpers across modes and detail. Add focused Node and browser regressions, inspect actual screenshots, document configuration, sync mirrors. Stop for data mutation or architectural expansion beyond this scope. Developer owns implementation after acceptance; manager owns design and review.
 **Verification plan:** Node tests cover normalization/fallback and malicious config; browser tests cover two boards, both layouts/modes, field ordering/hiding, mapped/unmapped colors, status and selection precedence, refresh/navigation, and details. Inspect desktop/narrow screenshots and palette contrast. Run required regression/CI and mirror/workflow checks; keep isolated MINIMAP_HOME and fixture repositories.
-**Plan review:** Pending clean-context technical design review.
+**Plan review:** Agent technical review: /root/appearance_plan_review, reviewed 5078c1137c3e0ee3b343a49325c0cd2d440e4d75; see Plan review below. Five P2 design gaps resolved in canonical Reviewed edge-case rules before implementation.
 **Approvals:** Approved by user 2026-10-29: "Okay, so design this feature, think about it some more, say that we don't have any gaps, say that it's properly designed, then drive the implementation. You have the minimal dev that you can use as a developer, as always make sure we have tests, make sure we do actual visual testing to see how it really looks and not just rely on code. Make sure we see behavior across boards and views, see that this works okay. And when we, like part of the done should also be documentation and to see that we have proper public documentation regarding this functionality."
 **Exceptions:** —
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -32,6 +32,12 @@ Canonical design: [Customize card fields and tag colors](../../roadmap/features/
 ## Evidence
 
 Pending.
+
+## Plan review
+
+Clean-context non-implementer /root/appearance_plan_review reviewed canonical design and config/rendering/transport sources at 5078c1137c3e0ee3b343a49325c0cd2d440e4d75. Proportional scope, High/Moderate confirmed; no additional approval indicated. Found P2 gaps: dense/signals paths must honor explicit fields, combined status must keep existing summary, original field keys must not collide through CSS normalization, selected blue stripes/tints must not override mapped borders, and validation fallback/limits must be concrete. Manager incorporated each into Reviewed edge-case rules. Transport inspected and confirmed existing workspace spreads preserve appearance without a new endpoint. Review was read-only; no test/visual claims.
+
+2026-10-29: developer accepted. Design ready for implementation with user-authorized scope, exact source reference and isolated checkout. Next: implement, test and provide rendered evidence for independent result review.
 
 ## Result review
 
