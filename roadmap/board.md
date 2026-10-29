@@ -1,4 +1,5 @@
 # Now
+- group-aware-card-tags
 - persistent-user-service
 
 # Next
