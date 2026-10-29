@@ -20,7 +20,7 @@ Self-review is sufficient; no Plan review field on compact.
 
 ## Approach
 
-Separate required outcomes and safety/compatibility guarantees from chosen mechanisms. Establish what behavior a mechanism protects before replacing it; code or tests depending on it do not make it mandatory. Assess the approach's necessity and proportionality, not just patch correctness. Prefer simpler supported options only when they preserve required behavior, explicitly required mechanisms and scope. Apply [behavioral integrity](behavioral-integrity.md); simplification never authorizes weakening protected tests or contracts.
+Separate required outcomes and safety/compatibility guarantees from chosen mechanisms. Compare proposed behavior directly with authoritative user requirements and established core product behavior, not just Task Context/tests. Establish what mechanisms protect before replacement; dependencies do not make them mandatory. Assess necessity/proportionality beyond correctness. Prefer simpler supported options preserving behavior, required mechanisms and scope. Apply [behavioral integrity](behavioral-integrity.md) to material departures; simplification never authorizes weakening protected tests/contracts.
 
 ## Plan review by Risk
 

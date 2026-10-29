@@ -320,7 +320,7 @@ export function decodeRecord(recordBytes, { task_path, record_path } = {}) {
   if (!new Set(["Routine", "Elevated", "High"]).has(risk) || !new Set(["Simple", "Moderate", "Large"]).has(complexity)) return INVALID("invalid_record");
   const routine = risk === "Routine" && complexity === "Simple";
   const required = routine ? ROUTINE : EXPANDED;
-  const optional = ["Requirement baseline", "Behavior changes", "Relationships"];
+  const optional = ["Requirement baseline", "Behavior changes", "Baseline privacy migration", "Relationships"];
   if (!routine) optional.push("Exceptions");
   if (Object.keys(fields).some((field) => !required.includes(field) && !optional.includes(field)) || required.some((field) => !Object.hasOwn(fields, field) || (!fields[field] && !(routine && field === "Reason") && !(!routine && field === "Approvals")))) return INVALID("invalid_record");
   const state = fields.State?.replace(/[.]+$/u, "").trim();

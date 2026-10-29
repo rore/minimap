@@ -48,7 +48,7 @@ Open `agent-workflow.yaml` and read:
 - `workRecord.backend` — `local` (supported) or `jira` (not yet — stop).
 - `workRecord.local.taskPath` — the per-task path template.
 - applicability.documentationOnly, when present — load [`applicability.md`](templates/checkpoints/applicability.md); if exempt, return without a Work Record.
-- `behaviorContracts` in `agent-redline-policy.yaml`, when present — load [`behavioral-integrity.md`](templates/checkpoints/behavioral-integrity.md).
+- For material behavioral departures or configured contracts, read [`behavioral-integrity.md`](templates/checkpoints/behavioral-integrity.md).
 
 ## Step 2 — Resolve the identity
 

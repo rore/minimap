@@ -1,12 +1,16 @@
 # Behavioral requirement integrity
 
+## Preserve behavior
+
+Preserve authoritative user requirements and established core product behavior. Before implementing or accepting a material departure, present exact before/after behavior, impact and alternatives for explicit review and approval by the required human authority—even if the Work Record, baseline or contracts are unchanged. General task approval, agent review and green tests do not authorize the departure. Reuse approval already covering the exact departure; pause affected work and continue unaffected work. Routine behavior-preserving work needs no additional approval. Compare proposed/delivered behavior directly with authoritative requirements and established behavior, not just records or tests.
+
 ## Establish
 
 After writing Task Context and before discovery, copy its exact Outcome, Scope, Constraints, and Completion criteria into Requirement baseline as JSON:
 
     {"source":"work-record-initial","outcome":"...","scope":"...","constraints":"...","completion_criteria":"..."}
 
-Use an authoritative source revision or item reference for source when one exists. Target is not behavioral. Never rewrite the baseline. Commit new records with a valid baseline in their first version. Legacy records already on the base branch without one stay parseable but cannot advance; ask the task owner to establish it from an authoritative source rather than guessing.
+Use a privacy-safe authoritative source reference; retain private provenance locally. Target is not behavioral. Source-only redaction requires [migration](baseline-privacy-migration.md); functional baselines stay immutable. Commit new records with a valid baseline in their first version. Legacy records already on the base branch without one stay parseable but cannot advance; ask the task owner to establish it from an authoritative source rather than guessing.
 
 ## Classify changes
 
