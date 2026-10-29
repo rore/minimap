@@ -297,6 +297,7 @@ test("empty card footer updates without replacing cards, losing focus or scrolli
       await expect(footer).toBeHidden();
       await expect(current.locator(".board-item-participants")).toHaveCount(0);
       const focusable = layout === "list" ? current : current.locator("[data-item-open]");
+      await expect(focusable).toHaveAttribute("aria-description", "Press Alt+ArrowUp or Alt+ArrowDown to reorder.");
       await focusable.focus();
       const scroller = layout === "list" ? page.locator("#board-groups") : page.locator(".board-column-list").first();
       await scroller.evaluate((element) => { element.scrollTop = 40; });

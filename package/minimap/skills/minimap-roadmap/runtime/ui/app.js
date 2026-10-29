@@ -2639,9 +2639,10 @@ function getBoardCardStatus(item) {
   return recordedStatusSummary(item).tone;
 }
 
-function getBoardCardDifferenceLabel(item) {
+function getBoardCardDescription(item, canReorder = false) {
   const fields = [...new Set((item.conflicts || []).map((entry) => entry.field))].filter((field) => field !== "status");
-  return [recordedStatusSummary(item).differs ? "Statuses differ" : "", ...fields.map((field) => field === "revision" ? "Versions differ" : `${humanizeFilterKey(field)} differs`)].filter(Boolean).join(" · ");
+  const differences = [recordedStatusSummary(item).differs ? "Statuses differ" : "", ...fields.map((field) => field === "revision" ? "Versions differ" : `${humanizeFilterKey(field)} differs`)].filter(Boolean).join(" · ");
+  return [differences, canReorder ? "Press Alt+ArrowUp or Alt+ArrowDown to reorder." : ""].filter(Boolean).join(". ");
 }
 
 function getBoardCardAppearanceClasses(item) {
@@ -2687,7 +2688,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     const source = item.versions?.find((version) => version.sourceKey === entry.sourceKey)?.sourceContext;
     return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
   }).join("\n");
-  const differenceLabel = getBoardCardDifferenceLabel(item);
+  const differenceLabel = getBoardCardDescription(item);
   const differenceDescription = [differenceLabel, conflictDetail, "Open feature for checkout version details."].filter(Boolean).join("\n");
   const conflictBadge = differenceLabel ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(differenceDescription)}" aria-label="${escapeHtml(differenceDescription)}">Differences</span>` : "";
   const configuredFields = Array.isArray(state.workspace?.appearance?.cardFields);
@@ -3048,7 +3049,7 @@ function renderBoardColumnsMode() {
       const canMoveUp = Boolean(previous && canReorderRelative(item.id, previous.id));
       const canMoveDown = Boolean(next && canReorderRelative(item.id, next.id));
       const orderAttributes = allowItemReorder
-        ? `data-item-id-order="${escapeHtml(item.id)}" data-order-previous-id="${escapeHtml(canMoveUp ? previous.id : "")}" data-order-next-id="${escapeHtml(canMoveDown ? next.id : "")}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-description="Press Alt+ArrowUp or Alt+ArrowDown to reorder."`
+        ? `data-item-id-order="${escapeHtml(item.id)}" data-order-previous-id="${escapeHtml(canMoveUp ? previous.id : "")}" data-order-next-id="${escapeHtml(canMoveDown ? next.id : "")}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"`
         : "";
       const itemOrderDropAttributes = allowItemReorder
         ? `data-item-order-drop-id="${escapeHtml(item.id)}" data-item-order-group-value="${escapeHtml(group.groupKey)}" data-item-order-drop-value="${escapeHtml(group.dropValue || "")}"`
@@ -3056,7 +3057,7 @@ function renderBoardColumnsMode() {
       const placementAttributes = boardGrouping && allowColumnDrag
         ? `data-board-drop-group-index="${group.originalIndex}" data-board-drop-before-id="${escapeHtml(item.id)}"`
         : "";
-      const actions = `<span class="board-column-card-actions"><button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" aria-description="${escapeHtml(getBoardCardDifferenceLabel(item))}" ${orderAttributes}>Open</button>${buttonsHtml}</span>`;
+      const actions = `<span class="board-column-card-actions"><button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" aria-description="${escapeHtml(getBoardCardDescription(item, allowItemReorder))}" ${orderAttributes}>Open</button>${buttonsHtml}</span>`;
 
       return `
         <article class="board-column-card${activeClass}${escapeHtml(getBoardCardAppearanceClasses(item))}${placementAttributes ? " board-column-dropzone" : ""}" title="${escapeHtml(item.title)}" ${placementAttributes} ${itemOrderDropAttributes}>
@@ -3345,14 +3346,14 @@ function renderBoardReadMode() {
       const canMoveUp = Boolean(previous && canReorderRelative(item.id, previous.id));
       const canMoveDown = Boolean(next && canReorderRelative(item.id, next.id));
       const orderAttributes = allowItemReorder
-        ? `data-item-id-order="${escapeHtml(item.id)}" data-order-previous-id="${escapeHtml(canMoveUp ? previous.id : "")}" data-order-next-id="${escapeHtml(canMoveDown ? next.id : "")}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-description="Press Alt+ArrowUp or Alt+ArrowDown to reorder."`
+        ? `data-item-id-order="${escapeHtml(item.id)}" data-order-previous-id="${escapeHtml(canMoveUp ? previous.id : "")}" data-order-next-id="${escapeHtml(canMoveDown ? next.id : "")}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"`
         : "";
       const itemOrderDropAttributes = allowItemReorder
         ? `data-item-order-drop-id="${escapeHtml(item.id)}" data-item-order-group-value="${escapeHtml(group.groupKey)}" data-item-order-drop-value="${escapeHtml(group.dropValue || "")}"`
         : "";
       return `
         <div class="board-item-row">
-          <button class="board-item${active}${escapeHtml(getBoardCardAppearanceClasses(item))}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-description="${escapeHtml(getBoardCardDifferenceLabel(item))}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
+          <button class="board-item${active}${escapeHtml(getBoardCardAppearanceClasses(item))}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-description="${escapeHtml(getBoardCardDescription(item, allowItemReorder))}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
             ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle, features?.get(item.featureKey))}
           </button>
         </div>

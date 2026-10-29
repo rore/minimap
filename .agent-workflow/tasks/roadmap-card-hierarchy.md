@@ -72,4 +72,6 @@ Publication privacy: public tests use generic content; exact local example input
 
 Final refinements: structural kind now follows ordered metadata, so configured status/repository tags keep first-glance priority without a new control or row. One small difference-label helper supplies the visual indicator and the List/Open keyboard-accessible description. Paired direct card element screenshots confirm the hierarchy; private images remain local. Additive long-tag fixture wraps within narrow cards. Read evidence waits for linked-task loading to settle; no delay, retry or timeout increase was added.
 
+Independent result review found a duplicate aria-description attribute hiding existing reorder guidance. The shared description now composes difference context and the original keyboard instruction once, and both layouts assert that instruction explicitly. Existing drag/order assertion remains unchanged; all stopped interaction checks are rerun after this correction.
+
 Skill feedback trigger 5 dropped: an initial lookup used the wrong relative path; the maintained feedback reference resolves correctly. No upstream product defect was found.
