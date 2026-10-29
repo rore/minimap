@@ -1,7 +1,7 @@
 ---
 id: roadmap-card-hierarchy
 title: Make roadmap cards readable at a glance
-status: active
+status: done
 priority: high
 commitment: committed
 ---
@@ -37,3 +37,11 @@ Backend/configuration changes, new detail interaction, real project data edits, 
 ## Notes
 
 Manager assignment accepted 2026-10-29. Real projects remain read-only; all implementation and tests use an isolated checkout. Manager owns final review, merge and any separately approved deployment.
+
+## Delivery
+
+Delivered 2026-10-29 in [PR #79](https://github.com/rore/minimap/pull/79), merged at 62954b7520b921e8c95844c56d330fb102eefe07. Shared card hierarchy and configured Read tags are complete; no implementation scope remains. PR #78 is closed as superseded.
+
+Final required CI passed: 523 Node tests passed, three skipped, zero failed; all 240 browser tests passed; workflow and redline jobs passed. Independent application/adoption reviews and inspected desktop/narrow, dense/default/configured renders are recorded in the linked Work Record. The manager verified the separately approved deployed runtime matches the merge and inspected Columns/Read on a real board without item edits. Private examples and evidence remain local.
+
+Work Record: [.agent-workflow/tasks/roadmap-card-hierarchy.md](../../.agent-workflow/tasks/roadmap-card-hierarchy.md).
