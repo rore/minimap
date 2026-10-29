@@ -1,7 +1,7 @@
 ---
 id: board-appearance
 title: Customize card fields and tag colors
-status: active
+status: done
 priority: medium
 commitment: committed
 ---
@@ -14,7 +14,7 @@ Choose which metadata badges appear on cards, assign colors to tag values, and o
 
 Version one is optional configuration in roadmap.config.json, documented for humans and agents. No new settings editor, global theme, or personal override layer. Defaults preserve existing rendering exactly. The opened checkout's configuration governs both This and Across views, regardless of which version supplies a card. Switching repository reloads that board's configuration; no cross-board state leakage.
 
-Proposed shape (subject to technical review):
+Configuration:
 
 ```json
 {
@@ -56,6 +56,6 @@ Proposed shape (subject to technical review):
 
 ## Delivery
 
-Implementation PR: https://github.com/rore/minimap/pull/77. Independently source-reviewed and rendered locally; full CI, final manager approval and merge remain pending. No live deployment is included.
+Delivered by https://github.com/rore/minimap/pull/77 when merged. Optional card fields, independent tag/border colors, public documentation, regression tests and inspected desktop/narrow views are complete. Independent source review approved implementation 08260ae92d5c1bb8fc8413b770512bf234fb6af8; required CI must pass before merge. No implementation scope remains. Live deployment is separate and is not included.
 
 2026-10-29: user authorized design, implementation using minimap-dev, regression and actual visual testing across boards/views, and public documentation. Developer accepted without competing work. Clean-context plan review identified dense-row, combined-status, exact-key, selection and validation gaps; the rules above resolve them. Manager owns this feature. No live environment changes are part of this assignment.

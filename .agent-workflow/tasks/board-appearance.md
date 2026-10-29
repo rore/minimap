@@ -57,6 +57,8 @@ Clean-context non-implementer /root/appearance_plan_review reviewed canonical de
 
 ## Result review
 
+Manager completion review: independent source approval is bound to 08260ae92d5c1bb8fc8413b770512bf234fb6af8. Manager inspected desktop and narrow List/Columns, Across combined status, hidden-field boards, and tag-only/border-only details in artifacts/board-appearance. All reported failing cases have passing targeted rechecks, and the clean CI Node suite passed. Final browser CI and mirror checks remain merge gates. The user's standing direction authorizes driving reviewed work through merge without repeated approval requests. The architecture-reviewed checkpoint is recorded on PR #77. The canonical feature and board describe the completed scope delivered by this PR upon merge; no live deployment is claimed or included.
+
 Agent technical review: /root/appearance_result_review, final independent source approval forwarded by minimap-manager on 2026-10-29.
 Reviewed revision: 08260ae92d5c1bb8fc8413b770512bf234fb6af8.
 Verification adequacy: Reviewer confirmed the commit matches the reviewed diff plus the disposable-runtime fixture correction, with no actionable findings. Focused checks and rendered evidence are adequate for PR publication; the required clean full CI run remains pending, not waived.
