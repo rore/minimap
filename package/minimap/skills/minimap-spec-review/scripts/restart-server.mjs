@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { routeManagedLifecycle } from "../runtime/src/user-service.js";
+await routeManagedLifecycle("restart");
 // Restarts the minimap server. Composes stop-then-start, leaving a fresh
 // server running in the background and exiting cleanly.
 //

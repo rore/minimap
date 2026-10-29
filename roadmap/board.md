@@ -1,4 +1,5 @@
 # Now
+- persistent-user-service
 
 # Next
 - fix-shared-server-registry-test-isolation

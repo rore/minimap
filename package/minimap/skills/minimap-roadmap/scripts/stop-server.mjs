@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { routeManagedLifecycle } from "../runtime/src/user-service.js";
+await routeManagedLifecycle("stop");
 // Stops a running minimap server. Three exit states:
 //   0 — server stopped (or was already not running, or stale registry cleaned up).
 //   1 — something is on the port that responds but is not minimap; we leave it alone.

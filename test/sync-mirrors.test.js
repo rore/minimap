@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -32,7 +33,7 @@ async function listAllFiles(dir, out = [], base = dir) {
   return out;
 }
 
-test("sync-mirrors.mjs makes the runtime trees byte-identical to the top-level runtime files", async () => {
+test("sync-mirrors.mjs makes the runtime trees byte-identical to the top-level runtime files", async (t) => {
   for (const target of [roadmapRuntime, specRuntime]) {
     for (const file of RUNTIME_FILES) {
       const a = await readBytes(path.join(top, file));
@@ -51,9 +52,25 @@ test("sync-mirrors.mjs makes the runtime trees byte-identical to the top-level r
     }
   }
 
-  const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/sync-mirrors.mjs")], {
-    cwd: repoRoot,
+  // Lifecycle tests import the checked-in mirrors concurrently; sync only a fixture.
+  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-mirror-test-"));
+  t.after(() => fs.rm(fixture, { recursive: true, force: true }));
+  const fixtureTop = path.join(fixture, "package/minimap");
+  await fs.mkdir(path.join(fixture, "scripts"), { recursive: true });
+  await fs.mkdir(fixtureTop, { recursive: true });
+  await fs.copyFile(path.join(repoRoot, "scripts/sync-mirrors.mjs"), path.join(fixture, "scripts/sync-mirrors.mjs"));
+  for (const entry of [...RUNTIME_FILES, ...RUNTIME_DIRS]) {
+    await fs.cp(path.join(top, entry), path.join(fixtureTop, entry), { recursive: true });
+  }
+  const result = spawnSync(process.execPath, [path.join(fixture, "scripts/sync-mirrors.mjs")], {
+    cwd: fixture,
     encoding: "utf8",
   });
   assert.equal(result.status, 0, `sync-mirrors exited ${result.status}: ${result.stderr}`);
+  for (const skill of ["minimap-roadmap", "minimap-spec-review"]) {
+    const target = path.join(fixtureTop, "skills", skill, "runtime");
+    const expected = (await listAllFiles(top)).filter((file) => RUNTIME_FILES.includes(file) || RUNTIME_DIRS.some((dir) => file.startsWith(`${dir}/`))).sort();
+    assert.deepEqual((await listAllFiles(target)).sort(), expected);
+    for (const file of expected) assert.deepEqual(await readBytes(path.join(target, file)), await readBytes(path.join(top, file)), `${skill}: ${file}`);
+  }
 });

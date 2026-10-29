@@ -23,9 +23,9 @@ node <path-to-this-skill>/scripts/start-server.cjs
 
 The launcher prints one line: `Minimap running at http://localhost:<port>` (just started) or `Minimap already running at http://localhost:<port>` (reused). Capture the port — default 4312, falls forward if busy.
 
-For status / stop / restart, see [references/server.md](references/server.md).
+For status / stop / restart and optional Windows/Linux persistent service installation, see [references/server.md](references/server.md). If a managed installation exists, these commands use it. Opening a review never authorizes installing or updating a service; keep using standalone mode otherwise.
 
-Compatible APIs can reuse different releases. A refused start/restart is not permission to stop the shared server: inspect running/source identity and coordinate before explicitly replacing it with `restart-server.mjs --replace-runtime`.
+Compatible APIs can reuse different releases. A refused start/restart is not permission to stop the shared server: inspect running/source identity and coordinate first. Standalone replacement uses `restart-server.mjs --replace-runtime`; managed installations require the explicit `service.mjs update` operation.
 
 ### 3a. Showing the session
 

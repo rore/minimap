@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { routeManagedLifecycle } from "../runtime/src/user-service.js";
+await routeManagedLifecycle("start");
 import { probeRunningServer, probePort, isCompatibleRuntime, replacementGuidance } from "./health-check.mjs";
 import { readPalliumPreference, writePalliumPreference, clearPalliumPreference } from "../runtime/src/server-registry.js";
 import { parsePalliumConfig, palliumConfigId } from "../runtime/src/pallium.js";
