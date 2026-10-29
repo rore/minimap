@@ -6,7 +6,7 @@
 **Completion criteria:** Both skills use one managed runtime; lifecycle commands respect OS ownership; stop remains stopped; startup failure is observable; upgrades retain rollback; isolated tests cover both platforms, compatibility, failure and data preservation; independent review and CI pass before merge. Native integration evidence is distinguished from mocked tests.
 **Requirement baseline:**
 {"source":"user-2026-10-29","outcome":"Minimap can run independently of agent application lifetime as a per-user service on Windows and Linux.","scope":"Optional stable user runtime installation; Windows Scheduled Task and Linux user systemd integration; lifecycle routing, update/rollback, docs and isolated regression tests.","constraints":"Preserve portable mode, same-user permissions, loopback binding, compatibility/ownership checks, existing data and settings. No live installation, restart, global configuration, administrator privileges or Linux lingering. No unrelated user-file changes.","completion_criteria":"Both skills use one managed runtime; lifecycle commands respect OS ownership; stop remains stopped; startup failure is observable; upgrades retain rollback; isolated tests cover both platforms, compatibility, failure and data preservation; independent review and CI pass before merge. Native integration evidence is distinguished from mocked tests."}
-**Relationships:** {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:persistent-user-service"}],"pull_requests":[]}
+**Relationships:** {"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:persistent-user-service"}],"pull_requests":["https://github.com/rore/minimap/pull/74"]}
 **Behavior changes:** [{"target":"repository-contract","path":"test/sync-mirrors.test.js","classification":"coverage-only","before":"Assert checked-in mirror byte identity and run sync against the shared checkout.","after":"Retain checked-in byte-identity assertions; execute sync in a temporary fixture and additionally verify both generated trees byte-for-byte.","reason":"Concurrent lifecycle tests must not lose runtime imports while the parity test deletes and recreates shared runtime directories. Same parity obligation; stronger isolated generation verification."}]
 **Risk:** High
 **Complexity:** Large
@@ -23,7 +23,7 @@
 **Plan review:** Agent technical review: /root/service_plan_review, 2026-10-29, baseline 0004546 and ae8441e plan. Approved with refinements recorded below.
 **Approvals:** Approved by user 2026-10-29: "ok, so drive this feature". Additional scope approved by user 2026-10-29: "this should work on both windows and linux". Approval covers repository implementation and review/merge, not local service installation.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -35,6 +35,18 @@
 ## Evidence
 
 Read-only investigation inspected packaged lifecycle scripts, registry/data behavior and Pallium's scheduled task implementation. Current live server was stale; no restart or cleanup performed.
+
+Implementation revision 46ac0e6: Windows 45 focused regressions and isolated mirror test pass. Linux focused 45 pass plus one Windows-only skip; full Node suite 514 pass, zero failures, two platform/opt-in skips. Evidence: `.local/persistent-service-qualification/linux-full.log`; owning PR https://github.com/rore/minimap/pull/74 carries CI. Native systemd unit syntax validation and in-memory Windows Scheduler XML parsing pass. Windows cscript executed the generated Unicode/space-path wrapper with an inert Node fixture and preserved exit 7. Native registration/login/recovery remain untested; no claim of live rollout.
+
+Test-safety incident: an implementer diagnostic omitted explicit MINIMAP_HOME/PORT and started a standalone process in a Windows sandbox home on port 4312 (PID 77436). Exact-home packaged status then reported stale/no health, including from an elevated read; no signals or uncertain shutdown were issued. No native task/unit was registered and the ordinary user data home was not modified. User informed. Subsequent diagnostics require explicit isolated homes/ports; this evidence does not establish the missing process's exit cause.
+
+## Result review
+
+Agent technical review: /root/service_plan_review, 2026-10-29, approves subject to full suite and CI passing.
+Reviewed revision: 46ac0e657f9f25dcf56ce783ce12cb5ebd0ecc9e
+Verification adequacy: independent non-implementer checked platform definitions, ownership, transaction recovery, tests and docs. Prior crash-registry and install-retry findings resolved; full local Linux suite subsequently passed. Fake-native tests do not prove login/crash supervision. CI and review-thread resolution remain before merge; local installation is not authorized by this repository result.
+
+Recovery: branch feat/persistent-user-service, implementation committed at 46ac0e6, PR 74 draft during CI. Root owns remaining CI/merge and records final native qualification limits. No task worktree created; unrelated untracked artifacts preserved.
 
 ## Plan review
 

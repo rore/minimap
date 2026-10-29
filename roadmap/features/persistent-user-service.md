@@ -26,3 +26,5 @@ Both skills connect to the same managed server. Intentional stop remains stopped
 ## Delivery
 
 2026-10-29: implementation authorized after research; Windows and Linux are required. Local activation remains a separate explicitly scoped environment change. Work Record: `.agent-workflow/tasks/persistent-user-service.md`.
+
+PR: https://github.com/rore/minimap/pull/74. Implementation reviewed at 46ac0e6; Windows focused and full Linux Node regressions pass. Native definitions validated without service registration. Pending CI/merge; native login/crash recovery and local activation are not yet qualified.
