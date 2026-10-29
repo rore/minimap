@@ -1,5 +1,4 @@
 # Now
-- roadmap-card-hierarchy
 - persistent-user-service
 
 # Next
@@ -15,6 +14,7 @@
 - idea-timeline-view
 
 # Done
+- roadmap-card-hierarchy
 - board-appearance
 - fast-worktree-scan
 - recent-worktrees-and-blocked
