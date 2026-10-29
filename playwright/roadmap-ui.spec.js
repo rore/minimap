@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseItemText } from "../package/minimap/src/roadmap.js";
+import { loadWorkspace, parseItemText } from "../package/minimap/src/roadmap.js";
 
 const boardPath = path.join(process.cwd(), "roadmap", "board.md");
 const scopePath = path.join(process.cwd(), "roadmap", "scope.md");
@@ -2795,6 +2795,8 @@ test("mobile list view keeps board mode and search rows stacked cleanly", async 
 });
 
 test("mobile columns view stays usable for grouping and opening items", async ({ page }) => {
+  const workspace = await loadWorkspace(process.cwd());
+  const expectedStatuses = [...workspace.availableLenses.find((lens) => lens.key === "status").values].sort();
   await page.setViewportSize({ width: 540, height: 900 });
   await page.goto(repoUrl());
   await expect(page.locator("#workspace-summary")).toContainText(/\d+ items \/ \d+ groups/);
@@ -2804,7 +2806,8 @@ test("mobile columns view stays usable for grouping and opening items", async ({
 
   const columns = page.locator(".board-columns");
   await expect(columns).toBeVisible();
-  await expect(page.locator(".board-column")).toHaveCount(4);
+  await expect(page.locator(".board-column")).toHaveCount(expectedStatuses.length);
+  expect((await page.locator(".board-column-name").allTextContents()).map((name) => name.trim()).sort()).toEqual(expectedStatuses);
 
   const metrics = await columns.evaluate((element) => ({
     clientWidth: element.clientWidth,
