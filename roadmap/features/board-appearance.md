@@ -24,7 +24,8 @@ Proposed shape (subject to technical review):
     "tagColors": {
       "repo": {"keir-core": "blue", "keir-demo-app": "purple"}
     },
-    "cardColorBy": "repo"
+    "cardColorBy": "repo",
+    "colorTags": true
   }
 }
 ```
@@ -32,11 +33,10 @@ Proposed shape (subject to technical review):
 - cardFields is an ordered list of scalar metadata fields. Omitted means today's defaults; [] deliberately hides metadata badges. Explicit lists have no legacy two-custom-field cap and may show the grouping field. Duplicate fields collapse to their first occurrence; absent fields emit no placeholder. Title, summary, identity, kind marker, linked sessions, source/conflict/coverage cues and actions are not metadata badge visibility controls.
 - tagColors maps exact metadata field/value pairs to a fixed readable palette: gray, blue, green, amber, red, purple, teal. Use exact parsed scalar values, no case folding or whitespace guessing beyond existing metadata normalization. Status colors keep their established semantic meanings and cannot be overridden. Custom colors apply to metadata badges on cards and in feature details; they do not recolor filter controls or change selected-version/status resolution.
 - cardColorBy names one scalar field other than status. Its mapping supplies only the left border. When enabled, replace the status stripe and active background tint with a neutral card and mapped border; missing/unmapped values use a neutral border, never fall back to active blue. Selection/focus treatment stays separate. Omission restores existing status styling. The border works even if the field's badge is hidden. No whole-card background customization.
+- colorTags is a boolean defaulting to true. False disables only the configured custom tag palette on cards and details, retaining ordinary status/commitment tones. cardColorBy still uses tagColors independently: omit cardColorBy for tag-only, use colorTags false for border-only, or leave true for both. An invalid boolean defaults to true with the bounded appearance warning.
 - Hiding fields never removes metadata, changes edit forms or filters, hides warnings, or changes grouping. Detail keeps full metadata. A hidden status badge is a deliberate display choice, not a status mutation.
 - Validation bounds config size/field/value counts and rejects unsupported names/types safely without CSS/HTML injection. Invalid appearance entries should not make an otherwise valid board unusable: ignore invalid entries and give one concise configuration warning with details, preserving existing config error handling for malformed JSON. Document exact fallback behavior.
 - Across uses the card's already-selected representative metadata for custom badge/border values, not a new aggregation rule. Existing combined status and conflict cues remain authoritative. Do not add Git scans or per-card network requests.
-
-## Done When
 
 ## Reviewed edge-case rules
 

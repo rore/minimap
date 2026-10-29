@@ -1,4 +1,5 @@
 import { createApi } from "/api.js";
+import { getAppearanceColor } from "/appearance.js";
 import { acrossRelatedWorkKey, createAcrossRelatedWork, cacheAcrossRelatedWork, readAcrossRelatedWork } from "/related-work.js";
 import { renderMarkdownToHtml } from "/markdown.js";
 import {
@@ -1318,6 +1319,12 @@ function getCustomMetadataEntries(metadata, options = {}) {
 }
 
 function buildMetadataBadgeEntries(metadata, options = {}) {
+  const cardFields = options.cardMode && state.workspace?.appearance?.cardFields;
+  if (Array.isArray(cardFields)) {
+    return cardFields
+      .map((field) => ({ field, value: normalizeMetadataValue(Object.hasOwn(metadata, field) ? metadata[field] : null), showFieldLabel: !CORE_METADATA_FIELDS.includes(field) }))
+      .filter((entry) => entry.value);
+  }
   const excludeKey = normalizeBadgeToken(options.excludeKey || "");
   const cardMode = options.cardMode === true;
   const entries = CORE_METADATA_FIELDS
@@ -1333,8 +1340,11 @@ function buildMetadataBadgeEntries(metadata, options = {}) {
 
 function renderBadge(value, field = "", options = {}) {
   const normalizedField = normalizeBadgeToken(field);
-  const tone = getBadgeTone(normalizedField, value);
+  const appearance = state.workspace?.appearance;
+  const color = appearance?.colorTags === false ? "" : getAppearanceColor(appearance, field, normalizeMetadataValue(value));
+  const tone = color ? `appearance-${color}` : getBadgeTone(normalizedField, value);
   const classes = ["badge", `badge-tone-${tone}`];
+  if (color) classes.push("badge-appearance");
   if (normalizedField) {
     classes.push(`badge-field-${normalizedField}`);
   }
@@ -1342,9 +1352,9 @@ function renderBadge(value, field = "", options = {}) {
     ? `${humanizeFilterKey(normalizedField)}: ${value}`
     : value;
   if (normalizedField === "priority" && /^\d+$/.test(String(value))) {
-    return `<span class="${classes.join(" ")}" title="Priority ${escapeHtml(value)}">${escapeHtml(`P${value}`)}</span>`;
+    return `<span class="${classes.join(" ")}" data-metadata-field="${escapeHtml(field)}" title="Priority ${escapeHtml(value)}">${escapeHtml(`P${value}`)}</span>`;
   }
-  return `<span class="${classes.join(" ")}">${escapeHtml(label)}</span>`;
+  return `<span class="${classes.join(" ")}" data-metadata-field="${escapeHtml(field)}">${escapeHtml(label)}</span>`;
 }
 
 function getBadgeMetadata(item) {
@@ -1363,12 +1373,14 @@ function getBadgeMetadata(item) {
 
 function renderMetadataBadges(metadata, excludeKey = "", options = {}) {
   return buildMetadataBadgeEntries(metadata || {}, { ...options, excludeKey })
-    .map((entry) => renderBadge(entry.value, entry.field, { showFieldLabel: entry.showFieldLabel }))
+    .map((entry) => options.cardMode && options.item && entry.field === "status"
+      ? buildRecordedStatusMarkup(options.item)
+      : renderBadge(entry.value, entry.field, { showFieldLabel: entry.showFieldLabel }))
     .join("");
 }
 
 function renderBadges(item, excludeKey = "", options = {}) {
-  return renderMetadataBadges(getBadgeMetadata(item), excludeKey, options);
+  return renderMetadataBadges(getBadgeMetadata(item), excludeKey, { ...options, item });
 }
 
 function updateDocumentTitle() {
@@ -2604,7 +2616,7 @@ function buildRecordedStatusMarkup(item, { detail = false } = {}) {
   const tone = summary.tone === "blocked" ? "status-blocked" : summary.tone === "progress" ? "status-progress" : summary.tone === "done" ? "status-done" : "neutral";
   const coverage = detail && [state.workspaceStale ? "Showing earlier results" : "", state.worktreeData?.provisional ? "Current worktree only" : state.worktreeData?.partial ? "Board may be incomplete" : ""].filter(Boolean).join(" · ");
   const filtered = detail && state.worktreeMode === "across" && item && !getWorktreeProjection().items.has(item.id);
-  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" title="Status from feature files shown here.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Earlier view · outside current filters</span>' : ""}`;
+  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" data-metadata-field="status" title="Status from feature files shown here.">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Earlier view · outside current filters</span>' : ""}`;
 }
 
 function syncBoardParticipantBadges() {
@@ -2622,6 +2634,22 @@ function syncBoardParticipantBadges() {
 
 function getBoardCardStatus(item) {
   return recordedStatusSummary(item).tone;
+}
+
+function getBoardCardAppearanceClasses(item) {
+  const appearance = state.workspace?.appearance;
+  const classes = [];
+  const status = getBoardCardStatus(item);
+  if (status) classes.push(`board-card-status-${status}`);
+  if (Array.isArray(appearance?.cardFields)) classes.push("board-card-configured-fields");
+  if (appearance?.cardColorBy) {
+    classes.push("board-card-custom-color");
+    const metadata = getBadgeMetadata(item);
+    const color = getAppearanceColor(appearance, appearance.cardColorBy,
+      normalizeMetadataValue(Object.hasOwn(metadata, appearance.cardColorBy) ? metadata[appearance.cardColorBy] : null));
+    if (color) classes.push(`board-card-color-${color}`);
+  }
+  return classes.length ? ` ${classes.join(" ")}` : "";
 }
 
 function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", feature = null) {
@@ -2660,7 +2688,9 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
   }).join("\n");
   const conflictBadge = differingFields.length ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(conflictDetail)}" aria-label="${escapeHtml(conflictDetail)}">${escapeHtml(differingFields.filter((field) => field !== "revision").map((field) => `${humanizeFilterKey(field)} differs`).join(" · ") || "Versions differ")}</span>` : "";
-  const statusSignal = `<span class="board-card-signals">${signalBadges}${sourceBadge}</span>`;
+  const configuredFields = Array.isArray(state.workspace?.appearance?.cardFields);
+  const statusSignal = configuredFields ? "" : `<span class="board-card-signals">${signalBadges}${sourceBadge}</span>`;
+  const metadataHtml = (configuredFields ? "" : summaryHtml) + renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true });
 
   return `
     <span class="board-item-top">
@@ -2670,7 +2700,7 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
     ${statusSignal}
     <span class="board-item-id">${escapeHtml(item.sourceVersion?.itemId || item.id)}</span>
     ${overview}
-    <span class="badge-row">${summaryHtml}${renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true })}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}</span>
+    <span class="badge-row" ${configuredFields ? "data-card-metadata" : ""}>${metadataHtml}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}</span>
   `;
 }
 
@@ -3027,7 +3057,7 @@ function renderBoardColumnsMode() {
         : "";
 
       return `
-        <article class="board-column-card${activeClass}${getBoardCardStatus(item) ? ` board-card-status-${getBoardCardStatus(item)}` : ""}${placementAttributes ? " board-column-dropzone" : ""}" title="${escapeHtml(item.title)}" ${placementAttributes} ${itemOrderDropAttributes}>
+        <article class="board-column-card${activeClass}${escapeHtml(getBoardCardAppearanceClasses(item))}${placementAttributes ? " board-column-dropzone" : ""}" title="${escapeHtml(item.title)}" ${placementAttributes} ${itemOrderDropAttributes}>
           <div class="board-column-card-main" data-item-dblopen="${escapeHtml(item.id)}" title="${escapeHtml(item.title)}">
             ${buildBoardCardBodyMarkup(item, activeLens?.key, "", features?.get(item.featureKey))}
           </div>
@@ -3323,7 +3353,7 @@ function renderBoardReadMode() {
         : "";
       return `
         <div class="board-item-row">
-          <button class="board-item${active}${getBoardCardStatus(item) ? ` board-card-status-${getBoardCardStatus(item)}` : ""}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
+          <button class="board-item${active}${escapeHtml(getBoardCardAppearanceClasses(item))}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
             ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle, features?.get(item.featureKey))}
           </button>
         </div>
@@ -5473,6 +5503,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
     if (aggregate && !aggregate.workspace) throw Object.assign(new Error(aggregate.unavailable?.message || "This worktree has no readable roadmap workspace."), { code: aggregate.unavailable?.reason });
     workspace = aggregate ? buildCombinedWorkspace(aggregate) : workspace;
     if (!stillCurrent()) return;
+    const appearanceChanged = JSON.stringify(state.workspace?.appearance) !== JSON.stringify(workspace.appearance);
     const reconcile = presented && !options.discardDraft;
     const retainUnfinished = reconcile && isUnfinishedFocused();
     const keepEditor = reconcile && (state.currentItem || state.itemLoadController);
@@ -5574,6 +5605,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
       forceFreshParticipants: options.forceFreshParticipants === true,
     });
     // loadItem owns freshly loaded details; only retained editors need a separate refresh.
+    if (stillCurrent() && appearanceChanged && state.currentItem && state.currentItem === previousItem) renderPreview();
     if (stillCurrent() && !aggregate?.provisional && state.currentItem && state.currentItem === previousItem && !state.itemLoadController) {
       void loadItemParticipants(state.selectedItemId, state.itemLoadGeneration, { forceFresh: options.forceFreshParticipants === true });
       if (options.forceFreshRelated || state.worktreeMode === "across" && relatedWorkView.key !== currentRelatedReadKey()) {
