@@ -145,7 +145,9 @@ test("HTTP health and an independent workspace progress while Spec anchors are u
   await fs.mkdir(path.join(runtime, "ui"), { recursive: true });
   await fs.cp(path.join(runtimeSource, "package/minimap/src"), path.join(runtime, "src"), { recursive: true });
   for (const file of ["server.js", "package.json"]) await fs.copyFile(path.join(runtimeSource, "package/minimap", file), path.join(runtime, file));
-  await fs.copyFile(path.join(runtimeSource, "package/minimap/ui/worktree-payload.js"), path.join(runtime, "ui/worktree-payload.js"));
+  for (const file of ["worktree-payload.js", "appearance.js"]) {
+    await fs.copyFile(path.join(runtimeSource, "package/minimap/ui", file), path.join(runtime, "ui", file));
+  }
   const preloadPath = path.join(data.owned, "preload.mjs");
   await fs.writeFile(preloadPath, preload);
   const reservation = net.createServer();

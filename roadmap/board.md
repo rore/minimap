@@ -14,6 +14,7 @@
 - idea-timeline-view
 
 # Done
+- board-appearance
 - fast-worktree-scan
 - recent-worktrees-and-blocked
 - nonblocking-performance-pass

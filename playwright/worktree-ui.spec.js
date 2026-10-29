@@ -674,6 +674,8 @@ test("legacy placement links retain the pinned source across filters and groupin
         source: blue.sourceKey, sourceRef: blue.sourceContext.git.branchRef });
       await page.goto(`/#${params}`);
       await expect(page.locator("#editor-title")).toContainText("large-01");
+      await expect(page.getByRole("button", { name: "In play", exact: true })).toHaveAttribute("aria-pressed", "false");
+      await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.slice(1)).has("inPlay")).toBe(false);
       await page.locator("#editor-source-summary").click();
       await expect(page.locator('[data-editor-source][aria-pressed="true"]')).toContainText("feature/blue");
       await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.slice(1)).get("item")).toBe(canonical);
@@ -681,6 +683,8 @@ test("legacy placement links retain the pinned source across filters and groupin
       await expect(page.getByRole("button", { name: /Open large-01/ })).toContainText("2 worktrees");
       await expect(page.getByText("3 worktrees", { exact: true })).toHaveCount(0);
       await page.getByRole("button", { name: "In play", exact: true }).click();
+      await expect(page.getByRole("button", { name: "In play", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect.poll(() => new URLSearchParams(new URL(page.url()).hash.slice(1)).get("inPlay")).toBe("1");
       await expect(page.getByRole("button", { name: /Open large-01/ })).toHaveCount(1);
       await expect(page.locator('[data-editor-source][aria-pressed="true"]')).toContainText("feature/blue");
     }

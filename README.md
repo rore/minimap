@@ -135,6 +135,14 @@ An optional **`roadmap.config.json`** at the repository root changes the locatio
   "filters": {
     "fields": ["owner", "team"]
   },
+  "appearance": {
+    "cardFields": ["status", "priority", "repo"],
+    "colorTags": true,
+    "tagColors": {
+      "repo": {"keir-core": "blue", "keir-demo-app": "purple"}
+    },
+    "cardColorBy": "repo"
+  },
   "lenses": {
     "fields": {
       "lane": { "order": ["Product", "Platform", "Operations"], "draggable": true },
@@ -144,7 +152,18 @@ An optional **`roadmap.config.json`** at the repository root changes the locatio
 }
 ```
 
-Here, a *lens* means a grouping. `defaultLens` sets the initial grouping independently of List/Columns layout; an explicit URL grouping takes precedence. `filters.fields` adds project-specific metadata filters. See the [roadmap contract](package/minimap/CONTRACT.md) for item format, ownership, and editing rules, and the [roadmap skill](package/minimap/skills/minimap-roadmap/SKILL.md) for setup and updates.
+Here, a *lens* means a grouping. `defaultLens` sets the initial grouping independently of List/Columns layout; an explicit URL grouping takes precedence. `filters.fields` adds project-specific metadata filters.
+
+Optional `appearance` configures card badges and colors for the opened board in both This and Across views and both layouts. In the example, `commitment` is hidden because it is omitted from `cardFields`.
+
+| Setting | Effect |
+|---|---|
+| `cardFields` | Ordered metadata badges; `[]` hides all, omission restores defaults. |
+| `tagColors` | Map exact field/value pairs to named colors: `gray`, `blue`, `green`, `amber`, `red`, `purple`, `teal`. |
+| `colorTags` | Defaults to `true`; `false` disables custom badge/detail colors, not semantic status/commitment tones. |
+| `cardColorBy` | Colors only the left border using `tagColors`; missing mappings use neutral. Independent of `colorTags`. |
+
+Omit `cardColorBy` for tag colors only; set `colorTags: false` with `cardColorBy` for border only; keep the default `colorTags: true` with `cardColorBy` for both. Remove `appearance` and Refresh to restore defaults. This is file configuration only—there is no settings UI or separate persistence. See the [roadmap contract](package/minimap/CONTRACT.md#board-appearance) for field rules, validation, and fallbacks, and the [roadmap skill](package/minimap/skills/minimap-roadmap/SKILL.md) for setup and updates.
 
 ### Optional Pallium participants
 

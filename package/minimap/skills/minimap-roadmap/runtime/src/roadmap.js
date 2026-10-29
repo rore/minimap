@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { assertSourceWriteGuard } from "./source-write-guard.js";
+import { normalizeAppearance } from "../ui/appearance.js";
 
 export const REQUIRED_FRONTMATTER_KEYS = ["id", "title", "status", "priority", "commitment"];
 export const OPTIONAL_FRONTMATTER_KEYS = ["milestone"];
@@ -1009,6 +1010,7 @@ async function readRoadmapConfig(repoRoot, signal) {
     lenses: normalizeLensConfig(parsedConfig),
     filters: normalizeFilterConfig(parsedConfig),
     defaultLens: normalizeDefaultLens(parsedConfig),
+    appearanceConfig: parsedConfig?.appearance,
     configText,
     configRevision: hasConfig ? contentRevision(configText) : null,
   };
@@ -1192,6 +1194,7 @@ async function loadItemIndex(roadmapRoot, signal) {
 export async function loadWorkspace(repoRoot, { signal } = {}) {
   if (signal?.aborted) throw signal.reason;
   const workspace = await resolveRoadmapRoot(repoRoot, { signal });
+  const { appearance, warnings: appearanceWarnings } = normalizeAppearance(workspace.appearanceConfig);
   if (signal?.aborted) throw signal.reason;
   await validateWorkspaceShape(repoRoot, workspace);
   const boardPath = path.join(workspace.resolvedPath, "board.md");
@@ -1253,6 +1256,8 @@ export async function loadWorkspace(repoRoot, { signal } = {}) {
     });
   }
 
+  warnings.push(...appearanceWarnings);
+
   return {
     repoName: path.basename(path.resolve(repoRoot)),
     roadmapPath: workspace.roadmapPath,
@@ -1261,6 +1266,7 @@ export async function loadWorkspace(repoRoot, { signal } = {}) {
     boardRevision: contentRevision(boardText),
     configRevision: workspace.configRevision,
     defaultLens,
+    appearance,
     scopeText,
     scopeRevision: contentRevision(scopeText),
     items: itemSummaries,

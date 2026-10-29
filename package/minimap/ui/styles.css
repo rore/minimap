@@ -288,6 +288,33 @@ h3 {
   color: var(--muted);
 }
 
+.badge-tone-appearance-gray, .board-card-color-gray {
+  --appearance-color: #4b5563; --appearance-bg: #f1f3f5; --appearance-line: #cbd0d8;
+}
+.badge-tone-appearance-blue, .board-card-color-blue {
+  --appearance-color: #2453a6; --appearance-bg: #edf3ff; --appearance-line: #b4c9ee;
+}
+.badge-tone-appearance-green, .board-card-color-green {
+  --appearance-color: #186548; --appearance-bg: #eaf5ee; --appearance-line: #b2d7bf;
+}
+.badge-tone-appearance-amber, .board-card-color-amber {
+  --appearance-color: #815109; --appearance-bg: #fff4dd; --appearance-line: #e9cc8a;
+}
+.badge-tone-appearance-red, .board-card-color-red {
+  --appearance-color: #a22f39; --appearance-bg: #ffedef; --appearance-line: #edbbc1;
+}
+.badge-tone-appearance-purple, .board-card-color-purple {
+  --appearance-color: #6940a4; --appearance-bg: #f3edff; --appearance-line: #d1bdec;
+}
+.badge-tone-appearance-teal, .board-card-color-teal {
+  --appearance-color: #116467; --appearance-bg: #e7f5f4; --appearance-line: #a9d7d4;
+}
+.badge.badge-appearance {
+  color: var(--appearance-color);
+  background: var(--appearance-bg);
+  border-color: var(--appearance-line);
+}
+
 .chip-muted {
   background: rgba(21, 32, 51, 0.06);
   color: var(--muted);
@@ -2633,6 +2660,26 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   width: 2px;
   border-radius: 6px 0 0 6px;
   background: var(--accent);
+}
+
+.board-column-dense .board-card-configured-fields .badge-row {
+  display: flex;
+}
+
+.board-item.board-card-custom-color,
+.board-column-card.board-card-custom-color {
+  border-left: 3px solid var(--appearance-color, var(--border-strong));
+  background: #fff;
+}
+.board-card-custom-color.board-item-active::before,
+.board-card-custom-color.board-column-card-active::before {
+  content: none;
+}
+.board-card-custom-color.board-item-active,
+.board-card-custom-color.board-column-card-active,
+.board-card-custom-color:focus-within {
+  outline: 2px solid rgba(44, 108, 255, 0.38);
+  outline-offset: 1px;
 }
 
 .board-column-card-main {

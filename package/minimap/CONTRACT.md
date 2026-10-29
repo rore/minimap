@@ -94,6 +94,32 @@ Filters are intentionally curated. Common planning fields (`status`, `priority`,
 
 `defaultLens` is optional. An explicit board-view URL wins, including `lens=board`; otherwise a remembered grouping for this repository and This/Across mode wins, then a valid configured default, then Board. A URL with board-view controls is complete: omitted layout, query, and filters mean their defaults, rather than saved values. Unknown URL or config values fall back safely with a warning; a removed remembered grouping falls back quietly. Across defers validation of an explicit URL grouping until the full snapshot, since it may be absent from the provisional opened checkout; a newer grouping choice takes precedence.
 
+### Board appearance
+
+An optional `appearance` object in the opened repository's root `roadmap.config.json` controls card metadata badges and colors. It is file configuration, not a settings UI or separately persisted preference. The opened board's configuration applies to both This and Across views and both List and Columns layouts; switching repositories loads that board's configuration. Across cards use the already-selected representative version's metadata. Sibling configuration is not merged. Omission preserves existing appearance exactly.
+
+```json
+{
+  "roadmapPath": "roadmap",
+  "appearance": {
+    "cardFields": ["status", "priority", "repo"],
+    "colorTags": true,
+    "tagColors": {
+      "repo": {"keir-core": "blue", "keir-demo-app": "purple"}
+    },
+    "cardColorBy": "repo"
+  }
+}
+```
+
+`cardFields` is an ordered list of scalar metadata badges. Supported fields are `status`, `priority`, `commitment`, `milestone`, and scalar custom metadata; `id`, `title`, `kind`, and `labels` are excluded. Omitted or invalid `cardFields` uses today's defaults; `[]` intentionally hides all metadata badges. Duplicate names collapse to the first occurrence. Malformed or unsupported structural fields are dropped, but a valid custom field name is accepted even when absent from current items; absent values produce no placeholder. Explicit lists have no legacy two-custom-field cap, may include the grouping field, and remain visible in dense cards. Hiding a badge never changes metadata, edit forms, filters, grouping, status calculation, or source/conflict/coverage cues. Item detail keeps full supported metadata; title, summary, identity, kind, sessions, cues, and actions are not controlled by `cardFields`.
+
+`tagColors` maps exact, case-sensitive field names and normalized scalar string values to `gray`, `blue`, `green`, `amber`, `red`, `purple`, or `teal`. Numbers and booleans use their existing string form. `colorTags` is a boolean that defaults to `true`; `false` suppresses custom `tagColors` on card badges and feature details. It does not suppress ordinary semantic status or commitment tones, and it does not affect `cardColorBy`, which continues to use the same `tagColors` mapping. Set `colorTags: false` and `cardColorBy` for border-only coloring; omit `cardColorBy` for tag-only coloring; the default `true` plus `cardColorBy` enables both. Invalid keys, values, colors, or unsupported types are ignored. Semantic status colors cannot be overridden. Custom colors do not affect filter controls, filtering, or Across status/version resolution.
+
+`cardColorBy` names a supported scalar field other than `status`. It colors only the left border; the field's badge may be hidden. When valid, it replaces status stripes and active/blocked background tints with a neutral card and mapped border. Missing or unmapped values get a neutral border, never an active-status fallback. Hover, selection, and keyboard focus do not override the border; selection/focus treatment remains separate. Status text and semantic color remain unchanged. Omit or invalidate `cardColorBy` to restore existing status styling. Whole-card backgrounds are unsupported.
+
+Validation bounds are: 64 KiB for appearance JSON, 32 `cardFields` entries, 32 `tagColors` fields, 64 values per field, and 120 characters per color-value key. An oversized appearance object is rejected as a whole; oversized lists/maps process only their bounded prefix and warn. Invalid entries are dropped while valid entries remain. Invalid `cardFields` restores defaults, while a valid empty array stays empty. Invalid `colorTags` falls back to `true` with a bounded warning. Invalid `cardColorBy` restores status styling; a valid field with no color mapping uses a neutral border. Unknown appearance properties are ignored. Field names must match `[A-Za-z][A-Za-z0-9_-]{0,63}` and cannot be `prototype`, `constructor`, or `__proto__`; lookups use the original key before CSS token normalization. Invalid data cannot inject CSS or HTML. Emit at most one concise appearance warning with at most eight detail entries. Malformed JSON retains existing configuration error handling.
+
 ## Optional live participants
 
 Pallium integration is optional and read-only. Minimap never stores live participants or work-reference associations in roadmap files. With no explicitly configured local Pallium endpoint, normal board, item, and editing behavior makes no Pallium HTTP request. In both board modes, participant observations refresh independently through `GET /api/board/observations?snapshot=<id>`. The opaque snapshot ID selects a retained manifest for the opened repository; observations use its validated feature references and ambiguity coverage without rescanning Git or loading individual cards. Unfinished candidates precede completed candidates within the 200-reference cap. Across associations remain feature-wide, not checkout-specific. Failed observations retain the last successful counts as stale; disabled, unavailable, ambiguous, and overflow results never mean zero. Hiding the page or opening Spec suspends observation refresh and cancels its pending request; returning resumes visible refresh. Changing repository or read mode discards the previous observations. The UI adds `includeCompleted=1` only when In play can include completed statuses; ordinary observations omit completed candidates.
