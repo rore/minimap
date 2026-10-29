@@ -105,14 +105,14 @@ An optional `appearance` object in the opened repository's root `roadmap.config.
     "cardFields": ["status", "priority", "repo"],
     "colorTags": true,
     "tagColors": {
-      "repo": {"keir-core": "blue", "keir-demo-app": "purple"}
+      "repo": {"sample-core": "blue", "sample-app": "purple"}
     },
     "cardColorBy": "repo"
   }
 }
 ```
 
-`cardFields` is an ordered list of scalar metadata badges. Supported fields are `status`, `priority`, `commitment`, `milestone`, and scalar custom metadata; `id`, `title`, `kind`, and `labels` are excluded. Omitted or invalid `cardFields` uses today's defaults; `[]` intentionally hides all metadata badges. Duplicate names collapse to the first occurrence. Malformed or unsupported structural fields are dropped, but a valid custom field name is accepted even when absent from current items; absent values produce no placeholder. Explicit lists have no legacy two-custom-field cap, may include the grouping field, and remain visible in dense cards. Hiding a badge never changes metadata, edit forms, filters, grouping, status calculation, or source/conflict/coverage cues. Item detail keeps full supported metadata; title, summary, identity, kind, sessions, cues, and actions are not controlled by `cardFields`.
+`cardFields` is an ordered list of scalar metadata badges on cards and in the feature Read tag row. Supported fields are `status`, `priority`, `commitment`, `milestone`, and scalar custom metadata; `id`, `title`, `kind`, and `labels` are excluded. Omitted or invalid `cardFields` uses today's defaults; `[]` intentionally hides these metadata badges. Read always keeps its separate primary combined-status block, and never duplicates `status` in the tag row; its selected-version status disclosure is unchanged. Duplicate names collapse to the first occurrence. Malformed or unsupported structural fields are dropped, but a valid custom field name is accepted even when absent from current items; absent values produce no placeholder. Explicit lists have no legacy two-custom-field cap, may include the grouping field, and remain visible in dense cards. Hiding a badge never changes metadata, Edit/Raw fields, filters, grouping, status calculation, or source/conflict/coverage cues. Edit and Raw keep full supported metadata; title, summary, identity, kind, sessions, cues, and actions are not controlled by `cardFields`.
 
 `tagColors` maps exact, case-sensitive field names and normalized scalar string values to `gray`, `blue`, `green`, `amber`, `red`, `purple`, or `teal`. Numbers and booleans use their existing string form. `colorTags` is a boolean that defaults to `true`; `false` suppresses custom `tagColors` on card badges and feature details. It does not suppress ordinary semantic status or commitment tones, and it does not affect `cardColorBy`, which continues to use the same `tagColors` mapping. Set `colorTags: false` and `cardColorBy` for border-only coloring; omit `cardColorBy` for tag-only coloring; the default `true` plus `cardColorBy` enables both. Invalid keys, values, colors, or unsupported types are ignored. Semantic status colors cannot be overridden. Custom colors do not affect filter controls, filtering, or Across status/version resolution.
 

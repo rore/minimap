@@ -195,7 +195,8 @@ test("appearance follows the opened board in This and Across, in both layouts", 
       await setLayout(layout);
       const card = boardCardByTitle(layout, first);
       await expect(card.locator('[data-metadata-field="status"]')).toHaveCount(0);
-      await expect(card.locator(".board-source-badge:not(.board-source-conflict)")).toContainText("Statuses differ");
+      await expect(card.locator(".board-source-conflict")).toHaveText("Differences");
+      await expect(card.locator(".board-source-conflict")).toHaveAttribute("aria-label", /Statuses differ/);
     }
     await fs.writeFile(path.join(root, "roadmap.config.json"), `${JSON.stringify(config, null, 2)}\n`);
     await page.locator("#refresh-button").click();
@@ -252,6 +253,7 @@ test("refresh applies config-only changes, preserves full metadata, and invalid 
     await expect(card.locator('[data-metadata-field="team_name"]')).toHaveClass(/badge-tone-appearance-teal/);
     await expect(card.locator('[data-metadata-field="Team_Name"]')).toHaveCount(0);
     await expect(card).toHaveClass(/board-card-color-teal/);
+    await page.waitForLoadState("networkidle");
     const requestsAfterLoad = requests.length;
     await card.hover();
     await page.keyboard.press("Tab");

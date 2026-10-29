@@ -1319,9 +1319,10 @@ function getCustomMetadataEntries(metadata, options = {}) {
 }
 
 function buildMetadataBadgeEntries(metadata, options = {}) {
-  const cardFields = options.cardMode && state.workspace?.appearance?.cardFields;
+  const cardFields = (options.cardMode || options.readMode) && state.workspace?.appearance?.cardFields;
   if (Array.isArray(cardFields)) {
     return cardFields
+      .filter((field) => !(options.readMode && field === "status"))
       .map((field) => ({ field, value: normalizeMetadataValue(Object.hasOwn(metadata, field) ? metadata[field] : null), showFieldLabel: !CORE_METADATA_FIELDS.includes(field) }))
       .filter((entry) => entry.value);
   }
@@ -2599,7 +2600,7 @@ function clearBoardDragState() {
 function buildLinkedSessionBadge(count) {
   if (!Number.isSafeInteger(count) || count < 0) return "";
   const label = `${count} linked session${count === 1 ? "" : "s"}`;
-  return `<span class="badge board-item-participants">${escapeHtml(label)}</span>`;
+  return `<span class="board-item-participants">${escapeHtml(label)}</span>`;
 }
 
 function buildBoardParticipantBadge(item) {
@@ -2625,15 +2626,22 @@ function syncBoardParticipantBadges() {
     const item = getBoardItemById(itemId);
     if (!item) continue;
     const markup = buildBoardParticipantBadge(item);
-    for (const row of card.querySelectorAll(".badge-row, .board-card-signals")) {
-      for (const current of row.querySelectorAll(".board-item-participants")) current.remove();
-      if (markup) row.insertAdjacentHTML("beforeend", markup);
-    }
+    const footer = card.querySelector(".board-card-footer");
+    if (!footer) continue;
+    const current = footer.querySelector(".board-item-participants");
+    if (current?.outerHTML === markup) continue;
+    if (current) current.remove();
+    if (markup) footer.insertAdjacentHTML("beforeend", markup);
   }
 }
 
 function getBoardCardStatus(item) {
   return recordedStatusSummary(item).tone;
+}
+
+function getBoardCardDifferenceLabel(item) {
+  const fields = [...new Set((item.conflicts || []).map((entry) => entry.field))].filter((field) => field !== "status");
+  return [recordedStatusSummary(item).differs ? "Statuses differ" : "", ...fields.map((field) => field === "revision" ? "Versions differ" : `${humanizeFilterKey(field)} differs`)].filter(Boolean).join(" · ");
 }
 
 function getBoardCardAppearanceClasses(item) {
@@ -2654,21 +2662,14 @@ function getBoardCardAppearanceClasses(item) {
 
 function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", feature = null) {
   const metaParts = [];
-  if (activeLensKey !== "kind") {
-    metaParts.push(`<span class="board-item-kind">${escapeHtml(item.kind)}</span>`);
-  }
   if (extraMetaHtml) {
     metaParts.push(extraMetaHtml);
   }
 
   const metaHtml = metaParts.length > 0 ? `<span class="board-item-meta">${metaParts.join("")}</span>` : "";
   const overview = item.overviewExcerpt ? `<span class="board-item-overview">${escapeHtml(item.overviewExcerpt)}</span>` : "";
-  const metadata = getBadgeMetadata(item);
-  const numericPriority = /^\d+$/.test(String(metadata.priority ?? "")) ? renderBadge(metadata.priority, "priority") : "";
   const participantBadge = buildBoardParticipantBadge(item);
-  const activity = recordedStatusSummary(item);
   const summaryHtml = buildRecordedStatusMarkup(item);
-  const signalBadges = `${summaryHtml}${numericPriority}${participantBadge}`;
   const specLink = item.sourceVersion ? item.sourceVersion.summary.specSession : state.workspace?.specSessionsByItemId?.[item.id];
   const specBadge = specLink?.unavailable
     ? `<span class="board-item-spec-badge is-unavailable" title="Spec session unavailable" aria-label="Spec session unavailable">⚠</span>`
@@ -2678,29 +2679,29 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
   const sourceLabels = item.matchingVersions?.map((version) => `${version.sourceContext.label}: ${version.repoRoot}`) || [];
   const sourceName = item.sourceVersion?.sourceContext;
   const sourceLabel = sourceName ? `${sourceName.label} · ${sourceName.git.branchRef?.replace(/^refs\/heads\//, "") || sourceName.git.headCommit.slice(0, 8)}` : "";
-  const differingFields = [...new Set((item.conflicts || []).map((entry) => entry.field))].filter((field) => field !== "status");
   const sourceCount = new Set(item.matchingVersions?.map((version) => version.sourceKey)).size;
-  const sourceBadgeLabel = sourceCount > 1 ? `${sourceCount} worktrees${activity.differs ? " · Statuses differ" : ""}` : sourceLabel;
+  const sourceBadgeLabel = sourceCount > 1 ? `${sourceCount} worktrees` : sourceLabel;
   const sourceBadge = item.sourceVersion
     ? `<span class="board-source-badge" title="${escapeHtml(sourceLabels.join("\n"))}">${escapeHtml(sourceBadgeLabel)}</span>` : "";
   const conflictDetail = (item.conflicts || []).map((entry) => {
     const source = item.versions?.find((version) => version.sourceKey === entry.sourceKey)?.sourceContext;
     return `${source?.repoRoot || entry.sourceKey} · ${entry.field}: ${entry.value}`;
   }).join("\n");
-  const conflictBadge = differingFields.length ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(conflictDetail)}" aria-label="${escapeHtml(conflictDetail)}">${escapeHtml(differingFields.filter((field) => field !== "revision").map((field) => `${humanizeFilterKey(field)} differs`).join(" · ") || "Versions differ")}</span>` : "";
+  const differenceLabel = getBoardCardDifferenceLabel(item);
+  const differenceDescription = [differenceLabel, conflictDetail, "Open feature for checkout version details."].filter(Boolean).join("\n");
+  const conflictBadge = differenceLabel ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(differenceDescription)}" aria-label="${escapeHtml(differenceDescription)}">Differences</span>` : "";
   const configuredFields = Array.isArray(state.workspace?.appearance?.cardFields);
-  const statusSignal = configuredFields ? "" : `<span class="board-card-signals">${signalBadges}${sourceBadge}</span>`;
-  const metadataHtml = (configuredFields ? "" : summaryHtml) + renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true });
+  const kindHtml = activeLensKey !== "kind" ? `<span class="board-item-kind">${escapeHtml(item.kind)}</span>` : "";
+  const metadataHtml = (configuredFields ? "" : summaryHtml) + renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true }) + kindHtml;
 
   return `
     <span class="board-item-top">
       <span class="board-item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
       ${metaHtml}
     </span>
-    ${statusSignal}
-    <span class="board-item-id">${escapeHtml(item.sourceVersion?.itemId || item.id)}</span>
     ${overview}
-    <span class="badge-row" ${configuredFields ? "data-card-metadata" : ""}>${metadataHtml}${participantBadge}${specBadge}${sourceBadge}${conflictBadge}</span>
+    ${metadataHtml ? `<span class="badge-row board-card-metadata" ${configuredFields ? "data-card-metadata" : ""}>${metadataHtml}</span>` : ""}
+    <span class="board-card-footer">${sourceBadge}${conflictBadge}${specBadge}${participantBadge}</span>
   `;
 }
 
@@ -3039,7 +3040,7 @@ function renderBoardColumnsMode() {
         return renderMissingBoardCardColumn(item);
       }
       const activeClass = item.id === state.selectedItemId && state.editorOverlayOpen ? " board-column-card-active" : "";
-      const dragHandle = allowColumnDrag
+      const buttonsHtml = allowColumnDrag
         ? `<span class="board-column-card-drag" data-drag-item-id="${escapeHtml(item.id)}" draggable="true" aria-label="Move ${escapeHtml(item.title)}" title="Drag to move ${escapeHtml(item.title)}${allowItemReorder ? ". Keyboard: Alt+Up or Alt+Down." : ""}">::</span>`
         : "";
       const previous = group.items[itemIndex - 1];
@@ -3055,15 +3056,12 @@ function renderBoardColumnsMode() {
       const placementAttributes = boardGrouping && allowColumnDrag
         ? `data-board-drop-group-index="${group.originalIndex}" data-board-drop-before-id="${escapeHtml(item.id)}"`
         : "";
+      const actions = `<span class="board-column-card-actions"><button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" aria-description="${escapeHtml(getBoardCardDifferenceLabel(item))}" ${orderAttributes}>Open</button>${buttonsHtml}</span>`;
 
       return `
         <article class="board-column-card${activeClass}${escapeHtml(getBoardCardAppearanceClasses(item))}${placementAttributes ? " board-column-dropzone" : ""}" title="${escapeHtml(item.title)}" ${placementAttributes} ${itemOrderDropAttributes}>
           <div class="board-column-card-main" data-item-dblopen="${escapeHtml(item.id)}" title="${escapeHtml(item.title)}">
-            ${buildBoardCardBodyMarkup(item, activeLens?.key, "", features?.get(item.featureKey))}
-          </div>
-          <div class="board-column-card-actions">
-            <button class="ghost-button board-column-card-open" data-item-open="${escapeHtml(item.id)}" type="button" aria-label="Open ${escapeHtml(item.title)}" ${orderAttributes}>Open</button>
-            ${dragHandle}
+            ${buildBoardCardBodyMarkup(item, activeLens?.key, actions, features?.get(item.featureKey))}
           </div>
         </article>
       `;
@@ -3125,7 +3123,8 @@ function renderBoardColumnsMode() {
   }
 
   for (const panel of boardGroupsElement.querySelectorAll("[data-item-dblopen]")) {
-    panel.addEventListener("dblclick", async () => {
+    panel.addEventListener("dblclick", async (event) => {
+      if (event.target.closest("[data-item-open], [data-drag-item-id]")) return;
       if (Date.now() < state.dragClickSuppressUntil) {
         return;
       }
@@ -3353,7 +3352,7 @@ function renderBoardReadMode() {
         : "";
       return `
         <div class="board-item-row">
-          <button class="board-item${active}${escapeHtml(getBoardCardAppearanceClasses(item))}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
+          <button class="board-item${active}${escapeHtml(getBoardCardAppearanceClasses(item))}" data-item-id="${escapeHtml(item.id)}" type="button" title="${escapeHtml(item.title)}" aria-label="Open ${escapeHtml(item.title)}" aria-description="${escapeHtml(getBoardCardDifferenceLabel(item))}" aria-pressed="${item.id === state.selectedItemId ? "true" : "false"}" ${orderAttributes} ${itemOrderDropAttributes}>
             ${buildBoardCardBodyMarkup(item, activeLens?.key, dragHandle, features?.get(item.featureKey))}
           </button>
         </div>
@@ -4218,7 +4217,7 @@ function renderPreview() {
     ? getStructuredSections()
     : Object.fromEntries(orderedSections.map((heading) => [heading, getSectionValueFromItem(state.currentItem, heading)]));
   const visibleSections = orderedSections.filter((heading) => Object.hasOwn(sections, heading));
-  const previewBadges = renderMetadataBadges(metadata, "status");
+  const previewBadges = renderMetadataBadges(metadata, "status", { readMode: true });
   const selectedStatus = state.worktreeMode === "across" && metadata?.status ? renderBadge(metadata.status, "status") : "";
   const summaryItem = state.worktreeMode === "across" ? getBoardItemById(state.selectedItemId) : { metadata };
   const summaryHtml = buildRecordedStatusMarkup(summaryItem, { detail: true });

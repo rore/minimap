@@ -8,7 +8,7 @@ commitment: committed
 
 ## Summary
 
-Give List and Columns cards a clear title, summary, configured metadata and subdued source/session context, verified against the real cluttered representative project example and realistic large boards.
+Give List and Columns cards a clear title, summary, configured metadata and subdued source/session context, verified against representative cluttered cards and realistic large boards.
 
 ## Why
 
@@ -18,7 +18,7 @@ Internal IDs and duplicate difference messages compete with the title and descri
 
 Evaluate and iterate the shared card hierarchy visually: title/actions, existing summary behavior, ordered configured metadata, and a separate source/session footer with one differences indicator. Remove ordinary visible internal IDs, retaining ID search, details and missing-item recovery. Preserve combined status/coverage, conflict information, participants, spec links, colors, selection, keyboard activation and reordering.
 
-Use the exact representative project title and full summary in an isolated fixture; cover dense/long/narrow boards, default/configured fields, List/Columns, and participant refresh without scroll loss. Make footer refresh a single target. List buttons must not contain nested interactive controls.
+Use realistic titles and summaries in isolated fixtures; keep identifying real-project examples in ignored local evidence and generic examples in public tests. Cover dense/long/narrow boards, default/configured fields, List/Columns, and participant refresh without scroll loss. Make footer refresh a single target. List buttons must not contain nested interactive controls.
 
 User-approved extension: Read view tags follow the same configured cardFields selection/order/colors, excluding status from that tag row because primary combined status remains separate and visible. Omitted configuration retains defaults. Empty fields hide Read tags, not primary status. Edit/Raw keep complete metadata and no item data changes. Verify This/Across, checkout changes, reopen and actual Read renders; update public and roadmap-skill guidance.
 
@@ -36,4 +36,4 @@ Backend/configuration changes, new detail interaction, real project data edits, 
 
 ## Notes
 
-Manager assignment accepted 2026-10-29. Real representative project is read-only; all implementation and tests use the isolated roadmap-card-hierarchy checkout. Manager owns final review, merge and any separately approved deployment.
+Manager assignment accepted 2026-10-29. Real projects remain read-only; all implementation and tests use an isolated checkout. Manager owns final review, merge and any separately approved deployment.
