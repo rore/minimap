@@ -43,7 +43,13 @@ cp -R minimap/package/minimap/skills/minimap-roadmap <your-repo>/.claude/skills/
 
 On Windows, replace `cp -R` with `xcopy /E /I` and `~/.claude/skills/` with `%USERPROFILE%\.claude\skills\`.
 
-The skills carry their own server runtime and lifecycle scripts — no `npm install`, no system service. Claude Code picks up newly-dropped skills automatically; no restart needed unless `~/.claude/skills/` itself didn't exist when the session started. Once installed, you ask for a roadmap or a spec session and the agent gives you a URL to open.
+The skills carry their own server runtime and lifecycle scripts; no `npm install` or service installation is required for standalone use. Follow your client's skill discovery procedure. Once installed, ask for a roadmap or spec session and the agent gives you a URL to open.
+
+### Optional persistent service
+
+Run `node <skill>/scripts/service.mjs install` explicitly to install one per-user runtime shared by both skills. Windows uses a login Scheduled Task; Linux uses user systemd. It starts after login and runs independently of the agent application. The runtime is copied under `$MINIMAP_HOME/service`; it does not depend on a development checkout remaining available. Skills can stay project-local or personal. Review data and settings remain in the existing Minimap home.
+
+The ordinary lifecycle scripts route to the managed installation when present. Use `service.mjs update` from the new skill copy to replace it, `service.mjs rollback` to restore the previous runtime, or `service.mjs uninstall` to remove the service while preserving review data/settings. Update and rollback preserve running/stopped state. Installation and updates affect the shared application and require explicit user authorization. No system-wide installation, administrator privileges, Node installation or Linux lingering is performed. See [server lifecycle](skills/minimap-roadmap/references/server.md).
 
 > Contributor note: if you're working on minimap itself, link the skill folders to this checkout instead of copying so edits propagate — `ln -s <path>/package/minimap/skills/minimap-<name> ~/.claude/skills/minimap-<name>` on macOS/Linux, `mklink /J %USERPROFILE%\.claude\skills\minimap-<name> <path>\package\minimap\skills\minimap-<name>` on Windows.
 
@@ -87,7 +93,7 @@ Keep lane, milestone, status, and similar classifications in item frontmatter. K
 A valid URL grouping overrides `defaultLens`, including explicit `lens=board`. Grouping and List/Columns layout are independent. In Columns, collapse unneeded groups to give the remaining columns more reading width; widened dense columns reveal descriptions. Filters default to common planning fields; `filters.fields` adds repo-specific frontmatter fields such as `owner` or `team`. The Milestone and Unfinished quick controls reuse those filters without changing `board.md` order or item status. Moving an item to Unassigned removes the active grouping field. See [`skills/minimap-roadmap/references/roadmap-contract.md`](skills/minimap-roadmap/references/roadmap-contract.md) for ownership and manual migration.
 ## Server lifecycle (agent contract)
 
-Each skill exposes the same four scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits.
+Each skill exposes the same lifecycle scripts under `scripts/`. Agents use these only — no direct curl, signals, or registry edits. If a service is installed, they manage that stable runtime; the table below describes standalone behavior.
 
 | Script | What it does |
 |---|---|

@@ -37,6 +37,22 @@ For a project-scoped Claude Code installation, use `<your-repo>/.claude/skills/`
 
 **Spec sessions** works with any markdown file. **Roadmap** uses the [file convention below](#file-layout-and-configuration). Add a pointer to the installed skills in your repository's agent instructions; [AGENTS_SNIPPET.md](package/minimap/AGENTS_SNIPPET.md) provides an example whose paths you can adapt.
 
+### Keep Minimap running independently
+
+On Windows and Linux, you can optionally install one background service for your user account. It serves both modes across repositories and starts after login, independently of your agent application. Windows uses Task Scheduler; Linux requires a working user systemd manager. No administrator privileges or Linux lingering are needed.
+
+After choosing the Minimap data directory and coordinating any running server, run from either installed skill:
+
+```bash
+node <path-to-skill>/scripts/service.mjs install
+```
+
+This is an explicit installation step, not something an agent should run merely to open a board. It copies the runtime to a stable location under the Minimap home; later changes to a repository checkout do not change that copy. Your project Roadmap skill and personal Spec Review skill keep their existing scopes and connect to the same service. The ordinary start, stop, restart and status scripts then manage that installation.
+
+To update, run `service.mjs update` from the new skill copy. `service.mjs rollback` restores the previous runtime. Both preserve whether the service was running or stopped. `service.mjs uninstall` removes service registration and its runtime, retaining review records and settings. These operations affect all views using that server; see the [service lifecycle guide](package/minimap/skills/minimap-roadmap/references/server.md) before changing an installation.
+
+Without this optional installation, the existing standalone launch still works.
+
 ### Open a view
 
 Ask your agent:
@@ -187,7 +203,7 @@ Both skills expose these scripts under `scripts/`. Use them for lifecycle operat
 
 Packaged start and restart default the new server's filesystem worker pool to 8 (`UV_THREADPOOL_SIZE`) only when unset. Explicit overrides remain authoritative. The legacy `start-server.mjs` and direct development entrypoints retain Node's caller-configured/default pool; a reused server is unchanged. See the lifecycle reference for preloads and startup details.
 
-The server is shared across repositories and both modes. Coordinate before replacing it: replacement interrupts all clients and can downgrade the running version. Updating an installed skill's files does not restart the server. See [server lifecycle](package/minimap/skills/minimap-roadmap/references/server.md) for compatibility, configuration, and diagnostics.
+The server is shared across repositories and both modes. Coordinate before replacing it: replacement interrupts all clients and can downgrade the running version. Updating an installed skill's files does not restart the server. For an installed service, use `service.mjs update` or `rollback`; `--replace-runtime` cannot bypass service ownership. See [server lifecycle](package/minimap/skills/minimap-roadmap/references/server.md) for compatibility, configuration, and diagnostics.
 
 ### Local access boundary
 

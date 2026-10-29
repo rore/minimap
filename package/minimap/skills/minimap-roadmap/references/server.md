@@ -6,7 +6,27 @@ Use the bundled scripts only. The skill is self-contained; the scripts handle ev
 
 The server binds to IPv4 loopback (`127.0.0.1`) only. Every API request must come from a loopback peer and carry a loopback `Host`; when a browser supplies `Origin`, it must exactly match that request origin. Foreign origins are rejected before route work, while origin-less local CLI and lifecycle requests remain supported.
 
-## Lifecycle commands
+## Optional persistent service
+
+Install once per user to keep both modes available independently of agent applications. This is separate from installing the skills: a project-local Roadmap skill and personal Spec Review skill can use the same service.
+
+| Command | Purpose |
+| --- | --- |
+| `node <skill>/scripts/service.mjs install` | Copy this skill's runtime to a stable location and register/start a per-user service. |
+| `node <skill>/scripts/service.mjs status` | Inspect the managed installation. |
+| `node <skill>/scripts/service.mjs update` | Stage this skill's runtime, retaining the previous runtime for recovery. |
+| `node <skill>/scripts/service.mjs rollback` | Restore the previous runtime. |
+| `node <skill>/scripts/service.mjs uninstall` | Remove owned service registration/runtime; keep review records and settings. |
+
+Use `MINIMAP_HOME` consistently across both skills and service commands. Installation uses `PORT` (default 4312) and the current Node executable; it does not install Node or change PATH. The stable runtime lives under `$MINIMAP_HOME/service`. Updating a skill folder alone does not update this runtime. Updates and rollback preserve the prior running/stopped state. Windows service paths cannot contain a literal `%`, because Windows Script Host expands environment references; installation rejects these paths rather than changing their meaning.
+
+Windows uses a hidden login Scheduled Task under the ordinary user account. Linux requires a working user systemd manager. Startup is after login, not before login; the installer does not enable lingering. Native failure recovery is bounded. A deliberate stop suppresses recovery; explicit start resumes it.
+
+Existing start/stop/restart/status commands route to this installation when configured. Managed restart uses the installed runtime; `--replace-runtime` is not a way to replace it. Use the explicit update command. Managed startup keeps its configured port rather than silently moving to another port. A foreign process or inconsistent installation produces an error; it does not authorize killing a process or falling back to another runtime.
+
+Installation, update, rollback and removal affect every board/spec tab using this service. Obtain explicit environment-change approval, preserve the current data directory, and verify readiness and settings after the operation. Never install a service just to satisfy a request to show a board. Tests must use isolated homes/ports; native registration tests need a separately isolated environment. On hosts without supported service management, retain standalone mode.
+
+## Standalone lifecycle commands
 
 | Command | Exit codes | What it does |
 | --- | --- | --- |

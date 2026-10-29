@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { routeManagedLifecycle } from "../runtime/src/user-service.js";
+await routeManagedLifecycle("status");
 // Reports minimap server status. Exit codes follow systemctl conventions:
 //   0 — server is running and healthy.
 //   1 — registry exists but server is gone (stale). Registry is left alone here;
