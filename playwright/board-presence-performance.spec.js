@@ -112,7 +112,8 @@ test("dense board keeps one bounded batch in flight, recovers from a network tim
     await expect(page.locator("#board-participant-status")).toHaveText("Session counts limited to 200 features");
     await expect(page.locator('.board-item[data-item-id="dense-201"] .board-item-participants')).toHaveCount(0);
     const lastKnownBadges = await listCard.locator(".board-item-participants").allTextContents();
-    expect(lastKnownBadges).toEqual(["3 linked sessions", "3 linked sessions"]);
+    expect(lastKnownBadges).toEqual(["3 linked sessions"]);
+    await expect(listCard.locator(".board-card-footer .board-item-participants")).toHaveCount(1);
     expect(requests).toBe(1);
 
     await page.evaluate(() => {

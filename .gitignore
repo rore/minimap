@@ -2,5 +2,6 @@ node_modules/
 test-results/
 playwright-report/
 playwright/.artifacts/
+/artifacts/
 .tmp-*.txt
 tmp/

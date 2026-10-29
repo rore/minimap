@@ -2370,23 +2370,20 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   background: rgba(196, 61, 67, 0.045);
 }
 
-.board-card-signals {
-  display: none;
+.board-card-footer {
+  display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-}
-
-.board-item-participants {
-  color: #5b3da8;
-  border-color: rgba(91, 61, 168, 0.22);
-  background: rgba(91, 61, 168, 0.08);
-}
-
-.board-item-participants.participant-dormant {
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 8px;
   color: var(--muted);
-  border-color: var(--border);
-  background: var(--panel);
+  font-size: .72rem;
+  line-height: 1.4;
 }
+
+.board-card-footer:empty { display: none; }
+.board-card-footer > * { min-width: 0; overflow-wrap: anywhere; }
+.board-card-footer .board-source-badge { font-size: inherit; }
 
 .board-item:hover {
   border-color: var(--border-strong);
@@ -2596,10 +2593,7 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
 }
 
 .board-column-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: start;
+  display: block;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -2620,21 +2614,12 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   -webkit-line-clamp: 2;
 }
 
-.board-column-dense .board-item-id,
-.board-column-dense .board-item-overview,
-.board-column-dense .badge-row {
+.board-column-dense .board-item-overview {
   display: none;
 }
 
-.board-column-dense .board-card-signals {
-  display: flex;
-  margin-top: 4px;
-}
-
-.board-column-dense .board-card-signals:empty { display: none; }
-
-.board-column-dense .board-column-card-actions {
-  align-self: center;
+.board-column-dense .board-column-card:not(.board-card-configured-fields) .board-card-metadata > [data-metadata-field]:not([data-metadata-field="status"]):not([data-metadata-field="priority"]) {
+  display: none;
 }
 
 @container (min-width: 320px) {
@@ -2660,10 +2645,6 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
   width: 2px;
   border-radius: 6px 0 0 6px;
   background: var(--accent);
-}
-
-.board-column-dense .board-card-configured-fields .badge-row {
-  display: flex;
 }
 
 .board-item.board-card-custom-color,
@@ -2698,9 +2679,9 @@ body[data-app-mode="spec"] .topbar-meta { gap: 6px; }
 }
 
 .board-column-card-actions {
-  display: grid;
-  gap: 6px;
-  justify-items: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .board-column-card-open {

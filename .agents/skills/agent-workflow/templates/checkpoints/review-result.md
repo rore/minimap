@@ -2,7 +2,7 @@
 
 ## What the harness enforces
 
-**`review.checkpoints_satisfied`** reports Redline's PR-label/CODEOWNER checkpoint state, blocking in binding mode and advisory in shadow mode. It supplies human attention, not agent technical review (SPEC §13.4).
+**`review.checkpoints_satisfied`** reports Redline's PR-label/CODEOWNER checkpoint (binding blocks; shadow advises). It routes human attention, not agent technical review (SPEC §13.4).
 
 
 ## What stays reviewer judgment (SPEC §9.7)
@@ -10,6 +10,7 @@
 The reviewer at every Risk level MUST assess:
 
 - whether completion criteria are satisfied
+- whether delivered behavior matches authoritative user requirements and established core behavior, or exact approved departures ([behavioral integrity](behavioral-integrity.md))
 - whether the recorded Verification Record is **adequate** (the harness validates presence and structural well-formedness, not adequacy)
 - whether tests would detect the relevant failure and exercise its triggering path, and fakes reflect the real interface rather than repeat implementation assumptions
 - whether evidence is sufficient
@@ -17,7 +18,7 @@ The reviewer at every Risk level MUST assess:
 - whether assumptions remain unresolved
 - whether the final diff changes the risk classification
 
-Reassess the overall approach, not only the patch; apply [planning's mechanism/guarantee distinction](plan-and-review.md#approach).
+Assess the [approach](plan-and-review.md#approach), not only the patch.
 
 When the repository already uses a roadmap and this work affects a tracked item's progress or scope, reconcile the owning item under that roadmap's guidance: status, shipped scope, remaining scope, obsolete next steps, placement, and directly affected prerequisites. State the result briefly in existing prose; no roadmap edit is needed when already accurate. Skip when no roadmap/item applies. For PR linkage, delivered contribution and owner handoff, follow [Source-item lifecycle](../../operating-mode.md#source-item-lifecycle).
 
@@ -25,9 +26,9 @@ Review identity: Routine may use normal PR review. Elevated/High require a clean
 
 If evidence is insufficient, run or request the smallest behavioral check that resolves it; prefer the relevant end-to-end transition to rerunning a passing suite. Record authoritative result references; if unavailable, leave the gate unsatisfied.
 
-Ready for review is not merged or released; verify delivery state in its owning system.
+Readiness is not delivery; verify merge/release in its owning system.
 
-For agent-instruction changes, distinguish tested/installed behavior from observed real-use adoption; record any agreed bounded follow-up in the existing feature/release record with its owner and evidence.
+For agent instructions, distinguish tested/installed behavior from observed real-use adoption; record agreed bounded follow-up, owner and evidence in the existing feature/release record.
 
 ## Satisfy-by paths in practice
 

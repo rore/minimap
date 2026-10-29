@@ -19,6 +19,7 @@
 **Requirement baseline:**
 <!-- Before discovery, copy exact Task Context values into this JSON object. Use an authoritative source reference when available. -->
 {"source":"work-record-initial","outcome":"...","scope":"...","constraints":"...","completion_criteria":"..."}
+<!-- Source-only privacy redaction: templates/checkpoints/baseline-privacy-migration.md; add no receipt for ordinary tasks. -->
 
 **Relationships:**
 {"schema_version":1,"sources":null,"pull_requests":[]}

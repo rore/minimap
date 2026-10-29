@@ -54,6 +54,6 @@ If you cannot name an observable outcome, you do not yet know what success looks
 
 ## Baseline and revision
 
-Before discovery, copy Outcome, Scope, Constraints, and Completion criteria into the Requirement baseline JSON. See [behavioral-integrity.md](behavioral-integrity.md). Equivalent clarification uses a change entry; a material refinement blocks for task-owner approval. Never rewrite the baseline.
+Before discovery, copy Outcome, Scope, Constraints, and Completion criteria into the Requirement baseline JSON. See [behavioral-integrity.md](behavioral-integrity.md). Equivalent clarification uses a change entry; a material refinement blocks for task-owner approval. Source redaction requires [migration](baseline-privacy-migration.md).
 
 Planning and implementation cannot begin while context is unclear or the baseline is missing.
