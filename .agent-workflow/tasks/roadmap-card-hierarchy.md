@@ -11,7 +11,7 @@ Canonical design: [Make roadmap cards readable at a glance](../../roadmap/featur
 **Requirement baseline:**
 {"source":"User-approved manager assignment, accepted 2026-10-29","outcome":"Roadmap cards make titles and summaries readable without losing source, status or session context.","scope":"Shared List/Columns card markup and styling, isolated realistic visual fixtures and regression coverage, generated runtime mirrors, canonical task documentation.","constraints":"Preserve appearance configuration, complete List excerpts, source/status/coverage/conflict semantics, sessions, spec links, keyboard selection and reordering. No backend expansion, real data edits or live environment changes. At most one bounded independent reviewer; root implements and tests.","completion_criteria":"Baseline and iterative desktop/narrow renders are inspected; dense/default/configured views and live participant refresh pass focused checks; required CI, independent review and PR evidence are recorded."}
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:roadmap-card-hierarchy"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:roadmap-card-hierarchy"}],"pull_requests":["https://github.com/rore/minimap/pull/78"]}
 **Risk:** High
 **Complexity:** Moderate
 **Reason:** Shared card DOM and responsive/async rendering plus user-approved Read tag selection behavior affect the public appearance contract and protected browser/agent documentation surfaces; architecture review is required. Configuration schema and item data remain unchanged.
@@ -89,3 +89,5 @@ Skill feedback trigger 5 dropped: an initial lookup used the wrong relative path
 - Canonical item remains active pending full CI and manager completion/merge. No live service, real board data, installed tooling or persistent environment setting changed.
 
 Publication gate: privacy-only correction of the historical appearance Work Record changes its source-provenance pointer, which the current immutable-baseline check rejects even though all four behavioral fields are unchanged. Including both records also exposes a duplicate historical/current contract classification. Reported to the manager for a sanctioned governance resolution; no private content is restored, no checker or non-waivable rule is relaxed, and shared history is unchanged. UI review remains approved; merge must wait for this gate and full CI.
+
+Draft PR: https://github.com/rore/minimap/pull/78. Historical appearance classifications are preserved in clearly historical prose rather than claiming ownership of current changed paths. The current task alone owns active contract classification; the privacy-only immutable-source gate remains assigned to the governance owner.
