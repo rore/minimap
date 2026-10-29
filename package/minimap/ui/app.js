@@ -1308,28 +1308,28 @@ function normalizeMetadataValue(value) {
 }
 
 function getCustomMetadataEntries(metadata, options = {}) {
-  const excludeKey = normalizeBadgeToken(options.excludeKey || "");
+  const excludeKey = options.excludeKey || "";
   const maxCount = Number.isFinite(options.maxCount) ? options.maxCount : Number.POSITIVE_INFINITY;
   const entries = Object.entries(metadata || {})
     .map(([key, value]) => ({ key, value: normalizeMetadataValue(value) }))
-    .filter((entry) => entry.value && !RESERVED_METADATA_KEYS.has(entry.key) && normalizeBadgeToken(entry.key) !== excludeKey)
+    .filter((entry) => entry.value && !RESERVED_METADATA_KEYS.has(entry.key) && entry.key !== excludeKey)
     .sort((left, right) => humanizeFilterKey(left.key).localeCompare(humanizeFilterKey(right.key)));
 
   return entries.slice(0, maxCount);
 }
 
 function buildMetadataBadgeEntries(metadata, options = {}) {
+  const excludeKey = options.excludeKey || "";
   const cardFields = (options.cardMode || options.readMode) && state.workspace?.appearance?.cardFields;
   if (Array.isArray(cardFields)) {
     return cardFields
-      .filter((field) => !(options.readMode && field === "status"))
+      .filter((field) => field !== excludeKey && !(options.readMode && field === "status"))
       .map((field) => ({ field, value: normalizeMetadataValue(Object.hasOwn(metadata, field) ? metadata[field] : null), showFieldLabel: !CORE_METADATA_FIELDS.includes(field) }))
       .filter((entry) => entry.value);
   }
-  const excludeKey = normalizeBadgeToken(options.excludeKey || "");
   const cardMode = options.cardMode === true;
   const entries = CORE_METADATA_FIELDS
-    .filter((field) => normalizeBadgeToken(field) !== excludeKey && !(options.omitStatus && field === "status"))
+    .filter((field) => field !== excludeKey && !(options.omitStatus && field === "status"))
     .map((field) => ({ field, value: normalizeMetadataValue(metadata?.[field]), showFieldLabel: false }))
     .filter((entry) => entry.value);
 
@@ -2692,8 +2692,9 @@ function buildBoardCardBodyMarkup(item, activeLensKey, extraMetaHtml = "", featu
   const differenceDescription = [differenceLabel, conflictDetail, "Open feature for checkout version details."].filter(Boolean).join("\n");
   const conflictBadge = differenceLabel ? `<span class="board-source-badge board-source-conflict" role="note" title="${escapeHtml(differenceDescription)}" aria-label="${escapeHtml(differenceDescription)}">Differences</span>` : "";
   const configuredFields = Array.isArray(state.workspace?.appearance?.cardFields);
+  const groupedField = getActiveLensDefinition()?.kind === "derived" ? activeLensKey : "";
   const kindHtml = activeLensKey !== "kind" ? `<span class="board-item-kind">${escapeHtml(item.kind)}</span>` : "";
-  const metadataHtml = (configuredFields ? "" : summaryHtml) + renderBadges(item, activeLensKey, { cardMode: true, omitStatus: true }) + kindHtml;
+  const metadataHtml = (configuredFields || groupedField === "status" ? "" : summaryHtml) + renderBadges(item, groupedField, { cardMode: true, omitStatus: true }) + kindHtml;
 
   return `
     <span class="board-item-top">
