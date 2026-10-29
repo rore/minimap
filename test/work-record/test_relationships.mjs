@@ -34,6 +34,12 @@ assert.equal(expandedResult.status, "legacy");
 assert.equal(expandedResult.title, "Expanded Record");
 assert.equal(expandedResult.recorded_state, "Blocked");
 assert.equal(expandedResult.relationships, null);
+const migratedRecord = expandedRecord.replace("**State:**", `**Baseline privacy migration:**\n${JSON.stringify({
+  schema_version: 1, record_path: ".agent-workflow/tasks/fixture.md", anchor_commit: "a".repeat(40),
+  replacements: { source: "Public approval" }, reason: "Source-only privacy correction.",
+  approval: { by: "user", reference: "Public maintainer approval", verbatim: "yes" },
+})}\n**State:**`);
+assert.deepEqual(decodeRecord(bytes(migratedRecord), recordOptions), expandedResult);
 assert.equal(decodeRecord(bytes(expandedRecord.replace("**Exceptions:** —\n", "")), recordOptions).status, "legacy");
 assert.deepEqual(decodeRecord(bytes(expandedRecord.replace("**Reason:** Required reason", "**Reason:**")), recordOptions), { status: "invalid", reason: "invalid_record" });
 const fencedHeading = recordFor(null).replace("# Fixture Work Record", "```md\n# Not a heading\n```\n\n# Actual title ###");
