@@ -1,5 +1,4 @@
 # Now
-- group-aware-card-tags
 - persistent-user-service
 
 # Next
@@ -15,6 +14,7 @@
 - idea-timeline-view
 
 # Done
+- group-aware-card-tags
 - roadmap-card-hierarchy
 - board-appearance
 - fast-worktree-scan

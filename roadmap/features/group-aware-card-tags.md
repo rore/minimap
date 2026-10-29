@@ -1,7 +1,7 @@
 ---
 id: group-aware-card-tags
 title: Hide redundant card tags for the current grouping
-status: active
+status: done
 priority: high
 commitment: committed
 ---
@@ -33,3 +33,9 @@ New settings, schema changes, default/density redesign, backend changes, real-pr
 ## Notes
 
 User-approved assignment accepted 2026-10-29. The manager owns final review, merge and separately authorized deployment. Public tests use generic isolated examples; real project data remains read-only.
+
+## Completion readiness
+
+Implementation and focused verification are complete: generic grouping exclusion, exact-key identity, default/configured/empty fields, independent colors and grouping-independent Read are covered in both layouts and worktree modes. Sixty-item desktop/narrow List/Columns/Read captures were inspected; public appearance guidance and both runtime mirrors match. Focused Node checks passed 32/32; all three new browser cases and the existing appearance/Read compatibility checks have passing evidence.
+
+Delivery remains pending independent result acceptance, required full CI, merge and manager-owned deployment. Done records implementation completion in this task branch, not an already-deployed release. See the [Work Record](../../.agent-workflow/tasks/group-aware-card-tags.md) for exact verification and handoff state.

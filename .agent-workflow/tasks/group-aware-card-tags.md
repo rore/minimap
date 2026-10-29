@@ -21,8 +21,9 @@ Canonical item: [Hide redundant card tags for the current grouping](../../roadma
 **Verification plan:** Browser grouping matrix validates enabled-order/exclusion/restoration in List/Columns and This/Across; status/kind/custom/core/Board cases protect generic scope. Read and complete Edit/Raw checks protect metadata; colorTags/cardColorBy and empty/default cases protect appearance. Sixty-item long-title/milestone/lane desktop/narrow captures plus overflow checks protect real-world usability. Node appearance/lint and mirror parity validate shared artifacts. Required CI job test validates the complete regression surface before merge.
 **Plan review:** Agent technical review: Independent clean-context reviewer approved ab07d7bb2039c370b791656eb3a49a6b3e8427aa and the subsequent approval/density clarification before code edits. Exact-key, Board lens, grouped status, Read/color and cross-mode checks are required. Allocation of the trivial shared patch to root and the larger test draft to a lower-cost agent is nonmaterial; behavior and review independence are unchanged.
 **Approvals:** Approved by user 2026-10-29: "ok, implement the tag behavior we discussed. test it visually in both views, drive it through review and merge, and update local and the service." Exact approval forwarded by the manager; this task does not perform the manager-owned live deployment.
+**Behavior changes:** [{"target":"repository-contract","path":"playwright/group-aware-card-tags.spec.js","classification":"coverage-only","before":"No dedicated grouping-aware configured/default metadata regression exists.","after":"Add isolated exact-key, Board, order/restoration, Read/Edit/Raw, color, density and realistic desktop/narrow coverage for the approved grouping behavior.","reason":"Protect the approved grouping-aware tag contract without weakening existing acceptance assertions."}]
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Plan and scope
@@ -36,3 +37,21 @@ Intended files: package/minimap/ui/app.js; playwright/group-aware-card-tags.spec
 ## Plan review
 
 Independent technical reviewer approved High/Moderate and the existing shared-render approach. It explicitly checked all callers, exact-key collisions in configured/default/custom paths, Board-kind gating, separately rendered default status, Read's status-only exclusion, independent border lookup, default dense CSS and complete required CI. No technical blocker remains. Protected new browser coverage must exercise these triggering paths; result review will inspect actual code, passing evidence and rendered captures.
+
+## Implementation
+
+2026-10-29: Shared rendering now applies exact-key exclusion in configured/default/custom paths. Only a derived metadata lens supplies an excluded field; freeform Board supplies none. The separately rendered default status follows the same rule. Read retains its status-only exclusion and original field selection, while card border colors still read original metadata. No CSS, schema, backend, dependency or live environment change. Both runtime mirrors are synchronized.
+
+Lower-cost agent supplied the bounded browser draft; root corrected fixture completeness, selectors, meaningful metadata domains and contradictory expectations, added default/exact-key/color cases and performed actual execution/visual inspection. The draft's sandbox limitation did not change task scope or become a product blocker. Test launch uses existing Playwright and packaged lifecycle scripts in an isolated registry/port; no user service is reused or replaced.
+
+Public README, CONTRACT and roadmap skill/reference now describe grouping-only card exclusion, grouping-independent Read, explicit milestone selection, unchanged density and independent borders. The spec-review skill has no affected appearance prose; both packaged runtime trees carry the shared fix. Old grouping-field wording was swept.
+
+## Verification
+
+- Focused Node appearance/filter/lint and mirror parity: 32/32 passed.
+- Initial browser run: default/status/exact-key/density passed; configured and color cases failed on test sequencing, not accepted as green. Read is asynchronous, and Across Edit requires a source-specific confirmation.
+- Color/empty/omitted-field and border-only regression passed its focused recheck. The complete configured grouping matrix passed its final recheck after explicitly handling the existing Edit confirmation; no test timeout, retry, product safety prompt or assertion was weakened.
+- Captures inspected directly include desktop/narrow List and Columns, 12 milestone groups, 60 items, 10 freeform groups, long metadata, and Read with all enabled tags. Viewport-only mobile captures replace unreadably tall full-page evidence. Root and manager both inspected actual captures. No screenshot manipulation or real-project data edits.
+- Added explicit default Board/custom-board collision coverage; it and the unchanged existing appearance/Read regressions passed 3/3 in the focused compatibility run. All three new regression cases now have passing evidence, with earlier sequencing failures recorded above. Required full CI remains a merge gate.
+
+Canonical reference was resolved through the bundled CLI, stored/read back in Relationships and successfully attached through Pallium MCP. Earlier unrelated associations remain untouched. The manager requested canonical completion reconciliation in this PR: implementation is locally verified, the item is done and its board entry is in Done, but independent result acceptance, required CI, merge and deployment are explicitly pending. No delivered/live claim is made. Evidence remains ignored in the isolated checkout on feat/group-aware-card-tags.

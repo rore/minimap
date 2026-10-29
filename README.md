@@ -154,7 +154,7 @@ An optional **`roadmap.config.json`** at the repository root changes the locatio
 
 Here, a *lens* means a grouping. `defaultLens` sets the initial grouping independently of List/Columns layout; an explicit URL grouping takes precedence. `filters.fields` adds project-specific metadata filters.
 
-Optional `appearance` configures card badges, Read-view tags and colors for the opened board in both This and Across views and both layouts. In the example, `commitment` and `milestone` are omitted from `cardFields`, so neither appears on cards or in the Read tag row. The primary status remains visible in Read; Edit and Raw retain every field.
+Optional `appearance` configures card badges, Read-view tags and colors for the opened board in both This and Across views and both layouts. Cards omit an enabled field when the current metadata grouping already expresses it: grouping by Repo hides Repo, and grouping by Milestone hides Milestone. The remaining badges keep their configured order; Board grouping hides none. Read keeps all enabled tags regardless of grouping, with primary status separate; Edit and Raw retain every field. In the example, `commitment` and `milestone` are omitted from `cardFields`, so neither is injected into cards or the Read tag row. Add `milestone` to enable it with an explicit list. Grouping never changes `cardColorBy`, even when its badge is hidden.
 
 | Setting | Effect |
 |---|---|
