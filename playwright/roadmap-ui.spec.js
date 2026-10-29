@@ -2059,7 +2059,7 @@ test("shows bounded recent and dormant session counts across dense List and Colu
         const titleElement = card.querySelector(".board-item-title");
         const title = titleElement?.getBoundingClientRect();
         const metaElement = card.querySelector(".board-item-meta");
-        const kindElement = metaElement?.querySelector(".board-item-kind");
+        const kindElement = card.querySelector(".board-item-kind");
         const dragElement = card.querySelector(".board-column-card-drag");
         const board = document.querySelector("#board-groups").getBoundingClientRect();
         const openButton = card.matches(".board-column-card-main")
@@ -2262,9 +2262,9 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     const blockedColumnCard = page.locator(".board-column-card").filter({ has: page.locator('[data-item-dblopen="large-item-03"]') });
     await expect(activeColumnCard).toHaveClass(/board-card-status-progress/);
     await expect(blockedColumnCard).toHaveClass(/board-card-status-blocked/);
-    await expect(activeColumnCard.locator(".board-card-signals .recorded-status")).toBeVisible();
-    await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
-    await expect(blockedColumnCard.locator(".board-card-signals .recorded-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-metadata .recorded-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-metadata .badge-field-priority")).toHaveText("P1");
+    await expect(blockedColumnCard.locator(".board-card-metadata .recorded-status")).toBeVisible();
     await expect(activeColumnCard.getByRole("button", { name: /Open / })).toBeVisible();
     await page.screenshot({ path: "test-results/board-focus-desktop.png" });
 
@@ -2273,8 +2273,8 @@ test("focuses a dense board without reordering and keeps active, blocked, and nu
     await page.screenshot({ path: "test-results/board-focus-narrow.png" });
     const toolbarOverflow = await page.locator(".board-toolbar-row").evaluate((row) => row.scrollWidth - row.clientWidth);
     expect(toolbarOverflow).toBeLessThanOrEqual(2);
-    await expect(activeColumnCard.locator(".board-card-signals .recorded-status")).toBeVisible();
-    await expect(activeColumnCard.locator(".board-card-signals .badge-field-priority")).toHaveText("P1");
+    await expect(activeColumnCard.locator(".board-card-metadata .recorded-status")).toBeVisible();
+    await expect(activeColumnCard.locator(".board-card-metadata .badge-field-priority")).toHaveText("P1");
     expect(await fs.readFile(boardFile, "utf8")).toBe(originalBoard);
   } finally {
     await fs.rm(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

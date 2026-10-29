@@ -104,3 +104,5 @@ Human exact-tuple approval was confirmed by the manager: existing source-only co
 
 Next: execute adoption, independent scoped result acceptance, replacement PR and full CI. Root owns final merge and separately authorized local service update. No additional UI scope.
 
+2026-10-29 adoption: exact upstream artifact tree and manifest validated; installed checker/decoder matched pre-PR59 bytes. Manager reviewed the three additional guidance-only differences and approved coherent full package normalization. Both tracked native packages, deployed checker and trusted passive decoder now use exact upstream artifacts; vendor/license paths are retained. First historical-record source change and receipt were committed together at 6db665180a63922d9c1c49ae4bb911be533ce567 with original functional/current-context values and parsed chain intact. Historical classification moves only in this subsequent commit. Approved UI diff is applied separately without edits; original PR #78 remains preserved.
+

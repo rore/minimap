@@ -139,7 +139,7 @@ An optional **`roadmap.config.json`** at the repository root changes the locatio
     "cardFields": ["status", "priority", "repo"],
     "colorTags": true,
     "tagColors": {
-      "repo": {"keir-core": "blue", "keir-demo-app": "purple"}
+      "repo": {"sample-core": "blue", "sample-app": "purple"}
     },
     "cardColorBy": "repo"
   },
@@ -154,11 +154,11 @@ An optional **`roadmap.config.json`** at the repository root changes the locatio
 
 Here, a *lens* means a grouping. `defaultLens` sets the initial grouping independently of List/Columns layout; an explicit URL grouping takes precedence. `filters.fields` adds project-specific metadata filters.
 
-Optional `appearance` configures card badges and colors for the opened board in both This and Across views and both layouts. In the example, `commitment` is hidden because it is omitted from `cardFields`.
+Optional `appearance` configures card badges, Read-view tags and colors for the opened board in both This and Across views and both layouts. In the example, `commitment` and `milestone` are omitted from `cardFields`, so neither appears on cards or in the Read tag row. The primary status remains visible in Read; Edit and Raw retain every field.
 
 | Setting | Effect |
 |---|---|
-| `cardFields` | Ordered metadata badges; `[]` hides all, omission restores defaults. |
+| `cardFields` | Ordered card badges and Read tags; `[]` hides those rows' metadata, not Read's primary status. Omission restores defaults. |
 | `tagColors` | Map exact field/value pairs to named colors: `gray`, `blue`, `green`, `amber`, `red`, `purple`, `teal`. |
 | `colorTags` | Defaults to `true`; `false` disables custom badge/detail colors, not semantic status/commitment tones. |
 | `cardColorBy` | Colors only the left border using `tagColors`; missing mappings use neutral. Independent of `colorTags`. |

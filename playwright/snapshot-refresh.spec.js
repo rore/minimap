@@ -286,7 +286,8 @@ for (const layout of ["list", "columns"]) {
     await page.setViewportSize({ width: 1280, height: 900 });
     const card = page.locator(layout === "list" ? ".board-item" : ".board-column-card").first();
     await expect(card.locator(".recorded-status:visible")).toHaveText("Active · Blocked");
-    await expect(card.locator(".board-source-badge:visible")).toContainText(["3 worktrees · Statuses differ"]);
+    await expect(card.locator(".board-source-badge:not(.board-source-conflict):visible")).toHaveText("3 worktrees");
+    await expect(card.locator(".board-source-conflict:visible")).toHaveAttribute("aria-label", /Statuses differ/);
     await expect(card).toHaveClass(/board-card-status-blocked/);
     await expect(card.locator(".badge-field-status:visible")).toHaveCount(0);
     await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
@@ -331,7 +332,7 @@ for (const layout of ["list", "columns"]) {
       location.hash = params.toString();
     });
     await expect(page.locator("#board-groups .recorded-status:visible")).toHaveText("Queued");
-    await expect(page.locator("#board-groups .board-source-badge:visible")).not.toContainText(["Statuses differ"]);
+    await expect(page.locator('#board-groups .board-source-conflict[aria-label*="Statuses differ"]:visible')).toHaveCount(0);
   });
 
   test(`${layout} failed full coverage settles and can recover without a stuck loading label`, async ({ page }) => {
@@ -376,7 +377,7 @@ test("finished representative with an active shown sibling retains its linked-se
   const card = page.locator(".board-item").first();
   await expect(card.locator(".recorded-status:visible")).toHaveText("Active");
   await expect(card.locator(".board-item-participants:visible")).toHaveText("1 linked session");
-  await expect(card.locator(".board-source-badge:visible")).toContainText(["Statuses differ"]);
+  await expect(card.locator(".board-source-conflict:visible")).toHaveAttribute("aria-label", /Statuses differ/);
 });
 
 for (const layout of ["list", "columns"]) {
