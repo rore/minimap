@@ -11,7 +11,7 @@ Canonical design: [Customize card fields and tag colors](../../roadmap/features/
 **Requirement baseline:**
 {"source":"user:77b0e70b-cc6c-462f-86f0-a67fa7a95183","outcome":"Users can control visible card metadata and distinguish field values with tag or card-border colors.","scope":"Optional board appearance configuration, shared badge/card rendering, regression and visual checks, public and agent documentation, generated runtime mirrors.","constraints":"Preserve existing defaults, data, filters, grouping, status resolution, source safety and performance; isolate all tests from user installations and real roadmap data. No live updates.","completion_criteria":"Configured and default boards work in both layouts and worktree modes without cross-board leakage; isolated regression checks and inspected desktop/narrow visuals pass; public instructions and independent review are complete."}
 **Relationships:**
-{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:board-appearance"}],"pull_requests":[]}
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:board-appearance"}],"pull_requests":["https://github.com/rore/minimap/pull/77"]}
 **Risk:** High
 **Complexity:** Moderate
 **Reason:** New public configuration contract and canonical/agent contract documentation are protected surfaces; multiple rendering modes require consistent treatment.
@@ -47,6 +47,7 @@ Canonical design: [Customize card fields and tag colors](../../roadmap/features/
 - Inspected viewport screenshots under artifacts/board-appearance/: opened-main-{list,columns}-{1440,390}, opened-sibling-{list,columns}-{1440,390}, opened-across-{list,columns}-{1440,390}, tag-only-detail-{1440,390}, border-only-detail-{1440,390} (all .png). Narrow List explicitly navigates Board rather than accidentally capturing the detail pane. Tags wrap without overlap; dense configured metadata stays visible; selection does not cover mapped border; full detail metadata remains readable. Manager independently inspected representative desktop/narrow renders too.
 - Measured palette text/background contrast: gray 6.79:1, blue 6.59:1, green 6.28:1, amber 6.18:1, red 6.20:1, purple 6.40:1, teal 6.17:1. No real project files or live runtime changed.
 - Mirrors synced and HTML/syntax/whitespace checks passed. Fresh Redline report: RED, no boundary violation, architecture-review checkpoint required; size warning, no policy relaxation. Final workflow evidence must use the committed diff and final independent review reference before push.
+- Published PR https://github.com/rore/minimap/pull/77 from feat/board-appearance. Application revision 08260ae92d5c1bb8fc8413b770512bf234fb6af8 is independently approved; subsequent commits record review/PR relationships only. Fresh committed-diff workflow check has no blockers (exit 1 advisory for architecture checkpoint and initial planning commit order). Manager owns clean CI, checkpoint/human approval and merge. Recovery: tracked tree clean after this evidence commit; artifacts/ and build/ retain local fixture screenshots/logs/reports, intentionally untracked. No live server remains from Playwright; no live data/runtime was changed.
 
 ## Plan review
 

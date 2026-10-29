@@ -56,4 +56,6 @@ Proposed shape (subject to technical review):
 
 ## Delivery
 
+Implementation PR: https://github.com/rore/minimap/pull/77. Independently source-reviewed and rendered locally; full CI, final manager approval and merge remain pending. No live deployment is included.
+
 2026-10-29: user authorized design, implementation using minimap-dev, regression and actual visual testing across boards/views, and public documentation. Developer accepted without competing work. Clean-context plan review identified dense-row, combined-status, exact-key, selection and validation gaps; the rules above resolve them. Manager owns this feature. No live environment changes are part of this assignment.
