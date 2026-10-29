@@ -20,6 +20,8 @@ Evaluate and iterate the shared card hierarchy visually: title/actions, existing
 
 Use the exact representative project title and full summary in an isolated fixture; cover dense/long/narrow boards, default/configured fields, List/Columns, and participant refresh without scroll loss. Make footer refresh a single target. List buttons must not contain nested interactive controls.
 
+User-approved extension: Read view tags follow the same configured cardFields selection/order/colors, excluding status from that tag row because primary combined status remains separate and visible. Omitted configuration retains defaults. Empty fields hide Read tags, not primary status. Edit/Raw keep complete metadata and no item data changes. Verify This/Across, checkout changes, reopen and actual Read renders; update public and roadmap-skill guidance.
+
 ## Out of Scope
 
 Backend/configuration changes, new detail interaction, real project data edits, live service changes, new dependencies and unrelated summary clamping.
@@ -29,6 +31,7 @@ Backend/configuration changes, new detail interaction, real project data edits, 
 - Inspect baseline and iterative desktop/narrow renders of both layouts using the same realistic fixtures.
 - Titles and summaries receive useful width, metadata order/hiding and color precedence remain intact, and context is not duplicated or empty.
 - Existing version details retain differences and coverage; live participant updates neither redraw the board nor duplicate badges.
+- Configured Read tags match card selection/order without duplicate status; Edit/Raw retain excluded fields and default Read behavior is unchanged.
 - Focused and required regression checks pass; mirrors match; independent plan/result review and PR evidence are complete.
 
 ## Notes
