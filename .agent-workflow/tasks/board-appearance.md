@@ -56,4 +56,8 @@ Clean-context non-implementer /root/appearance_plan_review reviewed canonical de
 
 ## Result review
 
-Manager reports clean-context source review found no product correctness/security defect; its browser assertion findings were corrected. Final named revision/review provenance and revalidation of the disposable-runtime copy correction are awaited before publication. Independent human result review and CI remain manager-owned; no merge or live update is authorized by this local verification.
+Agent technical review: /root/appearance_result_review, final independent source approval forwarded by minimap-manager on 2026-10-29.
+Reviewed revision: 08260ae92d5c1bb8fc8413b770512bf234fb6af8.
+Verification adequacy: Reviewer confirmed the commit matches the reviewed diff plus the disposable-runtime fixture correction, with no actionable findings. Focused checks and rendered evidence are adequate for PR publication; the required clean full CI run remains pending, not waived.
+
+Manager independently inspected the representative desktop/narrow List/Columns, Across combined status and border-only detail renders and accepted the visual evidence. Existing browser test assertion findings were corrected without changing production requirements. This follow-up changes evidence only; application code is unchanged from the reviewed revision. Manager owns required CI, final human merge/checkpoint approval and canonical roadmap completion. No live rollout is part of this task.
