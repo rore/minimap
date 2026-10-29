@@ -64,7 +64,7 @@ export function createNativeService({ platform, paths, run = async (file, args) 
   const systemctl = (...args) => run("systemctl", ["--user", ...args]);
   async function query() {
     if (platform === "win32") {
-      const raw = await powershell(`$t=Get-ScheduledTask -TaskPath '\\' -TaskName ${ps(paths.name)} -ErrorAction SilentlyContinue;if($t){$id=$t.Principal.UserId;if($id -notmatch '^S-1-'){$id=([Security.Principal.NTAccount]$id).Translate([Security.Principal.SecurityIdentifier]).Value};[pscustomobject]@{marker=$t.Description;execute=$t.Actions.Execute;args=$t.Actions.Arguments;cwd=$t.Actions.WorkingDirectory;userId=$id;running=($t.State -eq 'Running');lastResult=(Get-ScheduledTaskInfo -InputObject $t).LastTaskResult}|ConvertTo-Json -Compress}`);
+      const raw = await powershell(`$t=Get-ScheduledTask -TaskPath '\\' -ErrorAction Stop|Where-Object {$_.TaskName -eq ${ps(paths.name)}};if($t){$id=$t.Principal.UserId;if($id -notmatch '^S-1-'){$id=([Security.Principal.NTAccount]$id).Translate([Security.Principal.SecurityIdentifier]).Value};[pscustomobject]@{marker=$t.Description;execute=$t.Actions.Execute;args=$t.Actions.Arguments;cwd=$t.Actions.WorkingDirectory;userId=$id;running=($t.State -eq 'Running');lastResult=(Get-ScheduledTaskInfo -InputObject $t).LastTaskResult}|ConvertTo-Json -Compress}`);
       return raw.trim() ? JSON.parse(raw) : null;
     }
     let definition;
