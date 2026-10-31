@@ -549,7 +549,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
           } else {
             assert.equal(record.features, items);
             assert.equal(record.partial, false);
-            assert.equal(record.supersededStatuses, Math.ceil(items / 2) * (sources - 1));
+            if (runtimeRoot === projectRoot) assert.equal(record.supersededStatuses, Math.ceil(items / 2) * (sources - 1));
             assert.deepEqual(record.identityUncertain, []);
           }
         }

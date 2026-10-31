@@ -10,11 +10,45 @@ const METADATA_CONCURRENCY = 8;
 const POINTER_BYTES = 4096;
 const REFLOG_BYTES = 8192;
 
+const pendingGitLaunches = [];
+let gitLaunchTimer;
+
+function scheduleGitLaunch() {
+  if (gitLaunchTimer || !pendingGitLaunches.length) return;
+  // Windows child creation blocks the event loop; leave poll turns between starts.
+  gitLaunchTimer = setTimeout(() => {
+    gitLaunchTimer = null;
+    const job = pendingGitLaunches.shift();
+    if (!job) return;
+    job.signal?.removeEventListener("abort", job.abort);
+    try {
+      job.signal?.throwIfAborted();
+      job.resolve(job.read());
+    } catch (error) { job.reject(error); }
+    scheduleGitLaunch();
+  }, 0);
+}
+
+export async function runGitLaunch(read, signal) {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const job = { read, signal, resolve, reject, abort: () => {
+      const index = pendingGitLaunches.indexOf(job);
+      if (index < 0) return;
+      pendingGitLaunches.splice(index, 1);
+      reject(signal.reason);
+    } };
+    pendingGitLaunches.push(job);
+    signal?.addEventListener("abort", job.abort, { once: true });
+    scheduleGitLaunch();
+  });
+}
+
 async function git(repoRoot, args, signal, trim = true) {
-  const stdout = (await execFileAsync("git", args, {
+  const stdout = (await runGitLaunch(() => execFileAsync("git", args, {
     cwd: repoRoot, windowsHide: true, shell: false, timeout: 2000,
     maxBuffer: 1024 * 1024, encoding: "utf8", signal,
-  })).stdout;
+  }), signal)).stdout;
   return trim ? stdout.trim() : stdout;
 }
 

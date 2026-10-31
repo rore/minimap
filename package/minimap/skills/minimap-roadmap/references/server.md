@@ -88,6 +88,8 @@ Across additionally resolves superseded status only when clean feature-file revi
 
 ## Roadmap snapshots and observations
 
+Checkout-identity and aggregate Git reads share cooperative FIFO launch admission: at most one child starts per event-loop turn, while child execution still overlaps and lineage retains its existing eight-slot limit. This avoids a synchronous Windows process-creation burst blocking unrelated requests; it is not a universal latency guarantee. Queued cancellation never launches a child, and active reads retain their existing signal, timeout and output bounds.
+
 Worktree-workspace also accepts the explicit `compact=1` transport option. Its `worktreeFormat: "compact-v1"` payload references source contexts through `sources` and group placements through indexes into each feature's versions. The browser API expands it back to the existing aggregate shape. The cache stores one compact representation for legacy and compact callers; omitted `compact` returns the existing expanded shape with the same snapshot identity. Repeated or unsupported flag values return 400. This changes transport size, not identity, coverage, source validation or write authorization.
 
 Across may request `GET /api/worktree-workspace?openedOnly=1` alongside the full aggregate. The opened-only response has `provisional: true`, `partial: true`, and `coverage.pending: true`: it loads only the opened checkout, without sibling discovery, ancestry aggregation, or participant lookup. Its feature totals and In play coverage are incomplete. The full response replaces it while preserving newer selections, filters, grouping, layout and drafts. Participant counts and details remain unknown until full feature identity is resolved.

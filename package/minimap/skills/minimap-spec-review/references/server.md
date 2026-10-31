@@ -72,6 +72,8 @@ The roadmap source menu uses `GET /api/worktree-sources` only for lightweight di
 
 ## Shared roadmap reads
 
+Checkout-identity and aggregate Git reads share cooperative FIFO launch admission: at most one child starts per event-loop turn, while child execution still overlaps and lineage retains its existing eight-slot limit. This avoids a synchronous Windows process-creation burst blocking unrelated requests; it is not a universal latency guarantee. Queued cancellation never launches a child, and active reads retain their existing signal, timeout and output bounds.
+
 The shared roadmap UI may progressively open Across worktrees with `GET /api/worktree-workspace?openedOnly=1`. This guarded opened-checkout-only response sets `provisional: true`, `partial: true`, and `coverage.pending: true`; feature totals, In play, and participant coverage are incomplete until full feature identity is resolved. Both `/api/workspace` and `/api/worktree-workspace` accept `cached=1`; worktree-workspace also accepts `participants=0` to skip combined provider enrichment. Unsupported or repeated query values return 400. Omitted flags preserve fresh legacy reads and combined enrichment. Responses add `snapshot: { id, validatedAt, stale, refreshing }` without changing the workspace shape.
 
 The optional `compact=1` worktree transport reuses source contexts and feature-version placements instead of repeating them. Its `worktreeFormat: "compact-v1"` marker lets the browser API restore the existing aggregate shape. Legacy callers still receive expanded responses and share the same compact cached snapshot. Feature identity, coverage and Spec source binding are unchanged.

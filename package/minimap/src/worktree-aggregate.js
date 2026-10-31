@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadWorkspace, parseItemText } from "./roadmap.js";
-import { discoverWorktreeSources, readWorktreeIdentity } from "./worktree-sources.js";
+import { discoverWorktreeSources, readWorktreeIdentity, runGitLaunch } from "./worktree-sources.js";
 import { requireRoadmapInSource } from "./source-bound.js";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
@@ -139,19 +139,19 @@ async function git(root, ...argsAndOptions) {
   const last = argsAndOptions.at(-1);
   const options = last && typeof last === "object" && Object.hasOwn(last, "signal") ? argsAndOptions.pop() : {};
   const args = argsAndOptions;
-  return (await runLineageGitRead(() => new Promise((resolve, reject) => {
+  return (await runLineageGitRead(() => runGitLaunch(() => new Promise((resolve, reject) => {
     let result;
     const child = execFile("git", args, {
       cwd: root, windowsHide: true, shell: false, timeout: 5000,
       maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal: options.signal,
     }, (error, stdout) => { result = { error, stdout }; });
     child.once("close", () => result.error ? reject(result.error) : resolve(result.stdout));
-  }), options.signal)).trim();
+  }), options.signal), options.signal)).trim();
 }
 
 async function ancestorBlobs(root, objects, signal, includeRevisions = false) {
   if (objects.length > 500) throw new Error("ancestor item limit");
-  const output = await runLineageGitRead(() => new Promise((resolve, reject) => {
+  const output = await runLineageGitRead(() => runGitLaunch(() => new Promise((resolve, reject) => {
     const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false, signal });
     const chunks = [];
     let size = 0;
@@ -172,7 +172,7 @@ async function ancestorBlobs(root, objects, signal, includeRevisions = false) {
       else resolve(Buffer.concat(chunks));
     });
     child.stdin.end(objects.map((entry) => entry.oid).join("\n") + "\n");
-  }), signal);
+  }), signal), signal);
   const ids = new Map();
   const revisions = new Map();
   let invalid = false;
