@@ -1,9 +1,9 @@
-import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadWorkspace, parseItemText } from "./roadmap.js";
-import { discoverWorktreeSources, readWorktreeIdentity, runGitLaunch } from "./worktree-sources.js";
+import { discoverWorktreeSources, readWorktreeIdentity } from "./worktree-sources.js";
+import { readGit } from "./git-reads.js";
 import { requireRoadmapInSource } from "./source-bound.js";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
@@ -139,40 +139,16 @@ async function git(root, ...argsAndOptions) {
   const last = argsAndOptions.at(-1);
   const options = last && typeof last === "object" && Object.hasOwn(last, "signal") ? argsAndOptions.pop() : {};
   const args = argsAndOptions;
-  return (await runLineageGitRead(() => runGitLaunch(() => new Promise((resolve, reject) => {
-    let result;
-    const child = execFile("git", args, {
-      cwd: root, windowsHide: true, shell: false, timeout: 5000,
-      maxBuffer: 4 * 1024 * 1024, encoding: "utf8", signal: options.signal,
-    }, (error, stdout) => { result = { error, stdout }; });
-    child.once("close", () => result.error ? reject(result.error) : resolve(result.stdout));
-  }), options.signal), options.signal)).trim();
+  return (await runLineageGitRead(() => readGit(root, args, { timeout: 5000,
+    maxBuffer: 4 * 1024 * 1024, signal: options.signal }), options.signal)).trim();
 }
 
 async function ancestorBlobs(root, objects, signal, includeRevisions = false) {
   if (objects.length > 500) throw new Error("ancestor item limit");
-  const output = await runLineageGitRead(() => runGitLaunch(() => new Promise((resolve, reject) => {
-    const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false, signal });
-    const chunks = [];
-    let size = 0;
-    const timer = setTimeout(() => child.kill(), 5000);
-    let failure;
-    child.on("error", (error) => { failure = error; });
-    child.stdin.on("error", (error) => { failure = error; child.kill(); });
-    child.stdout.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > 8 * 1024 * 1024) { child.kill(); return; }
-      chunks.push(chunk);
-    });
-    child.stderr.resume();
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (failure) reject(failure);
-      else if (code !== 0 || size > 8 * 1024 * 1024) reject(new Error("ancestor batch unavailable"));
-      else resolve(Buffer.concat(chunks));
-    });
-    child.stdin.end(objects.map((entry) => entry.oid).join("\n") + "\n");
-  }), signal), signal);
+  const output = await runLineageGitRead(() => readGit(root, ["cat-file", "--batch"], {
+    signal, timeout: 5000, maxBuffer: 8 * 1024 * 1024,
+    input: objects.map((entry) => entry.oid).join("\n") + "\n",
+  }), signal);
   const ids = new Map();
   const revisions = new Map();
   let invalid = false;

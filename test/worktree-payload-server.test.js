@@ -12,10 +12,12 @@ import { expandWorktreePayload } from "../package/minimap/ui/worktree-payload.js
 const exec = promisify(execFile);
 const scripts = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../package/minimap/skills/minimap-roadmap/scripts");
 const preload = `import cp from "node:child_process";
-import {syncBuiltinESMExports} from "node:module";
+import threads from "node:worker_threads";
+import {syncBuiltinESMExports,createRequire} from "node:module";
 import {promisify} from "node:util";
-if (process.send) {
+if (process.send || !threads.isMainThread && threads.workerData?.minimapGitRead) {
   let count=0; const original=cp.execFile;
+  const collectWorkers=createRequire(import.meta.url)(process.env.MINIMAP_TEST_WORKER_METRICS)(()=>({gitCount:count}));
   function observed(file,args,...rest) { if(file==="git")count++; return original(file,args,...rest); }
   observed[promisify.custom]=(...args)=>new Promise((resolve,reject)=>observed(...args,(error,stdout,stderr)=>{
     if(error){error.stdout=stdout;error.stderr=stderr;reject(error);}else resolve({stdout,stderr});
@@ -23,7 +25,7 @@ if (process.send) {
   cp.execFile=observed; const spawn=cp.spawn;
   cp.spawn=(file,...args)=>{if(file==="git")count++;return spawn(file,...args);};
   syncBuiltinESMExports();
-  process.on("message",m=>{if(m==="git-count")process.send({gitCount:count});});
+  if(process.send)process.on("message",async m=>{if(m==="git-count")process.send({gitCount:count+(await collectWorkers()).reduce((sum,worker)=>sum+worker.gitCount,0)});});
 }`;
 async function port() {
   const socket = http.createServer();
@@ -55,6 +57,7 @@ test("compact and legacy HTTP callers share retained scans, participants and sou
   });
   let child;
   const env = { ...process.env, MINIMAP_HOME: home, PORT: String(await port()) };
+  env.MINIMAP_TEST_WORKER_METRICS = fileURLToPath(new URL("../scripts/test-fixtures/worker-metrics.cjs", import.meta.url));
   try {
     await fs.mkdir(home); await fs.mkdir(path.join(root, "roadmap/features"), { recursive: true });
     await fs.mkdir(path.join(root, "roadmap/ideas"));
@@ -90,6 +93,7 @@ test("compact and legacy HTTP callers share retained scans, participants and sou
     const before = await gitCount(child);
     const [modern, legacy] = await Promise.all([read("?compact=1&participants=0"), read("?participants=0")]);
     const scanCalls = await gitCount(child) - before;
+    assert.ok(scanCalls > 0, "Counters must observe actual Git worker launches");
     assert.equal(modern.status, 200); assert.equal(legacy.status, 200);
     assert.equal(modern.value.worktreeFormat, "compact-v1");
     assert.equal(Object.hasOwn(legacy.value, "worktreeFormat"), false);

@@ -42,16 +42,21 @@ import childProcess from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { syncBuiltinESMExports } from "node:module";
+import workerThreads from "node:worker_threads";
+import { syncBuiltinESMExports, createRequire } from "node:module";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) && process.send) {
+const isGitThread = !workerThreads.isMainThread && workerThreads.workerData?.minimapGitRead === true;
+if (isGitThread || ["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) && process.send) {
   const poolAtPreload = process.env.UV_THREADPOOL_SIZE ?? null;
   const counters = { gitExecFile: 0, gitSpawn: 0, gitExecFileSync: 0,
     fileReadAsync: 0, fileReadCallback: 0, fileReadSync: 0 };
   const gitCommands = {};
   const worktreeScans = {};
+  const ioTimings = {};
+  const collectWorkers = createRequire(process.cwd() + "/minimap-test-preload.cjs")(process.env.MINIMAP_TEST_WORKER_METRICS)(
+    () => ({ counters: { ...counters }, gitCommands: { ...gitCommands }, worktreeScans: { ...worktreeScans } }));
   const serializations = [];
   let memoryPeak = { ...process.memoryUsage() };
   const memoryTimer = setInterval(() => {
@@ -104,17 +109,33 @@ if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv
   fsp.readFile = (...args) => { counters.fileReadAsync++; return readAsync(...args); };
   fs.readFile = (...args) => { counters.fileReadCallback++; return readCallback(...args); };
   fs.readFileSync = (...args) => { counters.fileReadSync++; return readSync(...args); };
+  if (!isGitThread) for (const method of ["readFile", "stat", "lstat", "realpath", "readdir"]) {
+    const original = fsp[method];
+    const timing = ioTimings[method] = { count: 0, totalMs: 0 };
+    fsp[method] = async (...args) => {
+      const start = performance.now();
+      try { return await original(...args); }
+      finally { timing.count++; timing.totalMs += performance.now() - start; }
+    };
+  }
   syncBuiltinESMExports();
   const histogram = monitorEventLoopDelay({ resolution: 10 });
   histogram.enable();
-  process.on("message", (message) => {
+  if (!isGitThread) process.on("message", async (message) => {
     if (message?.type !== "minimap-performance-snapshot") return;
+    const workers = await collectWorkers();
+    const merged = (key) => {
+      const value = { ...({ counters, gitCommands, worktreeScans }[key]) };
+      for (const worker of workers) for (const [name, count] of Object.entries(worker[key])) value[name] = (value[name] || 0) + count;
+      return value;
+    };
     const count = Number(histogram.count);
     const ms = (value) => count ? Math.round(value / 10000) / 100 : null;
     process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid, serializations: serializations.splice(0),
       poolAtPreload, childNode: process.version, poolEnvironment: process.env.UV_THREADPOOL_SIZE ?? null,
       memoryCurrent: process.memoryUsage(), memoryPeak,
-      counters: { ...counters }, gitCommands: { ...gitCommands }, worktreeScans: { ...worktreeScans },
+      counters: merged("counters"), gitCommands: merged("gitCommands"), worktreeScans: merged("worktreeScans"),
+      ioTimings,
       eventLoopDelay: { samples: count, resolutionMs: 10, p50Ms: ms(histogram.percentile(50)),
         p95Ms: ms(histogram.percentile(95)), maxMs: ms(histogram.max), meanMs: ms(histogram.mean) } });
     if (message.reset) { histogram.reset(); memoryPeak = { ...process.memoryUsage() }; }
@@ -276,6 +297,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     MINIMAP_PALLIUM_SETTINGS_PATH: path.join(owned, "empty-settings.json"), PORT: String(await freePort()) };
   await fs.writeFile(env.MINIMAP_PALLIUM_SETTINGS_PATH, "{}");
   await fs.mkdir(env.MINIMAP_HOME);
+  env.MINIMAP_TEST_WORKER_METRICS = path.join(projectRoot, "scripts/test-fixtures/worker-metrics.cjs");
   // Synchronous CommonJS preload avoids initializing libuv via ESM loading
   // before the canonical bootstrap sets its absent-only default.
   const preload = path.join(env.MINIMAP_HOME, "performance-preload.cjs");
@@ -303,6 +325,11 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         countersBefore: before.counters, countersAfter: after.counters,
         counters: Object.fromEntries(Object.keys(after.counters).map((key) => [key, after.counters[key] - before.counters[key]])),
         gitCommands: Object.fromEntries(Object.keys(after.gitCommands).map((key) => [key, after.gitCommands[key] - (before.gitCommands[key] || 0)])),
+        ioTimings: Object.fromEntries(Object.entries(after.ioTimings || {}).map(([key, value]) => [key, {
+          count: value.count - (before.ioTimings?.[key]?.count || 0),
+          totalMs: Math.round((value.totalMs - (before.ioTimings?.[key]?.totalMs || 0)) * 100) / 100,
+        }])),
+        ioTimingMeaning: "HTTP-thread cumulative async operation time; overlapping waits are not exclusive CPU time",
         eventLoopDelay: after.eventLoopDelay, poolAtPreload: after.poolAtPreload,
         childNode: after.childNode, poolEnvironment: after.poolEnvironment,
         memoryBefore: before.memoryCurrent, memoryAfter: after.memoryCurrent, memoryPeak: after.memoryPeak });

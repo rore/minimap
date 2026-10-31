@@ -1,5 +1,19 @@
 import { randomUUID } from "node:crypto";
 
+export async function admitSnapshotSources(sources, admit, signal) {
+  for (let offset = 0; offset < sources.length; offset += 4) {
+    signal?.throwIfAborted();
+    const checks = await Promise.allSettled(sources.slice(offset, offset + 4)
+      .map((source) => source ? admit(source, signal) : false));
+    signal?.throwIfAborted();
+    for (const check of checks) {
+      if (check.status === "rejected") throw check.reason;
+      if (!check.value) return false;
+    }
+  }
+  return true;
+}
+
 const DEFAULT_LIMITS = Object.freeze({
   maxConcurrent: 2,
   maxPriorityConcurrent: 1,
