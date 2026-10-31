@@ -1,5 +1,4 @@
 # Now
-- derived-done-last
 - persistent-user-service
 
 # Next
@@ -15,6 +14,7 @@
 - idea-timeline-view
 
 # Done
+- derived-done-last
 - group-aware-card-tags
 - roadmap-card-hierarchy
 - board-appearance

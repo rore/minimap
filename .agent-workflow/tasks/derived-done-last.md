@@ -46,4 +46,12 @@ Public README/CONTRACT and roadmap skill/reference distinguish view-only stable 
 
 Next: independent result review of the exact committed revision, final history-aware governance and full-CI-ready PR publication. Implementation and local verification are complete; merge/local service delivery remains manager-owned. No uncommitted user changes or real-project data were touched. The task checkout/evidence remain needed for CI and review follow-up.
 
+## Result review
+
+Agent technical review: Independent clean-context reviewer, completed bounded stable Done-last result review.
+Reviewed revision: 18c7e7b4ed30b7d065762d97c4d1b88248cd727d.
+Verification adequacy: Approved with no actionable findings. Reviewer inspected connected helper/app/projector/docs, both new test files, actual logs, all twelve retained desktop/narrow/boundary renders, runtime hashes and privacy/ignored evidence. Copied stable arrays and unchanged identities preserve cache/input safety; derived markers exclude Board/unlisted. Normalized/unanimous/mixed/unknown/filtered status, stability, nonmutation, byte preservation, manual restoration and existing drag behavior are covered. No protected assertion, status predicate or persistence rule was weakened. High/Moderate remains appropriate.
+
+Implementation and local verification are complete. Canonical item/board are reconciled in this PR, explicitly distinguishing completed implementation from pending required CI, manager/human acceptance, merge and deployment. This evidence-only completion update does not alter the reviewed application/tests. Next: final history-aware gate, publication and full CI. The checkout and ignored evidence remain retained for review/CI follow-up; no user environment or source project data changed.
+
 Target files: package/minimap/ui/worktrees.js and app.js, test/ui-done-last.test.js, playwright/done-last-ui.spec.js, README.md, package/minimap/CONTRACT.md, roadmap skill SKILL.md/references/roadmap-contract.md, generated mirrors and canonical records. Existing protected browser tests remain unchanged unless an actual failure proves an expectation encodes the explicitly approved new ordering; any such edit needs its own truthful classification and approval binding.

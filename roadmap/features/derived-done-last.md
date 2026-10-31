@@ -1,7 +1,7 @@
 ---
 id: derived-done-last
 title: Show Done cards last within metadata groups
-status: active
+status: done
 priority: high
 commitment: committed
 ---
@@ -32,3 +32,9 @@ Status semantics changes, new sorting settings, persisted order or metadata chan
 ## Notes
 
 User-approved assignment accepted 2026-10-31. The manager owns final acceptance, merge and separately authorized local/service deployment. Existing private evidence and recovery refs stay intact.
+
+## Completion readiness
+
+Implementation is complete and independently reviewed. Focused Node checks passed 48/48; This/Across browser cases and final visual run passed 2/2; three existing reorder regressions passed unchanged. Actual sixty-item desktop/narrow List/Columns and Done-boundary renders were inspected, source files stayed byte-identical, and docs/mirrors match.
+
+Done records locally verified implementation, not an already-deployed release. Required full CI, manager/human acceptance, merge and deployment remain pending. See the [Work Record](../../.agent-workflow/tasks/derived-done-last.md) for exact revision and handoff evidence.
