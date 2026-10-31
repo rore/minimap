@@ -33,6 +33,8 @@ const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
 const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
 const workRecordCount = Number(process.env.MINIMAP_PERFORMANCE_WORK_RECORDS || 0);
+// Exercise status proof rather than only identical-HEAD fast paths (4 x 100 is a bounded cell).
+const statusHistory = process.env.MINIMAP_PERFORMANCE_STATUS_HISTORY === "1";
 // Generated only inside the disposable fixture. IPC is available solely to the
 // owning test parent; no production diagnostic route or installed preload.
 export const performancePreload = String.raw`
@@ -167,6 +169,18 @@ async function fixture(owned, name, sources, count) {
   git(root, "add", "."); git(root, "commit", "-m", "generic fixture");
   for (let i = 1; i < sources; i++) {
     git(root, "worktree", "add", "-b", `feature/source-${i}`, path.join(owned, name, `source-${i}`));
+  }
+  if (statusHistory && sources > 1) {
+    for (const id of ids.filter((_, index) => index % 2 === 0)) {
+      const file = path.join(root, "roadmap/features", `${id}.md`);
+      await fs.writeFile(file, (await fs.readFile(file, "utf8")).replace("status: queued", "status: done"));
+    }
+    git(root, "add", "."); git(root, "commit", "-m", "complete fixture features");
+    for (let index = 1; index < sources; index += 1) {
+      const sibling = path.join(owned, name, `source-${index}`);
+      await fs.writeFile(path.join(sibling, `unrelated-${index}.txt`), "Unrelated branch work.\n");
+      git(sibling, "add", "."); git(sibling, "commit", "-m", "advance unrelated branch");
+    }
   }
   return root;
 }
@@ -312,6 +326,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         responseBytes, startedAtMs: begin, finishedAtMs: performance.now(),
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
         versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
+        supersededStatuses: body.features?.reduce((sum, feature) => sum + feature.versions.filter((version) => version.statusSupersededBy?.length).length, 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
         generation: body.generation, total: body.total, nextOffset: body.nextOffset,
         relatedRecords: body.records?.length, relatedStatus: body.status, firstRelatedTitle: body.records?.[0]?.title,
@@ -329,7 +344,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
   const otherRoute = legacy ? "/api/workspace" : "/api/workspace?cached=1";
   const requireSuccessful = (records, scenario) => assert.ok(records.every((record) => record.status === 200),
     `${scenario} failed: ${JSON.stringify(records.filter((record) => record.status !== 200))}`);
-  const resultReport = () => ({ sources, itemsPerSource: items, samples, workRecordCount: recordCount, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
+  const resultReport = () => ({ sources, itemsPerSource: items, samples, workRecordCount: recordCount, statusHistory, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
     summary: Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
       statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "featureDetailDuringScan", "featureDetailWarm", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
     measurementLabels: { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
@@ -594,6 +609,8 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
         if (!legacy) {
           assert.ok(record.snapshot?.id, "Full responses must expose snapshot metadata");
           assert.equal(record.loaded, sourceCount);
+          if (statusHistory && runtimeRoot === projectRoot && sourceCount > 1 && itemCount <= 500) assert.equal(record.supersededStatuses,
+            Math.ceil(itemCount / 2) * (sourceCount - 1), "Differing-history qualification must actually exercise successful status proof");
         }
       }
       failed = false;

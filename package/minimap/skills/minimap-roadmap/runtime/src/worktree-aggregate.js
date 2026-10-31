@@ -149,7 +149,7 @@ async function git(root, ...argsAndOptions) {
   }), options.signal)).trim();
 }
 
-async function ancestorBlobs(root, objects, signal) {
+async function ancestorBlobs(root, objects, signal, includeRevisions = false) {
   if (objects.length > 500) throw new Error("ancestor item limit");
   const output = await runLineageGitRead(() => new Promise((resolve, reject) => {
     const child = spawn("git", ["cat-file", "--batch"], { cwd: root, windowsHide: true, shell: false, signal });
@@ -174,6 +174,7 @@ async function ancestorBlobs(root, objects, signal) {
     child.stdin.end(objects.map((entry) => entry.oid).join("\n") + "\n");
   }), signal);
   const ids = new Map();
+  const revisions = new Map();
   let invalid = false;
   let offset = 0;
   for (const entry of objects) {
@@ -183,12 +184,129 @@ async function ancestorBlobs(root, objects, signal) {
     if (!header || header[1] !== entry.oid) throw new Error("invalid ancestor blob");
     const length = Number(header[2]);
     if (!Number.isSafeInteger(length) || end + 1 + length >= output.length) throw new Error("invalid ancestor size");
-    try { ids.set(entry.file, String(parseItemText(output.subarray(end + 1, end + 1 + length).toString("utf8"), entry.file).frontmatter.id)); }
+    try {
+      const text = output.subarray(end + 1, end + 1 + length).toString("utf8").replace(/^\uFEFF/, "");
+      ids.set(entry.file, String(parseItemText(text, entry.file).frontmatter.id));
+      if (includeRevisions) revisions.set(entry.file, hash(text.replace(/\r\n?/g, "\n")));
+    }
     catch { invalid = true; /* Invalid ancestor item cannot establish identity. */ }
     offset = end + 2 + length;
   }
   if (offset !== output.length) throw new Error("invalid ancestor tail");
-  return { ids, invalid };
+  return { ids, invalid, revisions };
+}
+
+// Supersede status only. Historical content, placement and version identity stay intact.
+async function markSupersededStatuses(sources, features, graph, signal) {
+  if (!graph) return;
+  const candidates = features.filter((feature) => new Set(feature.versions.map((version) => version.summary.status)).size > 1);
+  const files = [...new Set(candidates.map((feature) => feature.filePath))];
+  if (!files.length || files.length > 500 || files.some((file) => /[\r\n]/.test(file))) return;
+  try {
+    const raw = await git(sources[0].repoRoot, "log", "--full-history", "--sparse", "--topo-order", "--root",
+      "--raw", "-z", "--no-abbrev", "--no-renames", "--no-ext-diff", "--diff-merges=separate",
+      `--max-count=${MAX_ANCESTRY_COMMITS}`, "--format=%x00commit %H%x00", ...graph.heads,
+      "--", ...files.map((file) => `:(literal)${file}`), { signal });
+    const changes = new Map(files.map((file) => [file, new Map()]));
+    const tokens = raw.split("\0");
+    let commit, count = 0;
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index].replace(/^\n/, "");
+      if (!token) continue;
+      const header = token.match(/^commit ([0-9a-f]{40,64})$/i);
+      if (header) {
+        commit = header[1];
+        if (!graph.nodes.has(commit)) throw new Error("unknown status commit");
+        continue;
+      }
+      const change = token.match(/^:[0-7]{6} ([0-7]{6}) [0-9a-f]{40,64} ([0-9a-f]{40,64}) [AMDT]$/i);
+      const file = tokens[++index];
+      if (!change || !commit || !changes.has(file) || ++count > 8192) throw new Error("invalid status history");
+      const value = { commit, mode: change[1], oid: change[2] };
+      const previous = changes.get(file).get(commit);
+      if (previous && (previous.mode !== value.mode || previous.oid !== value.oid)) throw new Error("ambiguous status merge");
+      changes.get(file).set(commit, value);
+    }
+    const evidence = new Map(), objects = new Map(), pathsBySource = new Map();
+    for (const feature of candidates) for (const version of feature.versions) {
+      const key = `${version.sourceKey}\0${feature.filePath}`;
+      if (evidence.has(key)) continue;
+      const reachable = [...changes.get(feature.filePath).values()]
+        .filter((entry) => graph.has(graph.ancestors(version.sourceContext.git.headCommit), entry.commit));
+      const latest = reachable[0];
+      if (!latest || !/^100(644|755)$/.test(latest.mode)
+        || !reachable.every((entry) => graph.has(graph.ancestors(latest.commit), entry.commit))) continue;
+      evidence.set(key, { ...latest, version });
+      objects.set(latest.oid, { oid: latest.oid, file: latest.oid });
+      if (!pathsBySource.has(version.sourceKey)) pathsBySource.set(version.sourceKey, new Set());
+      pathsBySource.get(version.sourceKey).add(feature.filePath);
+    }
+    if (!objects.size || objects.size > 500) return;
+    const readIndexes = async () => {
+      const result = new Map(), selected = sources.filter((source) => pathsBySource.has(source.sourceKey));
+      for (let offset = 0; offset < selected.length; offset += 4) {
+        const batch = selected.slice(offset, offset + 4);
+        const reads = await Promise.allSettled(batch.map(async (source) => {
+          const output = await git(source.repoRoot, "ls-files", "--stage", "-z", "--",
+            ...[...pathsBySource.get(source.sourceKey)].map((file) => `:(literal)${file}`), { signal });
+          const index = new Map();
+          for (const record of output.split("\0").filter(Boolean)) {
+            const match = record.match(/^([0-7]{6}) ([0-9a-f]{40,64}) ([0-3])\t([\s\S]+)$/i);
+            if (!match || !pathsBySource.get(source.sourceKey).has(match[4])) throw new Error("invalid status index");
+            index.set(match[4], match[3] === "0" && !index.has(match[4]) ? `${match[1]}:${match[2]}` : null);
+          }
+          return index;
+        }));
+        for (const [i, read] of reads.entries()) {
+          if (read.status === "fulfilled") result.set(batch[i].sourceKey, read.value);
+          else if (signal?.aborted) throw signal.reason || read.reason;
+        }
+      }
+      return result;
+    };
+    const before = await readIndexes();
+    const blobs = await ancestorBlobs(sources[0].repoRoot, [...objects.values()], signal, true);
+    const proven = new Map();
+    const fileState = (stat) => JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode]);
+    const entries = [...evidence];
+    for (let offset = 0; offset < entries.length; offset += 4) {
+      const reads = await Promise.allSettled(entries.slice(offset, offset + 4).map(async ([key, entry]) => {
+        const { version, mode, oid } = entry;
+        const file = key.slice(key.indexOf("\0") + 1), indexValue = `${mode}:${oid}`;
+        if (before.get(version.sourceKey)?.get(file) !== indexValue || blobs.ids.get(oid) !== version.itemId) return;
+        const location = path.resolve(version.repoRoot, file);
+        const stat = await fs.lstat(location);
+        if (!stat.isFile() || process.platform !== "win32" && Boolean(stat.mode & 0o111) !== (mode === "100755")) return;
+        const text = (await fs.readFile(location, { encoding: "utf8", signal })).replace(/^\uFEFF/, "");
+        if (hash(text) === version.summary.revision && hash(text.replace(/\r\n?/g, "\n")) === blobs.revisions.get(oid)) proven.set(key, { ...entry, fileState: fileState(stat) });
+      }));
+      if (signal?.aborted) throw signal.reason || reads.find((read) => read.status === "rejected")?.reason;
+    }
+    const after = await readIndexes(), checks = [...proven];
+    proven.clear();
+    for (let offset = 0; offset < checks.length; offset += 4) {
+      const reads = await Promise.allSettled(checks.slice(offset, offset + 4).map(async ([key, entry]) => {
+        const file = key.slice(key.indexOf("\0") + 1);
+        if (after.get(entry.version.sourceKey)?.get(file) !== `${entry.mode}:${entry.oid}`) return;
+        const stat = await fs.lstat(path.resolve(entry.version.repoRoot, file));
+        if (fileState(stat) === entry.fileState) return [key, entry];
+      }));
+      if (signal?.aborted) throw signal.reason || reads.find((read) => read.status === "rejected")?.reason;
+      for (const read of reads) if (read.status === "fulfilled" && read.value) proven.set(...read.value);
+    }
+    for (const feature of candidates) for (const version of feature.versions) {
+      const current = proven.get(`${version.sourceKey}\0${feature.filePath}`);
+      if (!current) continue;
+      const newer = feature.versions.filter((other) => {
+        const next = proven.get(`${other.sourceKey}\0${feature.filePath}`);
+        return next && next.commit !== current.commit && graph.has(graph.ancestors(next.commit), current.commit);
+      });
+      if (newer.length) version.statusSupersededBy = [...new Set(newer.map((other) => other.sourceKey))];
+    }
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
+    // Missing, malformed or capped proof retains all saved status evidence.
+  }
 }
 
 const transitionKey = (changes) => hash(JSON.stringify([...changes].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
@@ -564,6 +682,7 @@ export async function loadWorktreeAggregate(openRepoRoot, { openedOnly = false, 
   for (const feature of features) {
     feature.conflicts = await conflicts(feature.versions, displayRevisions, signal);
   }
+  await markSupersededStatuses(loaded, features, evidenceCache.graph, signal);
   const groupItemKeys = new Map([...groupMap.keys()].map((key) => [key, new Set()]));
   for (const appearance of appearanceOrder) {
     const group = groupMap.get(appearance.groupKey);

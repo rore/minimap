@@ -4,10 +4,15 @@ const UNASSIGNED_KEY = "__unassigned__";
 const UNASSIGNED_LABEL = "Unassigned";
 const CONFLICT_FIELDS = ["title", "status", "priority", "commitment", "milestone", "kind", "revision"];
 
+export function currentStatusVersions(versions) {
+  return versions.filter((version) => !version.statusSupersededBy?.length);
+}
+
 // Summarize saved file states matching the filters, never session activity.
 export function recordedStatusSummary(item) {
-  const values = item?.matchingVersions
-    ? item.matchingVersions.map((version) => version.summary?.status ?? version.summary?.metadata?.status)
+  const versions = item?.statusVersions ?? item?.matchingVersions;
+  const values = versions
+    ? versions.map((version) => version.summary?.status ?? version.summary?.metadata?.status)
     : [item?.metadata?.status ?? item?.status];
   const statuses = [...new Set(values.map((value) => {
     const token = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
@@ -97,12 +102,25 @@ export function projectWorktreeGroups(aggregate, {
     const id = canonicalId(feature.id);
     idCounts.set(id, (idCounts.get(id) || 0) + 1);
   }
-  const matching = new Map(aggregate.features.map((feature) => [feature.key, feature.versions.filter((version) => itemMatchesFilters({
-    ...version.summary, id: version.itemId, searchText: version.summary.searchText,
-  }, {
-    searchQuery, activeFilters, inPlay,
-    participantCounts: new Map([[version.itemId, { participantCount: idCounts.get(canonicalId(feature.id)) > 1 ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]),
-  }))]));
+  const statusEvidence = new Map();
+  const matching = new Map(aggregate.features.map((feature) => {
+    if (feature.versions.some((version) => version.statusSupersededBy?.length)) {
+      const counts = new Map([[feature.id, { participantCount: idCounts.get(canonicalId(feature.id)) > 1 ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]);
+      const statuses = currentStatusVersions(feature.versions).filter((version) => itemMatchesFilters(version.summary, {
+        activeFilters: activeFilters.status ? { status: activeFilters.status } : {},
+      }));
+      statusEvidence.set(feature.key, statuses);
+      if (!statuses.length || inPlay && !statuses.some((version) => itemMatchesFilters({ ...version.summary, id: feature.id }, { inPlay: true, participantCounts: counts }))) return [feature.key, []];
+      const { status, ...nonStatusFilters } = activeFilters;
+      return [feature.key, feature.versions.filter((version) => itemMatchesFilters(version.summary, { searchQuery, activeFilters: nonStatusFilters }))];
+    }
+    return [feature.key, feature.versions.filter((version) => itemMatchesFilters({
+      ...version.summary, id: version.itemId, searchText: version.summary.searchText,
+    }, {
+      searchQuery, activeFilters, inPlay,
+      participantCounts: new Map([[version.itemId, { participantCount: idCounts.get(canonicalId(feature.id)) > 1 ? 0 : participantCounts.get(feature.key)?.participantCount || 0 }]]),
+    }))];
+  }));
   const emitted = new Set();
   for (const group of aggregate.groups || []) {
     for (const item of group.items || []) {
@@ -117,8 +135,9 @@ export function projectWorktreeGroups(aggregate, {
       const version = versions[0];
       if (!derived && (group.kind !== version.groupKind || group.name !== version.group)) continue;
       emitted.add(feature.key);
+      const statusVersions = statusEvidence.get(feature.key);
       const name = derived && version.groupKind !== "unlisted"
-        ? (getItemLensGroupValue(version.summary, lens, { defaultLensKey: "board", unassignedKey: UNASSIGNED_KEY }) || UNASSIGNED_KEY)
+        ? (getItemLensGroupValue(lens === "status" && statusVersions ? statusVersions[0].summary : version.summary, lens, { defaultLensKey: "board", unassignedKey: UNASSIGNED_KEY }) || UNASSIGNED_KEY)
         : version.group;
       const kind = derived && version.groupKind !== "unlisted" ? "derived" : version.groupKind;
       const key = derived && kind === "derived" ? name : `${kind}:${name}`;
@@ -126,6 +145,7 @@ export function projectWorktreeGroups(aggregate, {
       const projected = addGroup(key, name === UNASSIGNED_KEY ? UNASSIGNED_LABEL : name, kind, index < 0 ? preferred.length + groups.size : index);
       const card = { ...version.summary, id: worktreeCardId(feature), featureKey: feature.key,
         title: version.summary.title || feature.id, versions, matchingVersions: versions,
+        ...(statusVersions ? { statusVersions } : {}),
         conflicts: conflictsForVersions(versions), sourceVersion: version };
       projected.items.push(card);
     }
