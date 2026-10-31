@@ -69,6 +69,10 @@ async function fixture() {
   await fs.writeFile(changed, (await fs.readFile(changed, "utf8")).replace("status: blocked", "status: in-progress"));
   git(sibling, "add", "roadmap.config.json", "roadmap/features");
   git(sibling, "commit", "-m", "contradictory sibling appearance");
+  // Keep this a true competing-status fixture after feature-revision resolution.
+  await fs.appendFile(path.join(root, "roadmap", "features", `${ids[0]}.md`), "\n## Notes\n\nIndependent opened-checkout feature context.\n");
+  git(root, "add", "roadmap/features");
+  git(root, "commit", "-m", "retain independent opened feature context");
   return { owned, root, sibling, config, ids };
 }
 

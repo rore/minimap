@@ -33,6 +33,8 @@ const enabled = process.env.MINIMAP_RUN_PERFORMANCE === "1";
 const legacy = process.env.MINIMAP_PERFORMANCE_LEGACY === "1";
 const warmSamples = Number(process.env.MINIMAP_PERFORMANCE_WARM_SAMPLES || 1);
 const workRecordCount = Number(process.env.MINIMAP_PERFORMANCE_WORK_RECORDS || 0);
+// Exercise status proof rather than only identical-HEAD fast paths (4 x 100 is a bounded cell).
+const statusHistory = process.env.MINIMAP_PERFORMANCE_STATUS_HISTORY === "1";
 // Generated only inside the disposable fixture. IPC is available solely to the
 // owning test parent; no production diagnostic route or installed preload.
 export const performancePreload = String.raw`
@@ -40,16 +42,21 @@ import childProcess from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { syncBuiltinESMExports } from "node:module";
+import workerThreads from "node:worker_threads";
+import { syncBuiltinESMExports, createRequire } from "node:module";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) && process.send) {
+const isGitThread = !workerThreads.isMainThread && workerThreads.workerData?.minimapGitRead === true;
+if (isGitThread || ["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv[1] || "")) && process.send) {
   const poolAtPreload = process.env.UV_THREADPOOL_SIZE ?? null;
   const counters = { gitExecFile: 0, gitSpawn: 0, gitExecFileSync: 0,
     fileReadAsync: 0, fileReadCallback: 0, fileReadSync: 0 };
   const gitCommands = {};
   const worktreeScans = {};
+  const ioTimings = {};
+  const collectWorkers = createRequire(process.cwd() + "/minimap-test-preload.cjs")(process.env.MINIMAP_TEST_WORKER_METRICS)(
+    () => ({ counters: { ...counters }, gitCommands: { ...gitCommands }, worktreeScans: { ...worktreeScans } }));
   const serializations = [];
   let memoryPeak = { ...process.memoryUsage() };
   const memoryTimer = setInterval(() => {
@@ -102,17 +109,33 @@ if (["start-server.cjs", "start-server.mjs"].includes(path.basename(process.argv
   fsp.readFile = (...args) => { counters.fileReadAsync++; return readAsync(...args); };
   fs.readFile = (...args) => { counters.fileReadCallback++; return readCallback(...args); };
   fs.readFileSync = (...args) => { counters.fileReadSync++; return readSync(...args); };
+  if (!isGitThread) for (const method of ["readFile", "stat", "lstat", "realpath", "readdir"]) {
+    const original = fsp[method];
+    const timing = ioTimings[method] = { count: 0, totalMs: 0 };
+    fsp[method] = async (...args) => {
+      const start = performance.now();
+      try { return await original(...args); }
+      finally { timing.count++; timing.totalMs += performance.now() - start; }
+    };
+  }
   syncBuiltinESMExports();
   const histogram = monitorEventLoopDelay({ resolution: 10 });
   histogram.enable();
-  process.on("message", (message) => {
+  if (!isGitThread) process.on("message", async (message) => {
     if (message?.type !== "minimap-performance-snapshot") return;
+    const workers = await collectWorkers();
+    const merged = (key) => {
+      const value = { ...({ counters, gitCommands, worktreeScans }[key]) };
+      for (const worker of workers) for (const [name, count] of Object.entries(worker[key])) value[name] = (value[name] || 0) + count;
+      return value;
+    };
     const count = Number(histogram.count);
     const ms = (value) => count ? Math.round(value / 10000) / 100 : null;
     process.send({ type: "minimap-performance-metrics", id: message.id, pid: process.pid, serializations: serializations.splice(0),
       poolAtPreload, childNode: process.version, poolEnvironment: process.env.UV_THREADPOOL_SIZE ?? null,
       memoryCurrent: process.memoryUsage(), memoryPeak,
-      counters: { ...counters }, gitCommands: { ...gitCommands }, worktreeScans: { ...worktreeScans },
+      counters: merged("counters"), gitCommands: merged("gitCommands"), worktreeScans: merged("worktreeScans"),
+      ioTimings,
       eventLoopDelay: { samples: count, resolutionMs: 10, p50Ms: ms(histogram.percentile(50)),
         p95Ms: ms(histogram.percentile(95)), maxMs: ms(histogram.max), meanMs: ms(histogram.mean) } });
     if (message.reset) { histogram.reset(); memoryPeak = { ...process.memoryUsage() }; }
@@ -167,6 +190,18 @@ async function fixture(owned, name, sources, count) {
   git(root, "add", "."); git(root, "commit", "-m", "generic fixture");
   for (let i = 1; i < sources; i++) {
     git(root, "worktree", "add", "-b", `feature/source-${i}`, path.join(owned, name, `source-${i}`));
+  }
+  if (statusHistory && sources > 1) {
+    for (const id of ids.filter((_, index) => index % 2 === 0)) {
+      const file = path.join(root, "roadmap/features", `${id}.md`);
+      await fs.writeFile(file, (await fs.readFile(file, "utf8")).replace("status: queued", "status: done"));
+    }
+    git(root, "add", "."); git(root, "commit", "-m", "complete fixture features");
+    for (let index = 1; index < sources; index += 1) {
+      const sibling = path.join(owned, name, `source-${index}`);
+      await fs.writeFile(path.join(sibling, `unrelated-${index}.txt`), "Unrelated branch work.\n");
+      git(sibling, "add", "."); git(sibling, "commit", "-m", "advance unrelated branch");
+    }
   }
   return root;
 }
@@ -254,7 +289,7 @@ async function stopAndRemove(child, env, owned) {
 }
 
 async function qualify(sources, items, samples, signal, recordCount = 0) {
-  const qualifyColdFairness = !legacy && sources === 25 && items === 1000;
+  const qualifyColdFairness = !legacy && sources === 25 && (items === 1000 || statusHistory);
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-performance-"));
   let child;
   const env = { ...process.env, MINIMAP_HOME: path.join(owned, "home"),
@@ -262,6 +297,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
     MINIMAP_PALLIUM_SETTINGS_PATH: path.join(owned, "empty-settings.json"), PORT: String(await freePort()) };
   await fs.writeFile(env.MINIMAP_PALLIUM_SETTINGS_PATH, "{}");
   await fs.mkdir(env.MINIMAP_HOME);
+  env.MINIMAP_TEST_WORKER_METRICS = path.join(projectRoot, "scripts/test-fixtures/worker-metrics.cjs");
   // Synchronous CommonJS preload avoids initializing libuv via ESM loading
   // before the canonical bootstrap sets its absent-only default.
   const preload = path.join(env.MINIMAP_HOME, "performance-preload.cjs");
@@ -289,6 +325,11 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         countersBefore: before.counters, countersAfter: after.counters,
         counters: Object.fromEntries(Object.keys(after.counters).map((key) => [key, after.counters[key] - before.counters[key]])),
         gitCommands: Object.fromEntries(Object.keys(after.gitCommands).map((key) => [key, after.gitCommands[key] - (before.gitCommands[key] || 0)])),
+        ioTimings: Object.fromEntries(Object.entries(after.ioTimings || {}).map(([key, value]) => [key, {
+          count: value.count - (before.ioTimings?.[key]?.count || 0),
+          totalMs: Math.round((value.totalMs - (before.ioTimings?.[key]?.totalMs || 0)) * 100) / 100,
+        }])),
+        ioTimingMeaning: "HTTP-thread cumulative async operation time; overlapping waits are not exclusive CPU time",
         eventLoopDelay: after.eventLoopDelay, poolAtPreload: after.poolAtPreload,
         childNode: after.childNode, poolEnvironment: after.poolEnvironment,
         memoryBefore: before.memoryCurrent, memoryAfter: after.memoryCurrent, memoryPeak: after.memoryPeak });
@@ -312,6 +353,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
         responseBytes, startedAtMs: begin, finishedAtMs: performance.now(),
         snapshot: body.snapshot, loaded: body.coverage?.loaded, features: body.features?.length,
         versions: body.features?.reduce((sum, feature) => sum + (feature.versions?.length || 0), 0),
+        supersededStatuses: body.features?.reduce((sum, feature) => sum + feature.versions.filter((version) => version.statusSupersededBy?.length).length, 0),
         partial: body.partial, identityUncertain: body.coverage?.identityUncertain?.map((entry) => entry.reason),
         generation: body.generation, total: body.total, nextOffset: body.nextOffset,
         relatedRecords: body.records?.length, relatedStatus: body.status, firstRelatedTitle: body.records?.[0]?.title,
@@ -329,7 +371,7 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
   const otherRoute = legacy ? "/api/workspace" : "/api/workspace?cached=1";
   const requireSuccessful = (records, scenario) => assert.ok(records.every((record) => record.status === 200),
     `${scenario} failed: ${JSON.stringify(records.filter((record) => record.status !== 200))}`);
-  const resultReport = () => ({ sources, itemsPerSource: items, samples, workRecordCount: recordCount, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
+  const resultReport = () => ({ sources, itemsPerSource: items, samples, workRecordCount: recordCount, statusHistory, mode: legacy ? "legacy-fresh" : "snapshot", httpRequests,
     summary: Object.fromEntries(Object.entries(measurements).map(([key, records]) => [key,
       statistics(records, ["warmAcross", "healthDuringScan", "warmOtherProjectDuringScan", "featureDetailDuringScan", "featureDetailWarm", "retainedIndependentProjects"].includes(key) ? 200 : null)])),
     measurementLabels: { warmAcross: legacy ? "Repeated fresh Across read (no cache)" : "Warm cached Across read",
@@ -526,10 +568,17 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
           assert.ok(record.snapshot?.id);
           assert.equal(record.loaded, sources);
           assert.equal(record.versions, sources * items);
-          assert.equal(record.features, sources * items);
-          assert.equal(record.partial, true);
-          assert.equal(record.identityUncertain?.length, sources * (sources - 1) / 2);
-          assert.ok(record.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+          if (items > 500) {
+            assert.equal(record.features, sources * items);
+            assert.equal(record.partial, true);
+            assert.equal(record.identityUncertain?.length, sources * (sources - 1) / 2);
+            assert.ok(record.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+          } else {
+            assert.equal(record.features, items);
+            assert.equal(record.partial, false);
+            if (runtimeRoot === projectRoot) assert.equal(record.supersededStatuses, Math.ceil(items / 2) * (sources - 1));
+            assert.deepEqual(record.identityUncertain, []);
+          }
         }
         return results;
       });
@@ -594,6 +643,8 @@ test("opt-in roadmap HTTP performance qualification", { skip: !enabled, timeout:
         if (!legacy) {
           assert.ok(record.snapshot?.id, "Full responses must expose snapshot metadata");
           assert.equal(record.loaded, sourceCount);
+          if (statusHistory && runtimeRoot === projectRoot && sourceCount > 1 && itemCount <= 500) assert.equal(record.supersededStatuses,
+            Math.ceil(itemCount / 2) * (sourceCount - 1), "Differing-history qualification must actually exercise successful status proof");
         }
       }
       failed = false;

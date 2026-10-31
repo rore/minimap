@@ -126,7 +126,9 @@ roadmap/
 
 Item metadata holds status, priority, lane, milestone, and similar classifications. `board.md` holds the shared manual order; use a neutral `# Items` group when you want metadata-based grouping with unrestricted shared ordering. Git records file history.
 
-Within metadata groups, List and Columns show displayed **Done** cards last in both This and Across views. Relative order stays unchanged within the non-Done and Done buckets; group headings and manual Board order do not move. Across uses the combined status of matching checkout versions: mixed/unknown states are not Done. This is view-only, with no sorting setting or file rewrite; other finished labels and Unfinished filtering retain their existing semantics. Explicit ordering still updates canonical order, but does not move a card across the derived display's Done boundary.
+Within metadata groups, List and Columns show displayed **Done** cards last in both This and Across views. Relative order stays unchanged within the non-Done and Done buckets; group headings and manual Board order do not move. Mixed/unknown current statuses are not Done. This is view-only, with no sorting setting or file rewrite; other finished labels retain their existing semantics. Explicit ordering still updates canonical order, but does not move a card across the derived display's Done boundary.
+
+Across ignores an older status only when Git proves its clean feature-file revision was superseded by a newer clean revision. A genuine reopening wins over older Done; conflicting, dirty or uncertain evidence stays visible. Status filters, status grouping, In play's status criterion and Done ordering use that resolved status. Historical text/metadata search, title/content selection and other groupings stay unchanged, and every checkout version remains selectable with its own saved status. The version picker labels historical status; **This worktree** always shows its own file. There is no main-branch preference or automatic synchronization.
 
 An optional **`roadmap.config.json`** at the repository root changes the location and available views:
 

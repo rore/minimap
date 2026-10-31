@@ -14,6 +14,7 @@
 - idea-timeline-view
 
 # Done
+- superseding-feature-status
 - derived-done-last
 - group-aware-card-tags
 - roadmap-card-hierarchy

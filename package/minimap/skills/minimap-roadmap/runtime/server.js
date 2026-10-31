@@ -39,7 +39,8 @@ import {
 } from "./src/sessions.js";
 import { readServerRegistry, writeServerRegistry, deleteServerRegistry, readRuntimeIdentity } from "./src/server-registry.js";
 import { matchRoute } from "./src/router.js";
-import { createRoadmapSnapshotCoordinator } from "./src/roadmap-snapshots.js";
+import { createRoadmapSnapshotCoordinator, admitSnapshotSources } from "./src/roadmap-snapshots.js";
+import { enableGitWorkerReads, closeGitWorkerReads } from "./src/git-reads.js";
 import { createRelatedWorkScanner, readIndexedRecord, workflowConfigFingerprint } from "./src/related-work.js";
 import { compactWorktreePayload, expandWorktreePayload } from "./ui/worktree-payload.js";
 import { createLifecycleLog, lifecycleError } from "./src/server-lifecycle-log.js";
@@ -57,6 +58,8 @@ import {
 // booting the HTTP server here. (server.js still auto-starts on import — that
 // is how the launcher scripts run it.)
 export { matchRoute };
+
+enableGitWorkerReads();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -866,11 +869,7 @@ async function handleWorktreeWorkspace(request, response) {
       },
       admit: async (admissions, { signal: admitSignal }) => {
         if (!Array.isArray(admissions) || !admissions.length) return false;
-        for (const expected of admissions) {
-          if (!expected) return false;
-          if (!await admitSource(expected, admitSignal)) return false;
-        }
-        return true;
+        return admitSnapshotSources(admissions, admitSource, admitSignal);
       },
     });
     if (signal.aborted) return;
@@ -1195,6 +1194,9 @@ const routes = [
 ];
 
 async function handleApi(request, response, requestUrl) {
+  if (shuttingDown && !["/api/shutdown", "/health"].includes(requestUrl.pathname)) {
+    throw new AppError("Minimap is shutting down.", 503, "server_shutting_down");
+  }
   const bound = requestUrl.pathname.startsWith("/api/source/");
   const routedUrl = bound ? new URL(requestUrl) : requestUrl;
   if (bound) routedUrl.pathname = requestUrl.pathname.replace(/^\/api\/source\//, "/api/");
@@ -1386,11 +1388,21 @@ async function startServer() {
 
 async function shutdown(signal) {
   lifecycleLog("shutdown", { reason: signal });
+  shuttingDown = true;
+  roadmapSnapshots.invalidateAll();
+  relatedWorkSnapshots.invalidateAll();
+  try { await closeGitWorkerReads(); }
+  catch (error) {
+    lifecycleLog("shutdown-blocked", { error: lifecycleError(error, __dirname) });
+    process.stderr.write(`Git cleanup was not confirmed: ${error.message}\n`);
+    return;
+  }
   try {
     await clearOwnRegistry();
   } catch (error) {
     process.stderr.write(`Registry cleanup failed: ${error.message}\n`);
   }
+  server.close();
   process.exit(signal === "SIGINT" ? 130 : 0);
 }
 

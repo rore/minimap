@@ -52,7 +52,8 @@ export function selectWorktreeParticipantCandidates(aggregate, { includeComplete
     }
     const feature = matches[0];
     const candidate = { key: feature.key, id: feature.id };
-    const isUnfinished = feature.versions.some((version) =>
+    const statusVersions = feature.versions.filter((version) => !version.statusSupersededBy?.length);
+    const isUnfinished = !statusVersions.length || statusVersions.some((version) =>
       !FINISHED_STATUSES.has(String(version?.summary?.status || "").trim().toLowerCase()));
     if (isUnfinished) unfinished.push(candidate);
     else if (includeCompleted) completed.push(candidate);

@@ -1,6 +1,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createRoadmapSnapshotCoordinator } from "../package/minimap/src/roadmap-snapshots.js";
+import { createRoadmapSnapshotCoordinator, admitSnapshotSources } from "../package/minimap/src/roadmap-snapshots.js";
+
+test("cached source admission overlaps four checks, drains waves and checks every source", async () => {
+  const started = [], releases = [];
+  let running = 0, maximum = 0;
+  const pending = admitSnapshotSources(Array.from({ length: 9 }, (_, i) => i + 1), async (source) => {
+    started.push(source); maximum = Math.max(maximum, ++running);
+    await new Promise((resolve) => releases.push(resolve)); running--; return true;
+  });
+  assert.deepEqual(started, [1, 2, 3, 4]);
+  releases.shift()(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started.length, 4, "a wave must drain before another starts");
+  while (started.length < 9 || releases.length) {
+    releases.splice(0).forEach((resolve) => resolve()); await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(await pending, true); assert.equal(maximum, 4);
+  assert.deepEqual(started, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+});
+
+test("cached admission drains failure/cancellation and preserves ordered outcomes", async () => {
+  let release, finished = false;
+  const pending = admitSnapshotSources([1, 2, 3, 4, 5], async (source) => {
+    if (source === 1) return false;
+    if (source === 2) throw new Error("later failure");
+    if (source === 3) await new Promise((resolve) => { release = resolve; });
+    assert.ok(source < 5); return true;
+  }).finally(() => { finished = true; });
+  await new Promise((resolve) => setImmediate(resolve)); assert.equal(finished, false);
+  release(); assert.equal(await pending, false);
+  const controller = new AbortController(), reason = new Error("cancel admission");
+  let cancelledRelease;
+  const cancelled = admitSnapshotSources([1], () => new Promise((resolve) => { cancelledRelease = resolve; }), controller.signal);
+  controller.abort(reason); cancelledRelease(true);
+  await assert.rejects(cancelled, (error) => error === reason);
+  const failure = new Error("first failure");
+  await assert.rejects(admitSnapshotSources([1, 2], async (source) => { if (source === 1) throw failure; return false; }), (error) => error === failure);
+});
 
 function deferred() {
   let resolve;

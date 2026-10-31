@@ -44,6 +44,10 @@ async function fixture() {
   }
   git(sibling, "add", ".");
   git(sibling, "commit", "-m", "mixed statuses");
+  // Competing saved versions, not an older status superseded by a clean descendant.
+  for (const index of [0, 3]) await fs.appendFile(path.join(root, "roadmap", "features", `${items[index].id}.md`), "\n## Notes\n\nIndependent opened-checkout feature context.\n");
+  git(root, "add", "roadmap/features");
+  git(root, "commit", "-m", "retain independent opened feature context");
   const files = [root, sibling].flatMap((checkout) => ["board.md", ...items.map(({ id }) => `features/${id}.md`)].map((file) => path.join(checkout, "roadmap", file)));
   const before = await Promise.all(files.map((file) => fs.readFile(file)));
   return { owned, root, items, manual, files, before };

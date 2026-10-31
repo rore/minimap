@@ -1,20 +1,15 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { readGit } from "./git-reads.js";
 
-const execFileAsync = promisify(execFile);
 const MAX_SOURCES = 25;
 const METADATA_CONCURRENCY = 8;
 const POINTER_BYTES = 4096;
 const REFLOG_BYTES = 8192;
 
 async function git(repoRoot, args, signal, trim = true) {
-  const stdout = (await execFileAsync("git", args, {
-    cwd: repoRoot, windowsHide: true, shell: false, timeout: 2000,
-    maxBuffer: 1024 * 1024, encoding: "utf8", signal,
-  })).stdout;
+  const stdout = await readGit(repoRoot, args, { timeout: 2000, maxBuffer: 1024 * 1024, signal });
   return trim ? stdout.trim() : stdout;
 }
 
