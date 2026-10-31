@@ -1,5 +1,4 @@
 # Now
-- superseding-feature-status
 - persistent-user-service
 
 # Next
@@ -15,6 +14,7 @@
 - idea-timeline-view
 
 # Done
+- superseding-feature-status
 - derived-done-last
 - group-aware-card-tags
 - roadmap-card-hierarchy

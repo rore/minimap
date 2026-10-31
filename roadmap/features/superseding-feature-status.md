@@ -1,7 +1,7 @@
 ---
 id: superseding-feature-status
 title: Resolve superseded feature states across worktrees
-status: active
+status: done
 priority: high
 commitment: committed
 ---
@@ -24,4 +24,4 @@ Generic ancestry, reopen, conflict, dirty, incomplete-history, filter and perfor
 
 ## Notes
 
-Status-only implementation and local verification are complete; independent result review, PR and full CI remain pending. Historical content/search, non-status placement, board order and all version inspection remain unchanged. The task branch owns this canonical item; merge and deployment remain manager-owned.
+Status-only implementation, local verification and independent technical review are complete. Full CI, human result acceptance, merge and live delivery remain pending; this is not a release claim. Historical content/search, non-status placement, board order and all version inspection remain unchanged. The task branch owns this canonical item; delivery remains manager-owned.
