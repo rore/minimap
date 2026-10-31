@@ -36,6 +36,10 @@ Metadata owns classification fields such as lane, milestone, and status. `board.
 
 Do not create parallel roadmap trackers outside this structure unless the user explicitly asks.
 
+## Derived-group display ordering
+
+List/Columns and This/Across display Done cards last inside each derived metadata group, including Unassigned, with stable relative traversal order within the non-Done and Done buckets. The existing displayed-status summary is authoritative: only unanimous normalized `done` from matching saved checkout versions displays Done. Mixed, unknown and other status labels stay in the non-Done bucket; this changes neither status calculation nor Unfinished filtering. Group headings, freeform Board order and Across unlisted buckets remain unchanged. The partition never writes files or adds a sorting setting. Explicit reorder actions still use visible neighbors to update canonical order, but cannot override the derived display's Done boundary.
+
 ## Item Files
 
 Each item is a markdown file with YAML frontmatter.
@@ -70,7 +74,7 @@ When editing items:
 ```
 
 - group headings are freeform; pick what fits the repo (status, milestone, stream, …). `Now`/`Next`/`Ideas` are examples, not required.
-- bullet order is canonical display order within each group
+- bullet order is canonical manual Board display order within each group; metadata views apply stable Done-last buckets
 - bullet values are canonical item ids
 - titles and badges come from item files, not from `board.md`
 - preserve empty groups when they're meaningful structure

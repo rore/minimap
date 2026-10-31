@@ -21,8 +21,9 @@ Canonical item: [Show Done cards last within metadata groups](../../roadmap/feat
 **Verification plan:** Stable bucket and combined status → pure helper/projector tests including normalized Done, other finished labels, mixed/unknown, filtered versions and immutable input. Shared UI wiring/manual order → real browser This/Across List/Columns assertions and file-byte preservation. Realistic usability → inspected sixty-item/multi-lane/milestone desktop/narrow viewport captures. Compatibility → focused filter/worktree/appearance checks and mirror parity. Complete regression → required CI job test before merge.
 **Plan review:** Agent technical review: Independent clean-context reviewer approved c61acb8dc2182873f0bafaf96ef1e53d05485bac before implementation. It verified the displayed-Done predicate, wrapper/projector consumers, immutable/cache behavior, intentional derived bucket boundary and coverage adequacy. No new drag policy, status predicate or approval is needed.
 **Approvals:** Approved by user 2026-10-31: "ok, implement this. test it visually in both views, drive it through review and merge, and update local and the service." Exact scope approval forwarded by the manager; final merge/deployment remain manager-owned.
+**Behavior changes:** [{"target":"repository-contract","path":"playwright/done-last-ui.spec.js","classification":"coverage-only","before":"No dedicated stable Done-last display regression exists.","after":"Add realistic This/Across List/Columns order, mixed-status, manual-order, selection, filter and file-byte preservation coverage for the approved display rule.","reason":"Protect the approved view-only ordering without weakening existing acceptance tests."}]
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Recovery and scope
@@ -32,5 +33,17 @@ Fresh base: d5ecc3eff53d0b507cb9ed0e8acbfdc583ef79cd. Branch feat/derived-done-l
 ## Plan review
 
 Reviewer approved High/Moderate and the tiny shared helper beside the existing summary. Both rendering modes and selection/fallback consume the chosen visible-group paths. Inputs/item identities, cache keys, Board/unlisted order and canonical payloads must remain unchanged. Existing reorder actions still use visible neighbors; Done-last intentionally fixes only the display bucket boundary, which the docs will state. Frozen-input, filtered-version, mixed/unknown, stable-order and actual large-board browser evidence are required before result acceptance.
+
+## Implementation and verification
+
+2026-10-31: Added a shared stable, nonmutating derived-group sorter beside recordedStatusSummary, wired through This's derived wrapper and Across's projection after filtering. Manual Board/unlisted groups return unchanged; item identities, source data, cache keys, status/filter predicates and reorder writes are unchanged. No new module, setting, dependency, backend or data mutation was introduced. Both runtime trees were synchronized.
+
+The manager confirmed the displayed-Done-only predicate and requested a file-preservation check for ordinary display; this matches the approved plan. Lower-cost browser drafting reused existing fixture/UI patterns; root checked the draft against actual markup, corrected opaque Across-ID selectors and complete fixture shape before execution. No existing acceptance assertion was changed.
+
+Focused Node status/order/projection/filter/lint/mirror checks passed 48/48. Two real browser source-mode cases passed, covering List/Columns, lane/milestone stable order, 60 items, ten manual groups, three dense lanes, twelve milestones, mixed saved statuses, filter/search refresh, Read/conflict context, manual Board restoration and byte-identical files. Existing manual-column/derived-status/List-grip reorder regressions passed 3/3. The final focused visual run passed 2/2 in 22.9 seconds, including Done-boundary scrolling. Eight desktop/narrow and four boundary viewport captures are retained outside the auto-cleaned result folder; root inspected both layouts/modes and the transition into Done. No overlap, unreadable capture scaling or source/status-cue loss was found. Initial captures were regenerated because a later test run cleaned its disposable result directory, not because of a product failure.
+
+Public README/CONTRACT and roadmap skill/reference distinguish view-only stable buckets from canonical/manual order and broader Unfinished labels. Spec-review has no corresponding ordering prose; both skill runtimes carry the shared code. Existing traversal-order wording was corrected, not silently contradicted.
+
+Next: independent result review of the exact committed revision, final history-aware governance and full-CI-ready PR publication. Implementation and local verification are complete; merge/local service delivery remains manager-owned. No uncommitted user changes or real-project data were touched. The task checkout/evidence remain needed for CI and review follow-up.
 
 Target files: package/minimap/ui/worktrees.js and app.js, test/ui-done-last.test.js, playwright/done-last-ui.spec.js, README.md, package/minimap/CONTRACT.md, roadmap skill SKILL.md/references/roadmap-contract.md, generated mirrors and canonical records. Existing protected browser tests remain unchanged unless an actual failure proves an expectation encodes the explicitly approved new ordering; any such edit needs its own truthful classification and approval binding.

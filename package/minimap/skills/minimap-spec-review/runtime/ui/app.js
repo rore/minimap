@@ -67,7 +67,7 @@ import {
 import { initSpec } from "/spec/index.js";
 import { detectSpecFileChange } from "/spec/file-change.js";
 import { createState } from "/state.js";
-import { projectWorktreeGroups, createWorktreeProjector, countDistinctWorktreeFeatures, normalizeWorktreeCardId, versionDifferences, recordedStatusSummary } from "/worktrees.js";
+import { projectWorktreeGroups, createWorktreeProjector, countDistinctWorktreeFeatures, normalizeWorktreeCardId, versionDifferences, recordedStatusSummary, sortDerivedGroupsDoneLast } from "/worktrees.js";
 
 const FIXED_SECTIONS = ["Summary", "Why", "In Scope", "Out of Scope", "Done When", "Notes"];
 const SCOPE_STORAGE_KEY = "roadmap-ui.scope-collapsed";
@@ -978,7 +978,7 @@ function getVisibleBoardGroups(workspace = state.workspace) {
       .filter((group) => group.items.length > 0 || !isSearchActive());
   }
 
-  return buildDerivedVisibleGroups(workspace, activeLens, {
+  return sortDerivedGroupsDoneLast(buildDerivedVisibleGroups(workspace, activeLens, {
     searchQuery: state.searchQuery,
     activeFilters: state.activeFilters,
     inPlay: state.inPlay,
@@ -987,7 +987,7 @@ function getVisibleBoardGroups(workspace = state.workspace) {
     unassignedKey: UNASSIGNED_GROUP_KEY,
     unassignedLabel: UNASSIGNED_GROUP_LABEL,
     showEmptyGroups: !isSearchActive() && Array.isArray(activeLens.values) && activeLens.values.length > 0,
-  });
+  }));
 }
 
 function sameVisibleBoardGroups(before, after) {

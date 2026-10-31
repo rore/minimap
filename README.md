@@ -126,6 +126,8 @@ roadmap/
 
 Item metadata holds status, priority, lane, milestone, and similar classifications. `board.md` holds the shared manual order; use a neutral `# Items` group when you want metadata-based grouping with unrestricted shared ordering. Git records file history.
 
+Within metadata groups, List and Columns show displayed **Done** cards last in both This and Across views. Relative order stays unchanged within the non-Done and Done buckets; group headings and manual Board order do not move. Across uses the combined status of matching checkout versions: mixed/unknown states are not Done. This is view-only, with no sorting setting or file rewrite; other finished labels and Unfinished filtering retain their existing semantics. Explicit ordering still updates canonical order, but does not move a card across the derived display's Done boundary.
+
 An optional **`roadmap.config.json`** at the repository root changes the location and available views:
 
 ```json
