@@ -1,0 +1,32 @@
+# Stable Done-last metadata groups
+
+Canonical item: [Show Done cards last within metadata groups](../../roadmap/features/derived-done-last.md).
+
+<!-- agent-workflow:start -->
+**Outcome:** Derived metadata groups put displayed Done cards last without disturbing stable order or manual Board order.
+**Target:** Minimap.
+**Scope:** Shared UI ordering helper and its This/Across derivation callers, focused unit/browser regressions, ordering documentation and roadmap-skill guidance, generated runtime mirrors and canonical task records.
+**Constraints:** Preserve displayed combined-status semantics, mixed/unknown states, group order, stable bucket order, Board/unlisted order, filtering, selection and source/conflict cues. Sorting is view-only: no item/board writes, settings, backend/schema changes, dependencies, real-project edits or live environment changes.
+**Completion criteria:** Stable Done-last order passes in derived List/Columns and This/Across; manual Board and unlisted groups remain unchanged; combined/mixed/unknown/filter and nonmutation checks pass; actual realistic desktop/narrow renders are inspected; docs, mirrors, independent review and required CI are recorded.
+**Requirement baseline:**
+{"source":"User-approved Done-last assignment, 2026-10-31","outcome":"Derived metadata groups put displayed Done cards last without disturbing stable order or manual Board order.","scope":"Shared UI ordering helper and its This/Across derivation callers, focused unit/browser regressions, ordering documentation and roadmap-skill guidance, generated runtime mirrors and canonical task records.","constraints":"Preserve displayed combined-status semantics, mixed/unknown states, group order, stable bucket order, Board/unlisted order, filtering, selection and source/conflict cues. Sorting is view-only: no item/board writes, settings, backend/schema changes, dependencies, real-project edits or live environment changes.","completion_criteria":"Stable Done-last order passes in derived List/Columns and This/Across; manual Board and unlisted groups remain unchanged; combined/mixed/unknown/filter and nonmutation checks pass; actual realistic desktop/narrow renders are inspected; docs, mirrors, independent review and required CI are recorded."}
+**Relationships:**
+{"schema_version":1,"sources":[{"provider":"minimap","scope_ref":"roadmap:v1:git:github.com/rore/minimap#roadmap","local_ref":"item:v1:derived-done-last"}],"pull_requests":[]}
+**Risk:** High
+**Complexity:** Moderate
+**Reason:** UI ordering behavior reaches the public contract, agent guidance and protected browser surface; architecture review is required. Two derivation paths and aggregate status need consistent verification despite a small implementation.
+**Discovery:** This derives groups through filters.js and its app wrapper; Across projects groups in worktrees.js, which already imports filters.js. recordedStatusSummary is the displayed-status authority: only unanimous normalized done has tone done. Other finished filter labels have neutral tone; mixed/unknown states do not display Done. No predicate/status semantics change is planned. A shared sorter beside the existing summary avoids a new module or filters/worktrees import cycle.
+**Material assumptions:** Done-last means displayed Done (tone done), not every status excluded by Unfinished; the difference was reported to the manager before code. Derived metadata and Unassigned groups participate; manual Board and Across unlisted buckets do not. Existing explicit user reorder operations still own canonical order; display sorting itself never writes or changes drag/navigation wiring.
+**Plan:** Invoke Agent Workflow and classify before code edits (done). Resolve the canonical item and association. Obtain independent clean-context plan review. Root implements a tiny nonmutating stable sorter using recordedStatusSummary in worktrees.js; wire it into This derived results and Across derived projection only, reusing existing data shapes. Do not relocate the summary, add a module, option or dependency. Add pure mixed/unknown/combined/nonmutation/order tests and a bounded realistic browser regression using existing fixture patterns. Delegate the larger browser draft to a lower-cost capable agent after exact-checkout access preflight, then root verifies it. Inspect desktop/narrow List/Columns, update minimal ordering docs, sync mirrors, run focused checks and independent result review; publish a full-CI-ready PR for manager-owned delivery. Stop for predicate ambiguity or a lost safety contract, not for a new approval question on already-authorized scope.
+**Verification plan:** Stable bucket and combined status → pure helper/projector tests including normalized Done, other finished labels, mixed/unknown, filtered versions and immutable input. Shared UI wiring/manual order → real browser This/Across List/Columns assertions and file-byte preservation. Realistic usability → inspected sixty-item/multi-lane/milestone desktop/narrow viewport captures. Compatibility → focused filter/worktree/appearance checks and mirror parity. Complete regression → required CI job test before merge.
+**Plan review:** Pending independent technical plan review; no code edits yet.
+**Approvals:** Approved by user 2026-10-31: "ok, implement this. test it visually in both views, drive it through review and merge, and update local and the service." Exact scope approval forwarded by the manager; final merge/deployment remain manager-owned.
+**Exceptions:** —
+**State:** Blocked or returned to planning
+<!-- agent-workflow:end -->
+
+## Recovery and scope
+
+Fresh base: d5ecc3eff53d0b507cb9ed0e8acbfdc583ef79cd. Branch feat/derived-done-last uses an isolated task checkout; prior worktrees/evidence/recovery refs are preserved. The only current gate is independent technical plan review and any necessary resolution of the reported Done-vs-finished distinction. No installed runtime, service or user project data is changed.
+
+Target files: package/minimap/ui/worktrees.js and app.js, test/ui-done-last.test.js, playwright/done-last-ui.spec.js, README.md, package/minimap/CONTRACT.md, roadmap skill SKILL.md/references/roadmap-contract.md, generated mirrors and canonical records. Existing protected browser tests remain unchanged unless an actual failure proves an expectation encodes the explicitly approved new ordering; any such edit needs its own truthful classification and approval binding.
