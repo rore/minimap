@@ -21,6 +21,14 @@ export function recordedStatusSummary(item) {
   return { label, differs, tone: blocked ? "blocked" : active ? "progress" : statuses.length === 1 && statuses[0] === "done" ? "done" : "" };
 }
 
+export function sortDerivedGroupsDoneLast(groups) {
+  return groups.map((group) => group.isDerived || group.kind === "derived" ? {
+    ...group,
+    items: [...group.items].sort((left, right) =>
+      Number(recordedStatusSummary(left).tone === "done") - Number(recordedStatusSummary(right).tone === "done")),
+  } : group);
+}
+
 export function versionDifferences(version, selected) {
   if (!selected || version.sourceKey === selected.sourceKey) return [];
   const differences = CONFLICT_FIELDS.filter((field) => field !== "revision")
@@ -122,8 +130,8 @@ export function projectWorktreeGroups(aggregate, {
       projected.items.push(card);
     }
   }
-  return [...groups.values()].filter((group) => group.items.length || (showEmptyGroups && !inPlay && derived))
-    .sort((a, b) => a.originalIndex - b.originalIndex || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  return sortDerivedGroupsDoneLast([...groups.values()].filter((group) => group.items.length || (showEmptyGroups && !inPlay && derived))
+    .sort((a, b) => a.originalIndex - b.originalIndex || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })));
 }
 
 export function countDistinctWorktreeFeatures(groups) {
