@@ -24,6 +24,8 @@ Generic ancestry, reopen, conflict, dirty, incomplete-history, filter and perfor
 
 ## Notes
 
+The final CI-correction paragraph below is the current handoff state; earlier paragraphs preserve qualification history.
+
 Status-only implementation, local verification and independent technical review are complete. Full CI, human result acceptance, merge and live delivery remain pending; this is not a release claim. Historical content/search, non-status placement, board order and all version inspection remain unchanged. The task branch owns this canonical item; delivery remains manager-owned.
 
 Supported-limit follow-up required: the single 25-worktree/hundred-feature differing-history qualification preserved all 2,500 versions, resolved 1,200 historical statuses and passed correctness/deadline assertions, but missed the existing 200 ms health/peer responsiveness targets (p95 206.02/471.96 ms). First usable HTTP snapshot was 924.52 ms; full background validation 14,335.04 ms. No deadline was relaxed. The task owner requires a focused fix before merge, not acceptance of these misses. Measured Windows Git launch bursts are addressed by an independently reviewed cooperative launch gate; affected correctness and unchanged-target supported-limit qualification remain pending. Passing functional tests is not a complete performance pass.
@@ -36,4 +38,4 @@ Final local supported-limit qualification at 35947fa passes: all 25 worktrees lo
 
 Final independent technical review approved 35947fa and verification adequacy, with the stated cost, maxima and native-termination cleanup limits preserved. Full required CI, human/owner result and architecture acceptance, merge and live delivery remain pending.
 
-Full Linux CI at 65ec862 exposed deadline/ref-race fault hooks bypassing worker execution, two HTML escape-lint findings and a real registry/listener shutdown race. CI corrections are in progress without weakening fault assertions, ownership checks or deadlines; PR remains draft until full verification succeeds. Performance reporting is complete and is not being rerun for these control-path and equivalent-rendering corrections.
+Full Linux CI at 65ec862 exposed deadline/ref-race fault hooks bypassing worker execution, two HTML escape-lint findings and a real registry/listener shutdown race. Corrections are implemented and independently reviewed at 600ed819 without weakening assertions, ownership checks or deadlines. Required Linux Node, browser and runtime-parity checks passed on a bounded unchanged rerun; the first browser failure remains recorded in PR 83. Full Windows timing failures remain disclosed despite passing isolated cases, so this is not an all-platform-green or release claim. Owner acceptance of that evidence, human result/architecture review, merge and live delivery remain pending; PR stays draft. Performance reporting is complete and was not repeated for these control-path and equivalent-rendering corrections.
