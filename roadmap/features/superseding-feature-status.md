@@ -26,4 +26,6 @@ Generic ancestry, reopen, conflict, dirty, incomplete-history, filter and perfor
 
 Status-only implementation, local verification and independent technical review are complete. Full CI, human result acceptance, merge and live delivery remain pending; this is not a release claim. Historical content/search, non-status placement, board order and all version inspection remain unchanged. The task branch owns this canonical item; delivery remains manager-owned.
 
+Supported-limit acceptance blocked: the single 25-worktree/hundred-feature differing-history qualification preserved all 2,500 versions, resolved 1,200 historical statuses and passed correctness/deadline assertions, but missed the existing 200 ms health/peer responsiveness targets (p95 206.02/471.96 ms). First usable display was 924.52 ms; full background validation 14,335.04 ms. No deadline was relaxed. The task owner must resolve or explicitly accept these misses before merge readiness; passing functional tests is not a complete performance pass.
+
 Delivery: [PR 83](https://github.com/rore/minimap/pull/83).

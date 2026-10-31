@@ -268,7 +268,7 @@ async function stopAndRemove(child, env, owned) {
 }
 
 async function qualify(sources, items, samples, signal, recordCount = 0) {
-  const qualifyColdFairness = !legacy && sources === 25 && items === 1000;
+  const qualifyColdFairness = !legacy && sources === 25 && (items === 1000 || statusHistory);
   const owned = await fs.mkdtemp(path.join(os.tmpdir(), "minimap-roadmap-performance-"));
   let child;
   const env = { ...process.env, MINIMAP_HOME: path.join(owned, "home"),
@@ -541,10 +541,17 @@ async function qualify(sources, items, samples, signal, recordCount = 0) {
           assert.ok(record.snapshot?.id);
           assert.equal(record.loaded, sources);
           assert.equal(record.versions, sources * items);
-          assert.equal(record.features, sources * items);
-          assert.equal(record.partial, true);
-          assert.equal(record.identityUncertain?.length, sources * (sources - 1) / 2);
-          assert.ok(record.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+          if (items > 500) {
+            assert.equal(record.features, sources * items);
+            assert.equal(record.partial, true);
+            assert.equal(record.identityUncertain?.length, sources * (sources - 1) / 2);
+            assert.ok(record.identityUncertain.every((reason) => reason === "ancestor-item-limit"));
+          } else {
+            assert.equal(record.features, items);
+            assert.equal(record.partial, false);
+            assert.equal(record.supersededStatuses, Math.ceil(items / 2) * (sources - 1));
+            assert.deepEqual(record.identityUncertain, []);
+          }
         }
         return results;
       });
