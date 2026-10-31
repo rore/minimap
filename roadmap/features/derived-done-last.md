@@ -37,4 +37,4 @@ User-approved assignment accepted 2026-10-31. The manager owns final acceptance,
 
 Implementation is complete and independently reviewed. Focused Node checks passed 48/48; This/Across browser cases and final visual run passed 2/2; three existing reorder regressions passed unchanged. Actual sixty-item desktop/narrow List/Columns and Done-boundary renders were inspected, source files stayed byte-identical, and docs/mirrors match.
 
-Done records locally verified implementation, not an already-deployed release. Required full CI, manager/human acceptance, merge and deployment remain pending. See the [Work Record](../../.agent-workflow/tasks/derived-done-last.md) for exact revision and handoff evidence.
+Done records locally verified implementation, not an already-deployed release. [PR #82](https://github.com/rore/minimap/pull/82) is open; required full CI, manager/human acceptance, merge and deployment remain pending. See the [Work Record](../../.agent-workflow/tasks/derived-done-last.md) for exact revision and handoff evidence.
