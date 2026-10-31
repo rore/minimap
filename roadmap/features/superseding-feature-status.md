@@ -24,4 +24,4 @@ Generic ancestry, reopen, conflict, dirty, incomplete-history, filter and perfor
 
 ## Notes
 
-Investigation accepted. The task branch owns this canonical item; merge and deployment remain manager-owned.
+Status-only implementation and local verification are complete; independent result review, PR and full CI remain pending. Historical content/search, non-status placement, board order and all version inspection remain unchanged. The task branch owns this canonical item; merge and deployment remain manager-owned.
