@@ -25,3 +25,5 @@ Generic ancestry, reopen, conflict, dirty, incomplete-history, filter and perfor
 ## Notes
 
 Status-only implementation, local verification and independent technical review are complete. Full CI, human result acceptance, merge and live delivery remain pending; this is not a release claim. Historical content/search, non-status placement, board order and all version inspection remain unchanged. The task branch owns this canonical item; delivery remains manager-owned.
+
+Delivery: [PR 83](https://github.com/rore/minimap/pull/83).
