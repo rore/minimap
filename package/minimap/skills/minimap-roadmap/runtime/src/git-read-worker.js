@@ -41,9 +41,9 @@ function drain() {
   finishClose();
 }
 
-function cancel(job) {
+function cancel(job, reason) {
   if (!job) return;
-  job.controller.abort(new Error("Git worker read cancelled."));
+  job.controller.abort(Object.assign(new Error(reason?.message || "Git worker read cancelled."), { name: reason?.name || "Error" }));
   const index = queue.indexOf(job);
   if (index < 0) return;
   queue.splice(index, 1);
@@ -54,7 +54,7 @@ function cancel(job) {
 
 parentPort.on("message", (message) => {
   if (message?.type === "git-close") { drain(); return; }
-  if (message?.type === "git-cancel") { cancel(jobs.get(message.id)); return; }
+  if (message?.type === "git-cancel") { cancel(jobs.get(message.id), message.reason); return; }
   if (message?.type !== "git-read") return;
   if (closing || jobs.size >= 64) {
     parentPort.postMessage({ type: "git-result", id: message.id, error: { message: "Git worker is unavailable." } });

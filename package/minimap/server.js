@@ -1397,12 +1397,12 @@ async function shutdown(signal) {
     process.stderr.write(`Git cleanup was not confirmed: ${error.message}\n`);
     return;
   }
-  server.close();
   try {
     await clearOwnRegistry();
   } catch (error) {
     process.stderr.write(`Registry cleanup failed: ${error.message}\n`);
   }
+  server.close();
   process.exit(signal === "SIGINT" ? 130 : 0);
 }
 

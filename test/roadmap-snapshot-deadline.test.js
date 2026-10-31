@@ -13,6 +13,7 @@ import { readWorktreeIdentity } from "../package/minimap/src/worktree-sources.js
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scripts = path.join(projectRoot, "package", "minimap", "skills", "minimap-roadmap", "scripts");
+const gitFaultsUrl = new URL("../scripts/test-fixtures/git-read-faults.mjs", import.meta.url).href;
 
 async function freePort() {
   const server = net.createServer();
@@ -40,31 +41,26 @@ test("bound workspace validation shares its original read budget and cancels on 
   const modeFile = path.join(root, "mode"), eventsFile = path.join(root, "events.jsonl");
   const preload = path.join(root, "bound-budget.mjs");
   await fs.writeFile(preload, [
+    `import { installGitReadFaults } from ${JSON.stringify(gitFaultsUrl)};`,
     'import fs from "node:fs/promises";',
-    'import childProcess from "node:child_process";',
-    'import { promisify } from "node:util";',
-    'import { syncBuiltinESMExports } from "node:module";',
+    'import fsSync from "node:fs";',
     'import { ServerResponse } from "node:http";',
     'import path from "node:path";',
     'const log = (event) => fs.appendFile(process.env.MINIMAP_TEST_EVENTS, JSON.stringify(event)+"\\n");',
     'let mode = "", initial = false;',
     'const timeout = AbortSignal.timeout.bind(AbortSignal);',
     'AbortSignal.timeout = (ms) => { if(ms===30_000) void log({type:"budget"}); return timeout(ms===30_000 ? 1500 : ms); };',
-    'const run = promisify(childProcess.execFile), original = childProcess.execFile;',
-    'function wrapped(...args) { return original.apply(this,args); }',
-    'Object.defineProperty(wrapped,promisify.custom,{value:async (...args) => {',
-    ' if(args[0]==="git" && path.resolve(args[2]?.cwd||"").toLowerCase()===path.resolve(process.env.MINIMAP_TEST_REPO).toLowerCase() && args[1]?.includes("--show-toplevel")) {',
+    'installGitReadFaults({matches:(command,args,options)=>command==="git" && path.resolve(options?.cwd||"").toLowerCase()===path.resolve(process.env.MINIMAP_TEST_REPO).toLowerCase() && args?.includes("--show-toplevel"),before:async ({options})=>{',
     '  const next=await fs.readFile(process.env.MINIMAP_TEST_MODE,"utf8"); if(next!==mode) {mode=next;initial=false;}',
-    '  if(!initial) { initial=true; const signal=args[2]?.signal; await log({type:"validation",mode,signaled:!!signal});',
+    '  if(!initial) { initial=true; const signal=options?.signal; await log({type:"validation",mode,signaled:!!signal});',
     '   if(mode!=="reuse" && signal) await new Promise((resolve,reject)=>{',
     '    const abort=()=>{ void log({type:"aborted",mode,reason:signal.reason?.name}).then(()=>reject(signal.reason)); };',
     '    signal.addEventListener("abort",abort,{once:true}); if(signal.aborted) abort();',
     '   });',
     '  }',
-    ' } return run(...args);',
-    '}}); childProcess.execFile=wrapped; syncBuiltinESMExports();',
+    '}});',
     'const writeHead=ServerResponse.prototype.writeHead;',
-    'ServerResponse.prototype.writeHead=function(...args){if(this.req?.url?.startsWith("/api/source/workspace")) void log({type:"response",mode,destroyed:this.destroyed});return writeHead.apply(this,args);};',
+    'ServerResponse.prototype.writeHead=function(...args){if(this.req?.url?.startsWith("/api/source/workspace")) {const mode=fsSync.readFileSync(process.env.MINIMAP_TEST_MODE,"utf8");fsSync.appendFileSync(process.env.MINIMAP_TEST_EVENTS,JSON.stringify({type:"response",mode,destroyed:this.destroyed})+"\\n");}return writeHead.apply(this,args);};',
   ].join("\n"));
   const port = await freePort();
   const env = { ...process.env, MINIMAP_HOME: home, PORT: String(port), MINIMAP_PALLIUM_ENDPOINT: "",
@@ -207,27 +203,19 @@ for (const mode of ["this", "across"]) test(`${mode} snapshots reject a Git ref 
   const port = await freePort();
   const preload = path.join(root, "move-ref-after-identity.mjs");
   await fs.writeFile(preload, [
-    'import childProcess from "node:child_process";',
-    'import { promisify } from "node:util";',
-    'import { syncBuiltinESMExports } from "node:module";',
+    `import { installGitReadFaults } from ${JSON.stringify(gitFaultsUrl)};`,
     'import fs from "node:fs/promises";',
     'import path from "node:path";',
-    "const original = childProcess.execFile;",
-    "const run = promisify(original);",
     "let moved = false, identityReads = 0;",
-    "const boards = new Map(); const readFile = fs.readFile;",
-    "fs.readFile = async (file,...args) => { if(path.basename(String(file))==='board.md') boards.set(String(file),(boards.get(String(file))||0)+1); return readFile(file,...args); };",
-    "function wrapped(...args) { return original.apply(this, args); }",
-    "Object.defineProperty(wrapped, promisify.custom, { value: async (...args) => {",
-    '  if (!moved && args[0] === "git" && path.resolve(args[2]?.cwd || "").toLowerCase() === path.resolve(process.env.MINIMAP_TEST_REPO).toLowerCase() && args[1]?.includes("--show-toplevel") && args[1]?.includes("--verify") && ++identityReads === Number(process.env.MINIMAP_TEST_IDENTITY_READ)) {',
+    "const boards = new Map(); const readFile = fs.readFile; let boardWrites=Promise.resolve();",
+    "fs.readFile = async (file,...args) => { if(path.basename(String(file))==='board.md') { boards.set(String(file),(boards.get(String(file))||0)+1); const counts=JSON.stringify([...boards.values()]); boardWrites=boardWrites.then(()=>fs.writeFile(process.env.MINIMAP_TEST_BOARD_COUNTS,counts)); await boardWrites; } return readFile(file,...args); };",
+    'installGitReadFaults({matches:(command,args,options)=>command==="git" && path.resolve(options?.cwd || "").toLowerCase()===path.resolve(process.env.MINIMAP_TEST_REPO).toLowerCase() && args?.includes("--show-toplevel") && args?.includes("--verify"),before:async ({run})=>{',
+    '  if (!moved && ++identityReads === Number(process.env.MINIMAP_TEST_IDENTITY_READ)) {',
     "    moved = true;",
     '    await run("git", ["-C", process.env.MINIMAP_TEST_REPO, "update-ref", "refs/heads/main", process.env.MINIMAP_TEST_HEAD], { windowsHide: true });',
-    '    await fs.writeFile(process.env.MINIMAP_TEST_PHASE, JSON.stringify([...boards.values()]));',
+    '    await fs.writeFile(process.env.MINIMAP_TEST_PHASE, await readFile(process.env.MINIMAP_TEST_BOARD_COUNTS,"utf8"));',
     "  }",
-    "  return run(...args);",
-    "} });",
-    "childProcess.execFile = wrapped;",
-    "syncBuiltinESMExports();",
+    "}});",
     "",
   ].join("\n"));
   await initializeWorkspace(repo);
@@ -253,6 +241,7 @@ for (const mode of ["this", "across"]) test(`${mode} snapshots reject a Git ref 
     MINIMAP_TEST_HEAD: nextHead,
     MINIMAP_TEST_IDENTITY_READ: mode === "across" ? "3" : "2",
     MINIMAP_TEST_PHASE: path.join(root, "phase.json"),
+    MINIMAP_TEST_BOARD_COUNTS: path.join(root, "board-counts.json"),
     NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${pathToFileURL(preload).href}`].filter(Boolean).join(" "),
     PORT: String(port),
   };
@@ -290,23 +279,15 @@ test("fresh snapshots reject a Git ref change between initial and final identity
   const port = await freePort();
   const preload = path.join(root, "move-ref-after-identity.mjs");
   await fs.writeFile(preload, [
-    'import childProcess from "node:child_process";',
-    'import { promisify } from "node:util";',
-    'import { syncBuiltinESMExports } from "node:module";',
-    "const original = childProcess.execFile;",
-    "const run = promisify(original);",
+    `import { installGitReadFaults } from ${JSON.stringify(gitFaultsUrl)};`,
+    'import path from "node:path";',
     "let moved = false;",
-    "function wrapped(...args) { return original.apply(this, args); }",
-    "Object.defineProperty(wrapped, promisify.custom, { value: async (...args) => {",
-    "  const result = await run(...args);",
-    '  if (!moved && args[0] === "git" && args[1]?.includes("--show-toplevel") && args[1]?.includes("--verify") && args[1]?.includes("HEAD")) {',
+    'installGitReadFaults({matches:(command,args,options)=>command==="git" && path.resolve(options?.cwd || "").toLowerCase()===path.resolve(process.env.MINIMAP_TEST_REPO).toLowerCase() && args?.includes("--show-toplevel") && args?.includes("--verify") && args?.includes("HEAD"),after:async ({run})=>{',
+    '  if (!moved) {',
     "    moved = true;",
     '    await run("git", ["-C", process.env.MINIMAP_TEST_REPO, "update-ref", "refs/heads/main", process.env.MINIMAP_TEST_HEAD], { windowsHide: true });',
     "  }",
-    "  return result;",
-    "} });",
-    "childProcess.execFile = wrapped;",
-    "syncBuiltinESMExports();",
+    "}});",
     "",
   ].join("\n"));
   await initializeWorkspace(repo);

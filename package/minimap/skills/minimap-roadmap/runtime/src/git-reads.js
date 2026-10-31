@@ -126,7 +126,8 @@ export async function readGit(root, args, options) {
       request: { type: "git-read", id, root, args, settings, deadline: Date.now() + settings.timeout },
       abort: () => {
         if (job.dispatched) {
-          try { current.worker.postMessage({ type: "git-cancel", id }); }
+          try { current.worker.postMessage({ type: "git-cancel", id,
+            reason: { name: signal.reason?.name, message: signal.reason?.message } }); }
           catch (error) { current.failure = error; }
         } else {
           current.pending.delete(id);

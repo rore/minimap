@@ -2617,7 +2617,7 @@ function buildRecordedStatusMarkup(item, { detail = false } = {}) {
   const tone = summary.tone === "blocked" ? "status-blocked" : summary.tone === "progress" ? "status-progress" : summary.tone === "done" ? "status-done" : "neutral";
   const coverage = detail && [state.workspaceStale ? "Showing earlier results" : "", state.worktreeData?.provisional ? "Current worktree only" : state.worktreeData?.partial ? "Board may be incomplete" : ""].filter(Boolean).join(" · ");
   const filtered = detail && state.worktreeMode === "across" && item && !getWorktreeProjection().items.has(item.id);
-  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" data-metadata-field="status" title="${item?.statusVersions ? "Status from proven current feature revisions; a selected historical file may differ." : "Status from feature files shown here."}">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Earlier view · outside current filters</span>' : ""}`;
+  return `<span class="badge badge-tone-${escapeHtml(tone)} recorded-status" data-metadata-field="status" title="${escapeHtml(item?.statusVersions ? "Status from proven current feature revisions; a selected historical file may differ." : "Status from feature files shown here.")}">${escapeHtml(summary.label)}</span>${coverage ? `<span class="coverage-partial">${escapeHtml(coverage)}</span>` : ""}${filtered ? '<span class="coverage-partial">Earlier view · outside current filters</span>' : ""}`;
 }
 
 function syncBoardParticipantBadges() {
@@ -4508,7 +4508,7 @@ function renderEditorSourceSelect() {
     const placements = [...new Set(feature.versions.filter((entry) => entry.sourceKey === version.sourceKey).map((entry) => entry.group))];
     const label = [active ? "Selected version" : differences.length ? differences.join(" · ") : "Same content and metadata",
       ...(placementsDiffer ? [`Board: ${placements.join(" · ")}`] : [])].join(" · ");
-    return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${renderBadge(version.summary.status || "unknown", "status")}${version.statusSupersededBy?.length ? " · Historical status" : ""}${matchingSources.has(version.sourceKey) ? "" : " · filtered out"}</span><span class="editor-source-difference${differences.length ? " board-source-conflict" : ""}">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Worktree path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
+    return `<div class="editor-source-choice"><button type="button" data-editor-source="${escapeHtml(version.sourceKey)}" aria-pressed="${active}"><strong>${escapeHtml(branchName(version))}</strong><span class="editor-source-meta">${renderBadge(version.summary.status || "unknown", "status")}${escapeHtml(version.statusSupersededBy?.length ? " · Historical status" : "")}${matchingSources.has(version.sourceKey) ? "" : " · filtered out"}</span><span class="editor-source-difference${differences.length ? " board-source-conflict" : ""}">${escapeHtml(label)}</span></button><details class="editor-source-path"><summary>Worktree path</summary><small>${escapeHtml(version.repoRoot)}</small></details></div>`;
   }).join("");
   positionEditorSourceMenu();
 }
