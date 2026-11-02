@@ -20,9 +20,9 @@
 - Caller-visible guidance compatibility -> review ownership/handoff examples, unchanged checker guard behavior and all relative links in the two changed documents; reuse upstream PR62/63 reviews only for identical text.
 - Delivery gates -> fresh Redline/Workflow checks, independent destination result review and required PR CI.
 **Plan review:** Agent technical review: independent destination plan review approved 15253df80de8703997abf094db3c8441cc833489 with no blocking compatibility finding. Existing resolver and branch-derived guards already implement the clarified ownership mechanics; the installed behavioral-integrity guide supports the handoff rule, authority and unchanged baseline. Relative-link targets and referenced sections exist in both mirrors. Exact pinned text, accurate local manifests, preserved fingerprints, scope checks, fresh governance, independent result review and PR CI are adequate. Reuse unchanged upstream PR62 source result review a87de2378b68b8808878076c5454574620bda215 and PR63 result review 268b302a62e7146d8be66479b24f0b99bdd1e0a4; human destination plan approval remains separate.
-**Approvals:** Pending exact human approval for the specific High consumer plan; no approval is inferred from prior unrelated tasks or general permission.
+**Approvals:** Approved by user 2026-11-02: "Approve the Minimap plan". The owner forwarded this exact human decision for reviewed six-file plan 15253df80de8703997abf094db3c8441cc833489. It authorizes this implementation/qualification, not a broader runtime, hook, configuration or live installation change.
 **Exceptions:** —
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation and recovery
@@ -32,6 +32,10 @@ Branch feat/workflow-refresh-c0d6915 starts from main 6f62476adb0cc2fed6de2c10be
 Preflight retained privately: both package roots have 78 readable pinned paths and nine raw/content differences. Copying the upstream manifest alone would advertise different bytes for six excluded installed files, including checker size 268568 rather than the actual 263919 bytes. All unexpected differences predate this branch. The owner has resolved the mapping: pinned operating-mode.md and plan-and-review.md, with only their two size rows updated in each local manifest. No mapping decision remains open. Independent technical plan review is in progress; the original human refresh request predates this concrete plan and is not recorded as its High approval. Next action is send the reviewed final scope to the owner for the single applicable human plan decision, then apply the agreed six-file refresh. No tests, deployment or live cleanup from the completed previous assignment is reopened.
 
 Independent technical plan review is now complete and approved at 15253df80de8703997abf094db3c8441cc833489; the preceding in-progress note is historical. Final scope forwarded to the owner: two exact pinned guidance files plus their two accurate size rows in each local manifest, six consumer files total; preserve all other bytes and historical records. Await only the separate human approval of this reviewed High plan before implementation. The earlier human refresh request is not reused as that approval.
+
+Resume: the owner forwarded the exact human approval above for the reviewed six-file plan. The earlier waiting notes are historical, not the current gate. Begin only the two pinned guidance copies plus their two local manifest rows per root, after recoverable originals and fingerprints are retained privately. Independent destination result review and required PR CI still follow implementation.
+
+Only the assigned checkout changed; other checkouts were not modified. Private scope evidence is retained locally.
 
 ## Checkpoint: architecture-review
 
