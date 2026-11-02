@@ -53,6 +53,22 @@ test("empty main includes sibling tasks and exact duplicate IDs preserve diverge
     [["Version 1", "1", "feature", "1"], ["Version 2", "2", "feature", "2"]]);
 });
 
+test("More extends the retained order before a second source reorder", async () => {
+  const input = feature(), reversed = { ...input, versions: [...input.versions].reverse() };
+  const read = async (_, { sourceContext, offset = 0 }) => page(sourceContext,
+    Array.from({ length: 20 }, (_, index) => record(`${sourceContext.sourceKey}-${offset + index}`)), { nextOffset: offset ? null : 20 });
+  const initial = await readAcrossRelatedWork(createAcrossRelatedWork(input), { read });
+  let view = createAcrossRelatedWork(reversed, false, initial);
+  view = await readAcrossRelatedWork(view, { read, append: true });
+  view = await readAcrossRelatedWork(view, { read, append: true });
+  assert.equal(view.records.length, 60);
+  assert.equal(view.recordOrder.length, 80);
+  const again = createAcrossRelatedWork(input, false, view);
+  assert.deepEqual(again.records.map((entry) => entry.id), view.records.map((entry) => entry.id));
+  const removed = { ...again, states: again.states.map((state) => ({ ...state, result: { ...state.result, records: [] } })) };
+  assert.deepEqual(createAcrossRelatedWork(reversed, false, removed).recordOrder, []);
+});
+
 test("25 known sources read at most four at once, deduplicate memberships, and do not drain pages", async () => {
   const input = feature(25);
   input.versions.push(input.versions[0]);

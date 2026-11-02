@@ -34,7 +34,8 @@ function project(states, visibleLimit, provisional, recordOrder = null) {
   }
   const incomplete = provisional || !states.length || states.some((state) => state.error || state.result?.status !== "ok" || state.result.nextOffset != null);
   const failed = states.some((state) => state.error || ["unavailable", "stale"].includes(state.result?.status));
-  return { across: true, states, provisional, visibleLimit, recordOrder, records: all.slice(0, visibleLimit), total: all.length, incomplete,
+  return { across: true, states, provisional, visibleLimit, recordOrder: recordOrder ? all.map((record) => record.id) : null,
+    records: all.slice(0, visibleLimit), total: all.length, incomplete,
     status: failed && all.length ? "stale" : states.some((state) => state.error || state.result?.status !== "ok") || provisional || !states.length ? "partial" : "ok",
     coverage, nextOffset: all.length > visibleLimit || states.some((state) => state.result?.nextOffset != null) ? visibleLimit : null,
     notices: states.filter((state) => state.notice).map((state) => `${state.version.sourceContext.repoRoot}: ${state.notice}`),
