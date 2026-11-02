@@ -7,7 +7,7 @@
 **Constraints:** Preserve unrelated changes and historical Work Records. No hooks, runtime/checker, root scripts, configuration, global installation, service or live environment changes. Use an isolated branch and immutable upstream source; stop on additional package drift or an incompatible manifest.
 **Completion criteria:** Both guidance files match the pinned reviewed source; each installed manifest accurately describes its actual preserved package; only the six named consumer files and this record change; destination review, focused package/link checks and required PR CI pass.
 **Requirement baseline:** {"source":"Owner-assigned repository consumer refresh for upstream PR62/63, 2026-11-02","outcome":"Both repository-managed Agent Workflow mirrors incorporate the reviewed ownership and implementation-handoff guidance from upstream c0d69150ca05cdfab7951f741c16f7a477c7630a while preserving the consumer's existing setup.","scope":"operating-mode.md, templates/checkpoints/plan-and-review.md and manifest.txt under both .agents/skills/agent-workflow and .claude/skills/agent-workflow, plus this new Work Record.","constraints":"Preserve unrelated changes and historical Work Records. No hooks, runtime/checker, root scripts, configuration, global installation, service or live environment changes. Use an isolated branch and immutable upstream source; stop on additional package drift or an incompatible manifest.","completion_criteria":"Both guidance files match the pinned reviewed source; each installed manifest accurately describes its actual preserved package; only the six named consumer files and this record change; destination review, focused package/link checks and required PR CI pass."}
-**Relationships:** {"schema_version":1,"sources":null,"pull_requests":[]}
+**Relationships:** {"schema_version":1,"sources":null,"pull_requests":["https://github.com/rore/minimap/pull/85"]}
 **Risk:** High
 **Complexity:** Simple
 **Reason:** Both installed governance instruction trees are red contract paths under the consumer policy and require architecture review. The intended six-file guidance refresh is mechanically small; unexpected pre-existing package differences must be resolved before copying.
@@ -52,6 +52,10 @@ Reviewed revision: 32dd69e25532083d9d12351ce1e658b232950623.
 Verification adequacy: four pinned byte comparisons, complete manifest sizes/unchanged rows, 78-file mirror equality, 150 preserved non-target skill identities, 32 local link targets and exact seven-path allowlist cover this guidance-only change. Upstream source review/budgets remain reusable for identical instructions. No product behavior changed; required PR CI remains separate. A private operational-detail finding was removed before publication, including from the affected unpublished task commits; the consumer bytes stayed identical. No shared history was rewritten or public disclosure made. Separate human result/architecture acceptance and delivery remain owner gates.
 
 Skill feedback trigger dropped: the privacy finding concerned this task's unpublished artifact, not a defect in Agent Workflow instructions. No upstream report is warranted.
+
+## Delivery and recovery
+
+[PR #85](https://github.com/rore/minimap/pull/85) carries the reviewed contribution on branch feat/workflow-refresh-c0d6915. Consumer application 32dd69e25532083d9d12351ce1e658b232950623 is independently approved; subsequent changes record review and PR linkage only. Fresh local governance has no blocking findings and retains the architecture shadow advisory. Required PR CI, separate human result/architecture acceptance and normal merge remain pending. No global installation or live-service update is part of this delivery. Preserve the checkout and private evidence until owner handoff and any CI follow-up finish.
 
 ## Checkpoint: architecture-review
 
