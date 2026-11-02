@@ -272,7 +272,7 @@ test("Across combines task versions independently of the selected document and o
     await expect(page.locator("#related-work-content")).toContainText("Worktree:");
     await expect(page.locator("#related-work-content")).toContainText("Blue delivery");
     for (const title of ["Main delivery", "Blue delivery"]) {
-      await page.locator(".related-work-version").filter({ hasText: title }).getByRole("button", { name: "Open task" }).click();
+      await page.getByRole("button", { name: `Open task — ${title}`, exact: true }).click();
       await expect(page.locator("#related-record-title")).toHaveText(title);
       await expect(page.locator("#related-record-content")).toContainText("Outcome");
       await page.locator("#related-record-close").click();

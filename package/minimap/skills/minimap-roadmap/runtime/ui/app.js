@@ -1,6 +1,6 @@
 import { createApi } from "/api.js";
 import { getAppearanceColor } from "/appearance.js";
-import { acrossRelatedWorkKey, createAcrossRelatedWork, cacheAcrossRelatedWork, readAcrossRelatedWork } from "/related-work.js";
+import { acrossRelatedWorkKey, acrossRelatedWorkDisclosureKey, createAcrossRelatedWork, cacheAcrossRelatedWork, readAcrossRelatedWork } from "/related-work.js";
 import { renderMarkdownToHtml } from "/markdown.js";
 import {
   normalizeFilterValues,
@@ -3807,6 +3807,12 @@ function currentRelatedReadKey(displayItemId = state.selectedItemId) {
     : currentDetailReadKey(displayItemId);
 }
 
+function currentRelatedDisclosureKey(displayItemId = state.selectedItemId) {
+  return state.worktreeMode === "across"
+    ? JSON.stringify([state.appMode, acrossRelatedWorkDisclosureKey(state.repoPath, currentRelatedFeature(displayItemId), Boolean(state.worktreeData?.provisional))])
+    : currentDetailReadKey(displayItemId);
+}
+
 function readCacheGet(cache, key) {
   const entry = cache.get(key);
   if (!entry) return null;
@@ -4205,6 +4211,61 @@ function getStructuredMetadata() {
   return metadata;
 }
 
+function captureRelatedWorkInteraction(host) {
+  if (!host) return null;
+  const focused = host.contains(document.activeElement) ? document.activeElement : null;
+  const focusKey = focused?.closest("[data-related-key]")?.dataset.relatedKey;
+  const scroll = [];
+  for (let node = host; node; node = node.parentElement) scroll.push([node, node.scrollTop, node.scrollLeft]);
+  return { focused, focusKey, scroll, top: focused?.getBoundingClientRect().top };
+}
+
+function restoreRelatedWorkInteraction(host, saved) {
+  if (!saved) return;
+  if (saved.focused && document.activeElement === document.body) {
+    const match = saved.focused.isConnected ? saved.focused
+      : host.querySelector(`[data-related-key="${CSS.escape(saved.focusKey || "")}"]`);
+    (match?.tagName === "DETAILS" ? match.querySelector("summary") : match)?.focus({ preventScroll: true });
+  }
+  for (const [node, top, left] of saved.scroll) {
+    if (node.isConnected) { node.scrollTop = top; node.scrollLeft = left; }
+  }
+  const anchor = saved.focused?.isConnected ? saved.focused : null;
+  if (anchor) for (const [node] of saved.scroll) {
+    if (node.scrollHeight > node.clientHeight) node.scrollTop += anchor.getBoundingClientRect().top - saved.top;
+  }
+}
+
+// Keep native disclosures and pointer targets connected during linked-task refresh.
+function reconcileRelatedWork(parent, incoming) {
+  const keyed = new Map([...parent.children].filter((node) => node.dataset.relatedKey)
+    .map((node) => [node.dataset.relatedKey, node]));
+  let cursor = parent.firstChild;
+  for (const next of [...incoming.childNodes]) {
+    const key = next.nodeType === 1 ? next.dataset.relatedKey : null;
+    let node = key ? keyed.get(key) : cursor?.nodeType === next.nodeType
+      && cursor?.nodeName === next.nodeName && !cursor?.dataset?.relatedKey ? cursor : null;
+    if (node?.nodeName !== next.nodeName) node = null;
+    if (!node) { parent.insertBefore(next, cursor); continue; }
+    if (node !== cursor) parent.insertBefore(node, cursor);
+    if (node.nodeType === 3) {
+      if (node.nodeValue !== next.nodeValue) node.nodeValue = next.nodeValue;
+    } else if (node.nodeType === 1) {
+      for (const attribute of [...node.attributes]) {
+        if (attribute.name === "open" && node.tagName === "DETAILS") continue;
+        if (!next.hasAttribute(attribute.name)) node.removeAttribute(attribute.name);
+      }
+      for (const attribute of next.attributes) {
+        if (attribute.name === "open" && node.tagName === "DETAILS") continue;
+        if (node.getAttribute(attribute.name) !== attribute.value) node.setAttribute(attribute.name, attribute.value);
+      }
+      reconcileRelatedWork(node, next);
+    }
+    cursor = node.nextSibling;
+  }
+  while (cursor) { const next = cursor.nextSibling; cursor.remove(); cursor = next; }
+}
+
 function renderPreview() {
   if (!state.currentItem) {
     previewElement.className = "preview-surface preview-empty";
@@ -4232,31 +4293,47 @@ function renderPreview() {
   `).join("");
 
   previewElement.className = "preview-surface preview-reading";
-  const relatedOpen = previewElement.querySelector("#related-work")?.open || false;
-  const disclosureScope = JSON.stringify([currentReadScopeKey(), state.currentItem.id]);
+  const disclosureScope = currentRelatedDisclosureKey();
   const previousRelatedHost = previewElement.querySelector("#related-work-content");
-  const detailsOpen = previousRelatedHost?.dataset.disclosureScope === disclosureScope
-    && Boolean(previousRelatedHost.querySelector(".related-work-details")?.open);
-  previewElement.innerHTML = `
+  const previousRelated = previousRelatedHost?.dataset.disclosureScope === disclosureScope
+    ? previewElement.querySelector("#related-work") : null;
+  const interaction = previousRelated ? captureRelatedWorkInteraction(previousRelatedHost) : null;
+  const nextPreview = document.createElement("template");
+  nextPreview.innerHTML = `
     ${itemTitle ? `<h1 class="preview-title">${escapeHtml(itemTitle)}</h1>` : ""}
     <div class="preview-activity">${summaryHtml}</div>
     ${previewBadges ? `<div class="preview-meta" aria-label="Selected version metadata">${previewBadges}</div>` : ""}
     ${selectedStatus ? `<details class="preview-selected-version"><summary>This version’s status</summary>${selectedStatus}</details>` : ""}
-    <details id="related-work" class="related-work" ${relatedOpen ? "open" : ""}><summary>Linked tasks</summary><div id="related-work-content" aria-live="polite" data-disclosure-scope="${escapeHtml(disclosureScope)}" data-details-open="${detailsOpen ? "true" : "false"}"></div></details>
+    <details id="related-work" class="related-work"><summary>Linked tasks</summary><div id="related-work-content" aria-live="polite" data-disclosure-scope="${escapeHtml(disclosureScope)}"></div></details>
     <div class="preview-body">${sectionHtml || '<p class="muted">This item does not have any readable sections yet.</p>'}</div>
   `;
+  if (previousRelated) {
+    const placeholder = nextPreview.content.querySelector("#related-work");
+    const children = [...nextPreview.content.childNodes];
+    const index = children.indexOf(placeholder);
+    while (previousRelated.previousSibling) previousRelated.previousSibling.remove();
+    while (previousRelated.nextSibling) previousRelated.nextSibling.remove();
+    previousRelated.before(...children.slice(0, index));
+    previousRelated.after(...children.slice(index + 1));
+  } else previewElement.replaceChildren(nextPreview.content);
   renderRelatedWork();
+  restoreRelatedWorkInteraction(previewElement.querySelector("#related-work-content"), interaction);
 }
 
 function renderRelatedWork() {
   const host = previewElement.querySelector("#related-work-content");
   if (!host) return;
-  const disclosureScope = JSON.stringify([currentReadScopeKey(), state.currentItem?.id]);
-  const detailsOpen = host.dataset.disclosureScope === disclosureScope
-    && (host.querySelector(".related-work-details")?.open ?? host.dataset.detailsOpen === "true");
+  const disclosureScope = currentRelatedDisclosureKey();
+  const sameScope = host.dataset.disclosureScope === disclosureScope;
+  const interaction = sameScope ? captureRelatedWorkInteraction(host) : null;
+  if (!sameScope) {
+    host.replaceChildren();
+    previewElement.querySelector("#related-work").open = false;
+  }
   host.dataset.disclosureScope = disclosureScope;
-  host.dataset.detailsOpen = String(detailsOpen);
+  host.dataset.readScope = currentRelatedReadKey();
   const view = relatedWorkView;
+  host.setAttribute("aria-busy", String(view.status === "loading"));
   const records = view.records || [];
   const summary = previewElement.querySelector("#related-work > summary");
   const total = view.status === "unavailable" && !records.length ? null
@@ -4268,7 +4345,7 @@ function renderRelatedWork() {
         : view.status === "error" || view.status === "unavailable" ? " · Unavailable"
           : " · May be incomplete";
   if (summary) summary.textContent = `Linked tasks${total == null ? "" : ` (${total}${view.incomplete ? "+" : ""})`}${statusLabel}`;
-  const message = view.status === "loading" ? (records.length ? "Checking linked task records…" : "Loading linked task records…")
+  const message = view.status === "loading" ? (records.length ? "" : "Loading linked task records…")
     : view.status === "unavailable" ? "Linked task records are unavailable for this worktree."
       : view.status === "error" ? "Could not load linked task records. Try Refresh."
         : view.status === "stale" ? `Could not verify the latest task records. Showing the last successful result from ${view.staleSince ? new Date(view.staleSince).toLocaleString() : "an earlier check"}.`
@@ -4278,71 +4355,81 @@ function renderRelatedWork() {
               : "Some older task records do not declare feature links, so this list may be incomplete.")
             : "Some task links could not be verified or some records could not be checked. This list may be incomplete."
             : records.length ? "" : "No task records link to this feature.";
-  const renderVersion = (record, versionIndex) => {
+  const renderVersion = (record, title) => {
+    const versionKey = JSON.stringify([record.id, record.sourceContext?.repoRoot, record.sourceContext?.sourceKey, record.itemId]);
+    const origin = { recordId: record.id, itemId: record.itemId || state.currentItem.id,
+      generation: record.generation || view.generation, sourceContext: record.sourceContext, title: record.title };
     const urls = record.pullRequests || [];
     const repositories = new Set(urls.map((url) => new URL(url).pathname.split("/").slice(1, 3).join("/")));
     const prLinks = urls.map((url) => {
       const segments = new URL(url).pathname.split("/").filter(Boolean);
       const label = repositories.size > 1 ? `${segments[0]}/${segments[1]}#${segments.at(-1)}` : `PR #${segments.at(-1)}`;
-      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+      return `<a data-related-key="${escapeHtml(JSON.stringify(["pr", versionKey, url]))}" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
     });
     const branch = record.sourceContext?.git?.branchRef?.replace(/^refs\/heads\//, "") || record.sourceContext?.git?.headCommit?.slice(0, 8);
-    return `<div class="related-work-main"><strong>${escapeHtml(record.title)}</strong>
-    <span class="muted">${escapeHtml(record.recordedState)}</span></div>
-    ${branch ? `<p class="muted" title="${escapeHtml(record.sourceContext.repoRoot)}">Worktree: ${escapeHtml(branch)}</p>` : ""}
-    <div class="related-work-actions"><button class="ghost-button" type="button" data-related-record="${escapeHtml(record.id)}" ${versionIndex == null ? "" : `data-related-version="${versionIndex}"`}>Open task</button>
-    ${prLinks.slice(0, 2).join(" ")}${prLinks.length > 2 ? `<details class="related-pr-more"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div>`;
+    return `<div class="related-work-version" data-related-key="${escapeHtml(versionKey)}">
+    ${record.title !== title ? `<p class="related-work-version-title" data-related-key="title">Title: ${escapeHtml(record.title)}</p>` : ""}
+    <div class="related-work-actions" data-related-key="actions">
+    ${branch ? `<span class="muted related-work-branch" title="${escapeHtml(record.sourceContext.repoRoot)}">Worktree: ${escapeHtml(branch)}</span>` : ""}
+    <span class="muted related-work-state">${escapeHtml(record.recordedState)}</span>
+    <button class="ghost-button" type="button" data-related-key="${escapeHtml(JSON.stringify(["open", versionKey]))}" data-related-record="${escapeHtml(record.id)}" data-related-origin="${escapeHtml(JSON.stringify(origin))}" aria-label="Open task — ${escapeHtml(record.title)}">Open task</button>
+    ${prLinks.length ? `<span class="related-work-pr-links" data-related-key="links">${prLinks.slice(0, 2).join(" ")}</span>` : ""}${prLinks.length > 2 ? `<details class="related-pr-more" data-related-key="${escapeHtml(JSON.stringify(["prs", versionKey]))}"><summary>${prLinks.length - 2} more PR links</summary>${prLinks.slice(2).join(" ")}</details>` : ""}</div></div>`;
   };
   const recordHtml = records.map((record) => {
-    const versions = record.versions;
-    return `<li class="related-work-row">${versions?.length > 1
-      ? `<strong>${escapeHtml(record.title)}</strong><details><summary>${versions.length} worktree versions</summary>${versions.map((version, index) => `<div class="related-work-version">${renderVersion(version, index)}</div>`).join("")}</details>`
-      : renderVersion(versions?.[0] || record, versions ? 0 : null)}</li>`;
+    const versions = record.versions || [record];
+    return `<li class="related-work-row" data-related-key="${escapeHtml(record.id)}"><strong class="related-work-title">${escapeHtml(record.title)}</strong>
+      <details data-related-key="${escapeHtml(JSON.stringify(["versions", record.id]))}" data-related-versions="${versions.length}" ${versions.length === 1 ? "open" : ""}><summary ${versions.length === 1 ? "hidden" : ""}>${versions.length} worktree versions</summary>${versions.map((version) => renderVersion(version, record.title)).join("")}</details></li>`;
   }).join("");
-  host.innerHTML = `${message && view.status !== "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
-    ${(view.notices || []).map((notice) => `<p class="muted">${escapeHtml(notice)}</p>`).join("")}
-    <details class="related-work-details" ${detailsOpen ? "open" : ""}><summary>Task details</summary><p class="muted">Saved task records; PR status may have changed.</p>${view.status === "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}</details>
-    ${records.length ? `<ul>${recordHtml}</ul>` : ""}
-    ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-more>More records</button>' : ""}
-    ${view.status !== "loading" ? '<button class="ghost-button related-work-refresh" type="button" data-related-refresh>Refresh task records</button>' : ""}`;
+  const nextHost = document.createElement("div");
+  nextHost.innerHTML = `<div data-related-key="notice">${message && view.status !== "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}
+    ${(view.notices || []).map((notice) => `<p class="muted">${escapeHtml(notice)}</p>`).join("")}</div>
+    <details class="related-work-details" data-related-key="details"><summary>Task details</summary><p class="muted">Saved task records; PR status may have changed.</p>${view.status === "partial" ? `<p class="muted">${escapeHtml(message)}</p>` : ""}</details>
+    ${records.length ? `<ul data-related-key="records">${recordHtml}</ul>` : ""}
+    ${view.nextOffset != null ? '<button class="ghost-button" type="button" data-related-key="more" data-related-more>More records</button>' : ""}
+    <button class="ghost-button related-work-refresh" type="button" data-related-key="refresh" data-related-refresh ${view.status === "loading" ? "disabled" : ""}>Refresh task records</button>`;
   if (state.worktreeMode === "across" && view.source?.repoRoot) {
     const provenance = document.createElement("p");
     provenance.className = "muted";
     provenance.textContent = `Worktree: ${view.source.repoRoot}. Other versions may differ.`;
-    host.querySelector(".related-work-details").append(provenance);
+    nextHost.querySelector(".related-work-details").append(provenance);
   }
   if (view.across) {
     const provenance = document.createElement("p");
     provenance.className = "muted";
     provenance.textContent = `Across ${view.states.length} proven feature worktrees. Task versions retain their own saved state, PR links and source.`;
-    host.querySelector(".related-work-details").append(provenance);
+    nextHost.querySelector(".related-work-details").append(provenance);
     for (const source of view.states.filter((entry) => entry.error || entry.result?.status !== "ok")) {
       const notice = document.createElement("p");
       notice.className = "muted";
       notice.textContent = `${source.version.sourceContext.repoRoot}: ${source.error || source.result?.status || "not checked"}`;
-      host.querySelector(".related-work-details").append(notice);
+      nextHost.querySelector(".related-work-details").append(notice);
     }
   }
+  reconcileRelatedWork(host, nextHost);
+  for (const single of host.querySelectorAll('[data-related-versions="1"]')) single.open = true;
+  restoreRelatedWorkInteraction(host, interaction);
 }
 
 async function refreshAcrossRelatedWork({ append = false, fresh = false } = {}) {
   const key = currentRelatedReadKey();
+  const disclosureKey = currentRelatedDisclosureKey();
   if (!append && relatedWorkRequest?.key === key && (!fresh || relatedWorkRequest.fresh)) return relatedWorkRequest.promise;
   if (!append && !fresh) {
     const cached = readCacheGet(relatedWorkCache, key);
     if (cached) {
-      if (relatedWorkView.key !== key || relatedWorkView.generation !== cached.generation) relatedWorkView = { ...cached, key };
+      if (relatedWorkView.key !== key || relatedWorkView.generation !== cached.generation) relatedWorkView = { ...cached, key, disclosureKey };
       renderRelatedWork();
       return;
     }
   }
   const previous = relatedWorkView.key === key ? relatedWorkView
-    : createAcrossRelatedWork(currentRelatedFeature(), Boolean(state.worktreeData?.provisional));
+    : createAcrossRelatedWork(currentRelatedFeature(), Boolean(state.worktreeData?.provisional),
+      relatedWorkView.disclosureKey === disclosureKey ? relatedWorkView : null);
   relatedWorkRequest?.controller.abort();
   const controller = new AbortController();
   const intent = { key, controller, fresh, promise: null };
   relatedWorkRequest = intent;
-  relatedWorkView = { ...previous, key, status: "loading" };
+  relatedWorkView = { ...previous, key, disclosureKey, status: "loading" };
   renderRelatedWork();
   intent.promise = (async () => {
     try {
@@ -4350,7 +4437,7 @@ async function refreshAcrossRelatedWork({ append = false, fresh = false } = {}) 
       if (controller.signal.aborted || relatedWorkRequest !== intent) return;
       readCacheSet(relatedWorkCache, key, cacheAcrossRelatedWork(result));
       if (key !== currentRelatedReadKey() || !state.currentItem) return;
-      relatedWorkView = { ...result, key };
+      relatedWorkView = { ...result, key, disclosureKey };
       renderRelatedWork();
       if (!fresh && !append && result.reason === "validation_due" && document.visibilityState === "visible") {
         relatedWorkRequest = null;
@@ -4358,7 +4445,7 @@ async function refreshAcrossRelatedWork({ append = false, fresh = false } = {}) 
       }
     } catch (error) {
       if (!controller.signal.aborted && relatedWorkRequest === intent && key === currentRelatedReadKey()) {
-        relatedWorkView = { ...previous, key, status: previous.records.length ? "stale" : "error", incomplete: true };
+        relatedWorkView = { ...previous, key, disclosureKey, status: previous.records.length ? "stale" : "error", incomplete: true };
         renderRelatedWork();
       }
     } finally {
@@ -4437,16 +4524,12 @@ previewElement.addEventListener("click", async (event) => {
   });
   const button = event.target.closest("[data-related-record]");
   if (!button) return;
-  const recordId = button.dataset.relatedRecord;
-  const scope = currentRelatedReadKey();
-  const itemId = state.currentItem?.id;
-  const record = relatedWorkView.records.find((entry) => entry.id === recordId);
-  const version = record?.versions?.[Number(button.dataset.relatedVersion)];
-  if (state.worktreeMode === "across" && !version) return;
-  const origin = version ? { sourceContext: version.sourceContext, generation: version.generation, itemId: version.itemId }
-    : { generation: relatedWorkView.generation, itemId };
+  const origin = JSON.parse(button.dataset.relatedOrigin);
+  const { recordId } = origin;
+  const scope = button.closest("#related-work-content")?.dataset.readScope;
+  if (scope !== currentRelatedReadKey() || recordId !== button.dataset.relatedRecord) return;
   const requestId = ++relatedRecordRequestId;
-  const title = relatedWorkView.records.find((entry) => entry.id === recordId)?.title || "Task record";
+  const title = origin.title || "Task record";
   document.querySelector("#related-record-title").textContent = title;
   document.querySelector("#related-record-meta").textContent = "";
   document.querySelector("#related-record-content").textContent = "Loading record…";
@@ -4469,8 +4552,10 @@ previewElement.addEventListener("click", async (event) => {
     }
     document.querySelector("#related-record-content").innerHTML = renderMarkdownToHtml(visible.join("\n").replace(/^# [^\n]*\n/, ""));
   } catch (error) {
-    if (requestId === relatedRecordRequestId && relatedRecordDialog.open)
+    if (requestId === relatedRecordRequestId && relatedRecordDialog.open) {
+      if (scope !== currentRelatedReadKey()) { relatedRecordDialog.close(); return; }
       document.querySelector("#related-record-content").textContent = `Could not open record: ${error.message}`;
+    }
   }
 });
 document.querySelector("#related-record-close").addEventListener("click", () => relatedRecordDialog.close());
@@ -5756,7 +5841,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
-  const keepAcrossRelated = state.worktreeMode === "across" && relatedWorkView.key === currentRelatedReadKey(itemId);
+  const keepAcrossRelated = state.worktreeMode === "across" && relatedWorkView.disclosureKey === currentRelatedDisclosureKey(itemId);
   if (relatedWorkRequest && (state.worktreeMode === "across" ? relatedWorkRequest.key !== currentRelatedReadKey(itemId)
     : relatedWorkRequest.displayItemId !== itemId || relatedWorkRequest.consumer?.scope !== currentReadScopeKey())) {
     relatedWorkRequest.controller.abort();

@@ -114,9 +114,11 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     if (previous) removeEntry(previous);
     if (limits.maxEntries <= 0 || limits.maxBytes <= 0) return;
 
-    const fullBytes = Buffer.byteLength(entry.valueJson) + Buffer.byteLength(entry.manifestJson) + Buffer.byteLength(entry.admissionJson);
+    const fingerprintBytes = Buffer.byteLength(entry.fingerprint || "");
+    const fullBytes = Buffer.byteLength(entry.valueJson) + Buffer.byteLength(entry.manifestJson)
+      + Buffer.byteLength(entry.admissionJson) + fingerprintBytes;
     let keepValue = fullBytes <= limits.maxBytes;
-    let bytes = keepValue ? fullBytes : Buffer.byteLength(entry.manifestJson);
+    let bytes = keepValue ? fullBytes : Buffer.byteLength(entry.manifestJson) + fingerprintBytes;
     if (bytes > limits.maxBytes) return;
 
     while (cache.size >= limits.maxEntries || cacheBytes + bytes > limits.maxBytes) {
@@ -167,10 +169,22 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     if (typeof valueJson !== "string") throw new TypeError("Snapshot value must be JSON serializable.");
     const manifestJson = JSON.stringify(loaded.manifest ?? null);
     const admissionJson = JSON.stringify(loaded.admission ?? null);
+    const fingerprint = job.fingerprint?.(loaded.value) ?? null;
+    if (fingerprint !== null && (typeof fingerprint !== "string" || Buffer.byteLength(fingerprint) > 128)) {
+      throw new TypeError("Snapshot fingerprint must be a bounded string.");
+    }
+    const fingerprintBytes = Buffer.byteLength(fingerprint || "");
+    const fullBytes = Buffer.byteLength(valueJson) + Buffer.byteLength(manifestJson)
+      + Buffer.byteLength(admissionJson) + fingerprintBytes;
     const validatedAt = new Date(now()).toISOString();
+    const previous = job.retain && fingerprint !== null ? cache.get(job.key) : null;
+    const retainedBytes = fullBytes <= limits.maxBytes ? fullBytes : Buffer.byteLength(manifestJson) + fingerprintBytes;
+    const reuseId = limits.maxEntries > 0 && limits.maxBytes > 0 && retainedBytes <= limits.maxBytes
+      && previous && !previous.invalidated && previous.epoch === job.epoch && now() < previous.expiresAt
+      && previous.fingerprint === fingerprint && previous.admissionJson === admissionJson;
     const entry = {
       key: job.key,
-      id: createId(),
+      id: reuseId ? previous.id : createId(),
       epoch: job.epoch,
       validatedAt,
       expiresAt: now() + limits.retainMs,
@@ -179,6 +193,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
       valueJson,
       manifestJson,
       admissionJson,
+      fingerprint,
       bytes: 0,
     };
     if (job.retain) retain(entry);
@@ -249,13 +264,13 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     });
   }
 
-  function enqueue({ key, load, signal, priority, retain, timeoutMs }) {
+  function enqueue({ key, load, signal, priority, retain, timeoutMs, fingerprint }) {
     const existing = currentJob(key);
     if (existing) return subscribe(existing, signal);
     if (signal?.aborted) return Promise.reject(abortError(signal));
 
     const job = {
-      key, load, priority: Boolean(priority), retain, epoch, controller: new AbortController(),
+      key, load, priority: Boolean(priority), retain, fingerprint, epoch, controller: new AbortController(),
       subscribers: new Set(), running: false, finished: false, completed: false, terminalError: null, timer: null,
     };
     jobs.add(job);
@@ -270,7 +285,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
     return promise;
   }
 
-  async function read({ key, cached = false, signal, load, admit, priority = false, retain = true, timeoutMs = limits.jobTimeoutMs }) {
+  async function read({ key, cached = false, signal, load, admit, fingerprint, priority = false, retain = true, timeoutMs = limits.jobTimeoutMs }) {
     if (signal?.aborted) throw abortError(signal);
     expireEntries();
     if (!retain && cache.has(key)) removeEntry(cache.get(key));
@@ -294,7 +309,7 @@ export function createRoadmapSnapshotCoordinator(options = {}) {
       }
       if (cache.get(key) === entry) removeEntry(entry);
     }
-    return enqueue({ key, load, signal, priority, retain, timeoutMs });
+    return enqueue({ key, load, signal, priority, retain, timeoutMs, fingerprint });
   }
 
   function getManifest(id, key) {

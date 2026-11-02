@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createRoadmapSnapshotCoordinator, admitSnapshotSources } from "../package/minimap/src/roadmap-snapshots.js";
 
 test("cached source admission overlaps four checks, drains waves and checks every source", async () => {
@@ -57,6 +58,54 @@ function makeCoordinator(overrides = {}) {
 }
 
 const result = (value, manifest = { refs: [] }, admission = { root: "repo" }) => ({ value, manifest, admission });
+
+test("fingerprinted reads reuse only identical retained evidence while returning fresh counters", async () => {
+  const { coordinator } = makeCoordinator();
+  const fingerprint = ({ evidence }) => createHash("sha256").update(evidence).digest("hex");
+  const cold = await coordinator.read({ key: "related", load: async () => result({ evidence: "same", coverage: { bodyReads: 1 } }), fingerprint });
+  const warm = await coordinator.read({ key: "related", load: async () => result({ evidence: "same", coverage: { bodyReads: 0 } }), fingerprint });
+  assert.equal(warm.snapshot.id, cold.snapshot.id);
+  assert.equal(warm.value.coverage.bodyReads, 0);
+  const cached = await coordinator.read({ key: "related", cached: true, admit: async () => true,
+    load: () => assert.fail("Retained value remains available") });
+  assert.equal(cached.snapshot.id, cold.snapshot.id);
+  assert.equal(cached.value.coverage.bodyReads, 0, "retained response reports the latest validated scan counters");
+
+  const changed = await coordinator.read({ key: "related", load: async () => result({ evidence: "changed", coverage: { bodyReads: 0 } }), fingerprint });
+  assert.notEqual(changed.snapshot.id, warm.snapshot.id);
+  const changedAdmission = await coordinator.read({ key: "related", load: async () => result({ evidence: "changed", coverage: { bodyReads: 0 } }, { refs: [] }, { root: "other" }), fingerprint });
+  assert.notEqual(changedAdmission.snapshot.id, changed.snapshot.id);
+});
+
+test("fingerprint reuse requires a current same-epoch retained entry and counts digest bytes", async () => {
+  const { coordinator, setNow } = makeCoordinator({ maxEntries: 1, maxBytes: 4096, retainMs: 100 });
+  const fingerprint = () => "a".repeat(64);
+  const read = (key) => coordinator.read({ key, fingerprint, load: async () => result({ evidence: true }) });
+  const first = await read("same");
+  coordinator.invalidateAll();
+  const afterInvalidation = await read("same");
+  assert.notEqual(afterInvalidation.snapshot.id, first.snapshot.id);
+  setNow(1_101);
+  const afterExpiry = await read("same");
+  assert.notEqual(afterExpiry.snapshot.id, afterInvalidation.snapshot.id);
+  const other = await read("other");
+  assert.equal(coordinator.getManifest(afterExpiry.snapshot.id, "same"), null, "entry-count eviction removes digest and manifest together");
+  assert.ok(coordinator.getManifest(other.snapshot.id, "other"));
+
+  const { coordinator: bounded } = makeCoordinator({ maxBytes: 50 });
+  const tiny = () => bounded.read({ key: "tiny", fingerprint, load: async () => result({}) });
+  const a = await tiny();
+  const b = await tiny();
+  assert.notEqual(a.snapshot.id, b.snapshot.id, "digest bytes that exceed the metadata budget cannot be retained for reuse");
+  assert.equal(bounded.getManifest(a.snapshot.id, "tiny"), null);
+});
+
+test("unfingerprinted reads keep default generation replacement behavior", async () => {
+  const { coordinator } = makeCoordinator();
+  const first = await coordinator.read({ key: "default", load: async () => result({ same: true }) });
+  const second = await coordinator.read({ key: "default", load: async () => result({ same: true }) });
+  assert.notEqual(second.snapshot.id, first.snapshot.id);
+});
 
 test("related-work entry budget retains generations for 25 small source indexes", async () => {
   const { coordinator } = makeCoordinator({ maxEntries: 32, maxBytes: 16 * 1024 * 1024 });
