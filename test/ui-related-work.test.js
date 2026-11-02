@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAcrossRelatedWork, readAcrossRelatedWork, cacheAcrossRelatedWork, acrossRelatedWorkKey } from "../package/minimap/ui/related-work.js";
+import { createAcrossRelatedWork, readAcrossRelatedWork, cacheAcrossRelatedWork, acrossRelatedWorkKey, acrossRelatedWorkDisclosureKey } from "../package/minimap/ui/related-work.js";
 
 const version = (key) => ({ sourceKey: key, itemId: "feature", summary: { revision: `revision-${key}` },
   sourceContext: { sourceKey: key, repoRoot: `/${key}`, git: { headCommit: key, branchRef: `refs/heads/${key}` }, roadmapBinding: { path: "roadmap" } } });
@@ -8,6 +8,39 @@ const feature = (count = 2) => ({ key: "proven-feature", versions: Array.from({ 
 const record = (id, title = id) => ({ id, title, recordedState: "Blocked", pullRequests: [`https://github.com/a/b/pull/${id.length}`] });
 const page = (context, records, options = {}) => ({ status: "ok", records, generation: context.sourceKey, nextOffset: null,
   source: { repoRoot: context.repoRoot, sourceKey: context.sourceKey, headCommit: context.git.headCommit }, ...options });
+
+test("order-only source changes retain exact version pages without weakening read scope", async () => {
+  const input = feature(), reordered = { ...input, versions: [...input.versions].reverse() };
+  const before = acrossRelatedWorkDisclosureKey("repo", input);
+  assert.equal(acrossRelatedWorkDisclosureKey("repo", reordered), before);
+  assert.notEqual(acrossRelatedWorkKey("repo", reordered), acrossRelatedWorkKey("repo", input));
+  const initial = await readAcrossRelatedWork(createAcrossRelatedWork(input), { read: async (_, { sourceContext }) => page(sourceContext, [record("shared")]) });
+  const retained = createAcrossRelatedWork(reordered, false, { ...initial, visibleLimit: 40 });
+  assert.deepEqual(retained.states.map((state) => state.version.sourceKey), ["1", "0"]);
+  assert.equal(retained.states[0].result, initial.states[1].result);
+  assert.equal(retained.visibleLimit, 40);
+  const readUneven = async (_, { sourceContext }) => page(sourceContext,
+    Array.from({ length: 20 }, (_, index) => record(String(index + Number(sourceContext.sourceKey)).padStart(2, "0"))));
+  const uneven = await readAcrossRelatedWork(createAcrossRelatedWork(input), { read: readUneven });
+  const reorderedPages = createAcrossRelatedWork(reordered, false, uneven);
+  assert.deepEqual(reorderedPages.records.map((entry) => entry.id), uneven.records.map((entry) => entry.id));
+  const checked = await readAcrossRelatedWork(reorderedPages, { read: readUneven });
+  assert.deepEqual(checked.records.map((entry) => entry.id), uneven.records.map((entry) => entry.id));
+  assert.deepEqual(checked.records[1].versions.map((entry) => entry.sourceContext.sourceKey), ["1", "0"]);
+  for (const mutate of [
+    (f) => { f.key = "other"; }, (f) => { f.versions[0].summary.revision = "changed"; },
+    (f) => { f.versions[0].sourceContext.git.headCommit = "changed"; },
+    (f) => { f.versions[0].sourceContext.roadmapBinding.path = "other"; },
+    (f) => { f.versions[0].itemId = "other"; }, (f) => { f.versions.pop(); },
+  ]) {
+    const changed = structuredClone(input); mutate(changed);
+    assert.notEqual(acrossRelatedWorkDisclosureKey("repo", changed), before);
+  }
+  assert.notEqual(acrossRelatedWorkDisclosureKey("other", input), before);
+  assert.notEqual(acrossRelatedWorkDisclosureKey("repo", input, true), before);
+  const changed = structuredClone(input); changed.versions[0].summary.revision = "changed";
+  assert.equal(createAcrossRelatedWork(changed, false, initial).states[0].result, undefined);
+});
 
 test("empty main includes sibling tasks and exact duplicate IDs preserve divergent versions", async () => {
   assert.equal(createAcrossRelatedWork(undefined).incomplete, true);

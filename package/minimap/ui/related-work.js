@@ -7,7 +7,14 @@ export function acrossRelatedWorkKey(repo, feature, provisional = false) {
     relatedWorkSources(feature).map((version) => [version.sourceContext, version.itemId, version.summary.revision])]);
 }
 
-function project(states, visibleLimit, provisional) {
+const sourceVersionKey = (version) => JSON.stringify([version.sourceContext, version.itemId, version.summary.revision]);
+
+export function acrossRelatedWorkDisclosureKey(repo, feature, provisional = false) {
+  return JSON.stringify([repo, "across-related", feature?.key, provisional,
+    relatedWorkSources(feature).map(sourceVersionKey).sort()]);
+}
+
+function project(states, visibleLimit, provisional, recordOrder = null) {
   const byId = new Map();
   const coverage = {};
   for (const state of states) {
@@ -21,9 +28,13 @@ function project(states, visibleLimit, provisional) {
     }
   }
   const all = [...byId.values()];
+  if (recordOrder) {
+    const ranks = new Map(recordOrder.map((id, index) => [id, index]));
+    all.sort((a, b) => (ranks.get(a.id) ?? Infinity) - (ranks.get(b.id) ?? Infinity));
+  }
   const incomplete = provisional || !states.length || states.some((state) => state.error || state.result?.status !== "ok" || state.result.nextOffset != null);
   const failed = states.some((state) => state.error || ["unavailable", "stale"].includes(state.result?.status));
-  return { across: true, states, provisional, visibleLimit, records: all.slice(0, visibleLimit), total: all.length, incomplete,
+  return { across: true, states, provisional, visibleLimit, recordOrder, records: all.slice(0, visibleLimit), total: all.length, incomplete,
     status: failed && all.length ? "stale" : states.some((state) => state.error || state.result?.status !== "ok") || provisional || !states.length ? "partial" : "ok",
     coverage, nextOffset: all.length > visibleLimit || states.some((state) => state.result?.nextOffset != null) ? visibleLimit : null,
     notices: states.filter((state) => state.notice).map((state) => `${state.version.sourceContext.repoRoot}: ${state.notice}`),
@@ -31,19 +42,22 @@ function project(states, visibleLimit, provisional) {
     generation: JSON.stringify(states.map((state) => [state.version.sourceKey, state.result?.generation])) };
 }
 
-export function createAcrossRelatedWork(feature, provisional = false) {
-  return project(relatedWorkSources(feature).map((version) => ({ version })), 20, provisional);
+export function createAcrossRelatedWork(feature, provisional = false, previous = null) {
+  const retained = new Map((previous?.states || []).map((state) => [sourceVersionKey(state.version), state]));
+  const recordOrder = previous ? previous.recordOrder || [...new Set(previous.states.flatMap((state) => (state.result?.records || []).map((record) => record.id)))] : null;
+  return project(relatedWorkSources(feature).map((version) => ({ ...retained.get(sourceVersionKey(version)), version })),
+    previous?.visibleLimit || 20, provisional, recordOrder);
 }
 
 export function cacheAcrossRelatedWork(view) {
-  return project(view.states.map((state) => ({ ...state, result: state.firstPage || state.result })), 20, view.provisional);
+  return project(view.states.map((state) => ({ ...state, result: state.firstPage || state.result })), 20, view.provisional, view.recordOrder);
 }
 
 export async function readAcrossRelatedWork(previous, { read, signal, fresh = false, append = false } = {}) {
   const states = previous.states.map((state) => ({ ...state }));
   const visibleLimit = append ? previous.visibleLimit + 20 : previous.visibleLimit;
   // Show already-loaded rows before asking any source for another page.
-  if (append && previous.total > previous.visibleLimit) return project(states, visibleLimit, previous.provisional);
+  if (append && previous.total > previous.visibleLimit) return project(states, visibleLimit, previous.provisional, previous.recordOrder);
   let next = 0;
   const worker = async () => {
     while (next < states.length) {
@@ -87,5 +101,5 @@ export async function readAcrossRelatedWork(previous, { read, signal, fresh = fa
   };
   await Promise.all(Array.from({ length: Math.min(4, states.length) }, worker));
   signal?.throwIfAborted();
-  return project(states, visibleLimit, previous.provisional);
+  return project(states, visibleLimit, previous.provisional, previous.recordOrder);
 }

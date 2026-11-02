@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { resolveRoadmapItemReference } from "../package/minimap/src/pallium.js";
+import { expandWorktreePayload } from "../package/minimap/ui/worktree-payload.js";
 
 const template = JSON.parse(await fs.readFile(new URL("../test/work-record/fixtures/relationships.json", import.meta.url), "utf8")).record_template;
 const git = (repo, ...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", windowsHide: true, stdio: "pipe" }).trim();
@@ -42,6 +43,81 @@ async function fixture() {
   }
   return { owned, root, sibling };
 }
+
+test("linked task controls survive title convergence, peer transitions and source reorder", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const { owned, root, sibling } = await fixture();
+  const peerPath = path.join(sibling, ".agent-workflow/tasks/delivery-01.md");
+  const peer = await fs.readFile(peerPath, "utf8");
+  let reorder = false, held = false, started = 0, release = () => {};
+  let workspaceStarted = 0, releaseWorkspace = () => {};
+  try {
+    await fs.unlink(peerPath);
+    await page.route("**/api/source/items/sample-01/related-work**", async (route) => {
+      if (new URL(route.request().url()).searchParams.has("record")) return route.continue();
+      const response = await route.fetch(), result = await response.json();
+      if (held) { started++; await new Promise((resolve) => { const previous = release; release = () => { previous(); resolve(); }; }); }
+      await route.fulfill({ response, json: result });
+    });
+    await page.route("**/api/worktree-workspace**", async (route) => {
+      const response = await route.fetch(), result = expandWorktreePayload(await response.json());
+      if (reorder) {
+        for (const feature of result.features) feature.versions.reverse();
+        for (const group of result.groups) for (const row of group.items) row.versions.reverse();
+        workspaceStarted++; await new Promise((resolve) => { releaseWorkspace = resolve; });
+      }
+      await route.fulfill({ response, json: result });
+    });
+    await page.goto(`/#repo=${encodeURIComponent(root)}&sources=across&item=sample-01&layout=list`);
+    await expect(page.locator("#related-work > summary")).toHaveText("Linked tasks (21+)");
+    await page.locator("#related-work > summary").click();
+    const first = page.locator(".related-work-row").filter({ hasText: "Delivery 01" });
+    const second = page.locator(".related-work-row").filter({ hasText: "Delivery 02" });
+    await second.getByText("2 worktree versions", { exact: true }).click();
+    const main = first.locator(".related-work-version").filter({ hasText: "Worktree: main" });
+    const blue = second.locator(".related-work-version").filter({ hasText: "Worktree: feature/blue" });
+    await main.locator(".related-pr-more > summary").click();
+    await blue.locator(".related-pr-more > summary").click();
+    const mainOpen = main.locator("[data-related-record]"), blueOpen = blue.locator("[data-related-record]");
+    await expect(first.locator(".related-work-version")).toHaveCount(1);
+    await mainOpen.evaluate((node) => { window.__mainOpen = node; });
+    await blueOpen.evaluate((node) => { window.__blueOpen = node; });
+    const refresh = async (button, board = false) => {
+      started = 0; held = true;
+      await page.locator(board ? "#refresh-button" : "[data-related-refresh]").click();
+      if (board) {
+        await expect.poll(() => workspaceStarted).toBe(1);
+        await button.focus(); releaseWorkspace();
+      }
+      await expect.poll(() => started).toBe(2);
+      await button.focus(); held = false; release(); release = () => {};
+      await expect(page.locator("[data-related-refresh]")).toBeEnabled();
+      await expect(button).toBeFocused();
+      expect(await mainOpen.evaluate((node) => node === window.__mainOpen)).toBe(true);
+      expect(await blueOpen.evaluate((node) => node === window.__blueOpen)).toBe(true);
+      await expect(main.locator(".related-pr-more")).toHaveAttribute("open", "");
+      await expect(blue.locator(".related-pr-more")).toHaveAttribute("open", "");
+    };
+    const titlePath = path.join(sibling, ".agent-workflow/tasks/delivery-02.md");
+    await fs.writeFile(titlePath, (await fs.readFile(titlePath, "utf8")).replace("Different saved delivery title", "Delivery 02"));
+    await refresh(blueOpen);
+    await expect(blue.locator(".related-work-version-title")).toHaveCount(0);
+    await fs.writeFile(peerPath, peer); await refresh(mainOpen);
+    await expect(first.locator(".related-work-version")).toHaveCount(2);
+    await fs.unlink(peerPath); await refresh(mainOpen);
+    await expect(first.locator(".related-work-version")).toHaveCount(1);
+    await expect(mainOpen).toBeVisible();
+    reorder = true; await refresh(mainOpen, true);
+    await expect(second.locator(".related-work-version").first()).toContainText("Worktree: feature/blue");
+    await page.screenshot({ path: testInfo.outputPath("linked-single-and-reordered.png") });
+    await blueOpen.press("Enter");
+    await expect(page.locator("#related-record-title")).toHaveText("Delivery 02");
+    await expect(page.locator("#related-record-meta")).toContainText("Blocked");
+  } finally {
+    held = false; release(); releaseWorkspace(); await page.goto("about:blank").catch(() => {});
+    await fs.rm(owned, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
 
 test("dense linked tasks retain disclosures, focus, scroll and the physical Open click through refresh", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
