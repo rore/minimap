@@ -85,6 +85,12 @@ const relatedWorkSnapshots = createRoadmapSnapshotCoordinator({ limits: { maxEnt
 const scanRelatedWork = createRelatedWorkScanner();
 const relatedWorkLastGood = new Map();
 
+function relatedWorkFingerprint(value) {
+  const coverage = { ...value.coverage };
+  delete coverage.bodyReads;
+  return createHash("sha256").update(JSON.stringify({ ...value, coverage })).digest("hex");
+}
+
 const runtimeIdentity = await readRuntimeIdentity(__filename);
 const serverVersion = runtimeIdentity.version;
 lifecycleLog = createLifecycleLog({ ...runtimeIdentity, launchMode });
@@ -1070,7 +1076,7 @@ async function handleRelatedWork(request, response, ctx) {
     } else {
       try {
         const read = await relatedWorkSnapshots.read({ key, cached: ctx.url.searchParams.get("fresh") !== "1",
-          admit: () => true, signal, load: async ({ signal: scanSignal }) => {
+          admit: () => true, signal, fingerprint: relatedWorkFingerprint, load: async ({ signal: scanSignal }) => {
           const value = await scanRelatedWork(repoRoot, { signal: scanSignal, sourceCommit: source.git.headCommit });
           if (await workflowConfigFingerprint(repoRoot, { signal: scanSignal }) !== configHash
             || (value.configHash && value.configHash !== configHash)) {
@@ -1091,7 +1097,7 @@ async function handleRelatedWork(request, response, ctx) {
         index = read.value;
         generation = read.snapshot.id;
         if (read.snapshot.stale) index = { ...index, status: "stale", reason: "validation_due", staleSince: read.snapshot.validatedAt };
-        if (index.status === "ok" && relatedWorkLastGood.get(key)?.id !== generation) {
+        if (index.status === "ok" && (ctx.url.searchParams.get("fresh") === "1" || relatedWorkLastGood.get(key)?.id !== generation)) {
           relatedWorkLastGood.delete(key);
           relatedWorkLastGood.set(key, { id: generation, validatedAt: read.snapshot.validatedAt });
           if (relatedWorkLastGood.size > 16) relatedWorkLastGood.delete(relatedWorkLastGood.keys().next().value);
