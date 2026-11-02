@@ -1,16 +1,16 @@
 # plan-and-review
 
-Write the plan, then a reviewer (self / clean-context agent / human) signs off before implementation.
+Write the plan; complete risk-appropriate reviews before implementation.
 
 ## Fields
 
-**Compact (routine) shape — two fields:**
+**Compact:**
 - **Approach** — one or two lines naming the implementation strategy. Concrete enough that a reviewer can predict the diff.
 - **Verification** — the test or CI job that proves the completion criterion. Name the test class or job, not "unit tests."
 
 Self-review is sufficient; no Plan review field on compact.
 
-**Expanded shape — four fields:**
+**Expanded:**
 - **Plan** — approach + sequence + deviations + stop conditions, including:
   - *Key conventions:* naming patterns, existing utilities, or architectural rules this implementation must follow (surfaced during discovery).
   - *Target files or classes:* specific locations in scope, derived from the repository's conventions.
@@ -45,9 +45,9 @@ Record `Agent technical review: <source ref>` in Plan review for Elevated/High. 
 
 ## Hand-off readiness
 
-Before `Ready to implement`:
-- Compact: Approach and Verification both populated.
-- Expanded: Plan, Verification plan, Plan review populated. Approvals populated when Risk is High.
+Before `Ready to implement`, populate compact Approach/Verification or expanded Plan/Verification plan/Plan review, plus High-risk Approvals.
+
+Before assigning implementation, record settled caller-visible behavior decisions or precise authoritative links in this Work Record; keep them current under [existing change rules](behavioral-integrity.md), never rewriting the original baseline.
 
 Checker predicates: `workrecord.routine_fields_present` (compact) / `workrecord.expanded_fields_present` (expanded).
 

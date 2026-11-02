@@ -22,7 +22,7 @@
 **Plan review:** Agent technical review: independent destination plan review approved 15253df80de8703997abf094db3c8441cc833489 with no blocking compatibility finding. Existing resolver and branch-derived guards already implement the clarified ownership mechanics; the installed behavioral-integrity guide supports the handoff rule, authority and unchanged baseline. Relative-link targets and referenced sections exist in both mirrors. Exact pinned text, accurate local manifests, preserved fingerprints, scope checks, fresh governance, independent result review and PR CI are adequate. Reuse unchanged upstream PR62 source result review a87de2378b68b8808878076c5454574620bda215 and PR63 result review 268b302a62e7146d8be66479b24f0b99bdd1e0a4; human destination plan approval remains separate.
 **Approvals:** Approved by user 2026-11-02: "Approve the Minimap plan". The owner forwarded this exact human decision for reviewed six-file plan 15253df80de8703997abf094db3c8441cc833489. It authorizes this implementation/qualification, not a broader runtime, hook, configuration or live installation change.
 **Exceptions:** —
-**State:** Ready to implement
+**State:** Ready for review
 <!-- agent-workflow:end -->
 
 ## Implementation and recovery
@@ -36,6 +36,12 @@ Independent technical plan review is now complete and approved at 15253df80de870
 Resume: the owner forwarded the exact human approval above for the reviewed six-file plan. The earlier waiting notes are historical, not the current gate. Begin only the two pinned guidance copies plus their two local manifest rows per root, after recoverable originals and fingerprints are retained privately. Independent destination result review and required PR CI still follow implementation.
 
 Only the assigned checkout changed; other checkouts were not modified. Private scope evidence is retained locally.
+
+Implementation and verification: recoverable originals were saved privately after exact preflight hash checks. Applied the four guidance copies directly from immutable pinned Git blobs and changed only their two manifest size entries per root. Focused verification passes: four exact pinned guidance copies, 77 accurate entries in each manifest, 78 matching tracked files per mirror, 150 unchanged non-target skill files and 32 existing local relative links. Exact base-to-working-tree allowlist contains the six approved consumer files and this record only; historical records, runtime/checker, hooks, root scripts and config are unchanged. git diff --check passes. No product/UI tests or mirror-generation command ran locally because product/runtime files did not change. Destination result review and fresh governance/PR CI follow; no live-use adoption is claimed.
+
+## Evidence
+
+The focused destination verification passed against the six-file implementation: pinned guidance bytes, complete local manifest sizes, preserved bytes/rows and mirror/link/scope checks above. Upstream instruction budgets and source reviews are reused only for identical guidance; the mixed consumer package is not represented as a complete upstream pin. Private originals, fingerprint/allowlist evidence and read-only checkout inventory remain ignored. Required PR CI and separate human result/architecture acceptance remain pending.
 
 ## Checkpoint: architecture-review
 
