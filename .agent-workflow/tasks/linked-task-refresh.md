@@ -20,10 +20,10 @@
 - Compact readable real-board layout -> inspected desktop/narrow List/Columns captures with many items, lanes, milestones and task versions.
 - Packaging and complete required regression gate -> sync-mirrors and required CI test.
 **Behavior changes:** [{"target":"repository-contract","path":"playwright/linked-task-refresh.spec.js","classification":"coverage-only","before":"No dedicated refresh-during-interaction linked-task regression covers nested disclosures and first Open.","after":"Add realistic task-version refresh, focus/scroll, source identity, stale response and layout coverage without changing existing assertions.","reason":"Protect the assigned interaction fix and preserve existing source and revision safety."}]
-**Plan review:** linked_plan_review requested two narrow refinements: ignore only operational bodyReads for unchanged evidence, and clear last-good failure after actual successful fresh validation even when the generation is reused. Revised plan is pending technical/owner review; no product edits permitted yet.
+**Plan review:** Agent technical review: linked_plan_review APPROVE revised plan at a395bf9. Both cold-to-warm operational-counter and reused-generation failure-recovery findings are addressed; retained-entry guards, bounded digest accounting and physical pointer-interaction regressions are adequate. Owner was informed of the exact mechanical refinement under the already assigned requirements; no API, safety guarantee or outcome departure is proposed. This is plan approval, not implementation acceptance.
 **Approvals:** Not required at this risk level; task owner explicitly assigned this scoped fix. No live changes authorized.
 **Exceptions:** —
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation
@@ -31,6 +31,8 @@
 Created isolated branch feat/linked-task-refresh from current main 468997992ebbd455a59f77cd06580a82c8c05912. This Work Record and immutable requirement baseline precede product edits. Initial planning gate is pending focused discovery and independent technical review, not human approval. Canonical source: roadmap/features/show-feature-related-work.md; its broader unfinished rollout is not owned by this fix.
 
 Discovery: a bounded read-only cheaper-model diagnosis confirms the manifest-rollover interleaving and the lack of client evidence for a safe retry. Default coordinator behavior stays untouched. Plan review caught cold-to-warm coverage.bodyReads changing without content changes and reused-generation repair retaining failed-refresh metadata. The revised scoped fingerprint excludes only that operational counter, retains all evidence and resource guards, and fixes actual fresh-success failure clearing without cached false success. The owner received the exact refinement; implementation awaits targeted technical review. No product/test implementation has started.
+
+Implementation start: independent revised plan approval received before product edits. Parent owns app.js/styles.css/related-work identity UI and new playwright/linked-task-refresh.spec.js. A bounded cheaper-model backend subtask owns only src/roadmap-snapshots.js, server.js, test/roadmap-snapshots.test.js and a dedicated test/related-work-generation.test.js so the existing 30-second integration test is not enlarged or relaxed. Both runtime trees remain generated and parent-owned. Backend must retain fail-before evidence for benign generation rollover, then prove unchanged and changed-byte/source safety/recovery with existing assertions intact. No subtask may push, deploy or modify unrelated files.
 
 ## Checkpoint: architecture-review
 
