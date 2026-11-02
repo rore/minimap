@@ -62,7 +62,13 @@ Real-server generation rollover and UI disclosure regressions failed before thei
 
 ## Result review
 
-Backend-only technical review: linked_plan_review APPROVE inspected working-tree fingerprint/recovery implementation after parent corrections; no actionable findings. Existing safety guards, opt-in/default behavior and bounded retention are preserved. Reviewer inspected fail-before/pass-after evidence and did not rerun tests. Whole UI/result and verification-adequacy review pending.
+Agent technical review: independent linked-task correction result review, approved with no remaining must-fix findings.
+
+Reviewed revision: 31b6eec85a8e3f41c94b771818afad9000d6e43a.
+
+Verification adequacy: the 12 final focused checks cover the new repeated-reorder/More boundary and mirror parity. The previously approved backend, four actual browser cases and inspected visual captures remain applicable; the browser run predates only the narrowly unit-tested projection correction. No independent test reruns were needed. Full required Linux CI, separate human result acceptance and the architecture checkpoint remain owner gates, not implied by technical approval.
+
+Earlier backend-only technical review: linked_plan_review APPROVE inspected working-tree fingerprint/recovery implementation after parent corrections; no actionable findings. Existing safety guards, opt-in/default behavior and bounded retention are preserved. Reviewer inspected fail-before/pass-after evidence and did not rerun tests. The final correction result review above supersedes the earlier pending whole-result state.
 
 Targeted correction review identified one further order persistence edge: after an exact-set reorder, More could load previously unranked rows that a second reorder displaced. Each projection now extends and prunes the retained order to exactly its currently loaded unique IDs; a More-to-second-reorder regression protects the boundary. This refines the same view-local mechanism, without global sorting or weakening source checks. Focused final verification passes 12/12, including that regression, related-work units, HTML/promise lints and mirror parity. Four browser cases and inspected final captures pass on application 94129729e35ae39555e26e4878969ed1db532d74; the subsequent projection-only correction is covered by the new focused regression. Final targeted independent review and full required CI remain pending.
 
