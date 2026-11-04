@@ -1,10 +1,8 @@
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { readGit } from "./git-reads.js";
 
-const execFileAsync = promisify(execFile);
 const PAGE_SIZE = 50;
 const MAX_PARTICIPANTS = 200;
 const MAX_PAGE_BYTES = 128 * 1024;
@@ -212,15 +210,12 @@ export function isTrustedLocalRequest(request) {
 export const isTrustedParticipantRequest = isTrustedLocalRequest;
 
 async function runGit(args, cwd, signal) {
-  const result = await execFileAsync("git", args, {
-    cwd,
+  const stdout = await readGit(cwd, args, {
     timeout: 2000,
     maxBuffer: 64 * 1024,
-    windowsHide: true,
-    shell: false,
     signal,
   });
-  return String(result.stdout || "").replace(/[\r\n]+$/, "");
+  return String(stdout || "").replace(/[\r\n]+$/, "");
 }
 
 function encodedRoadmapRoot(gitRoot, roadmapRoot) {
