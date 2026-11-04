@@ -198,6 +198,8 @@ for (const result of ["delayed", "failed"]) {
     test.setTimeout(60_000);
     const data = await fixture(true);
     await openAcross(page, data);
+    const loadedSource = await page.locator('[data-editor-source][aria-pressed="true"]').getAttribute("data-editor-source");
+    const loadedSummary = await page.locator("#editor-source-summary").textContent();
     const gate = await responseGate(page, /\/api\/source\/items\/alpha$/, (request) => request.method() === "GET",
       result === "failed" ? () => JSON.stringify({ error: { code: "unavailable", message: "Sibling load failed" } }) : (body) => body,
       result === "failed" ? 503 : undefined);
@@ -205,14 +207,13 @@ for (const result of ["delayed", "failed"]) {
     await page.locator("[data-editor-source]").filter({ hasText: "feature/blue" }).click();
     await gate.started;
     await expect(page.locator("#item-preview")).toContainText("alpha body.");
-    if (result === "delayed") await expect(page.locator("#open-in-spec-button")).toBeDisabled();
+    await expect(page.locator("#open-in-spec-button")).toBeDisabled();
     await settle(page, gate);
     if (result === "failed") {
       await expect(page.locator("#status-banner")).toContainText("Sibling load failed");
       await expect(page.locator("#item-preview")).toContainText("alpha body.");
-      await expect(page.locator("#open-in-spec-button")).toBeDisabled();
-      await page.locator("#editor-source-summary").click();
-      await page.locator("[data-editor-source]").filter({ hasText: "main" }).click();
+      await expect(page.locator("#editor-source-summary")).toHaveText(loadedSummary);
+      await expect(page.locator('[data-editor-source][aria-pressed="true"]')).toHaveAttribute("data-editor-source", loadedSource);
     } else {
       await expect(page.locator("#item-preview")).toContainText("Selected sibling body.");
     }

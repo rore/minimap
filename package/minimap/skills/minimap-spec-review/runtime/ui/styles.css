@@ -4710,6 +4710,27 @@ body[data-setup-mode="true"] .setup-side-stack {
 }
 
 
+.item-opening-status {
+  position: fixed;
+  z-index: 41;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(480px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-small);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
 .editor-overlay {
   position: fixed;
   inset: 0;

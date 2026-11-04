@@ -219,10 +219,12 @@ let boardDraftRevision = null;
 let scopeDraftRevision = null;
 let loadedItemSource = null;
 let loadedBoardAppearance = null;
+let itemOpeningIntent = null;
 const projectCurrentWorktrees = createWorktreeProjector();
 let sourceInventoryRequest = null;
 
 const roadmapModeButton = document.querySelector("#roadmap-mode-button");
+const itemOpeningStatusElement = document.querySelector("#item-opening-status");
 const specModeButton = document.querySelector("#spec-mode-button");
 const specWorkbenchElement = document.querySelector("#spec-workbench");
 const specSidebarElement = document.querySelector("#spec-sidebar");
@@ -3709,6 +3711,7 @@ function renderScope() {
 }
 
 function setDirtyState(kind, value) {
+  if (value) cancelPendingItemLoad();
   if (kind === "structured") {
     state.dirtyStructured = value;
   }
@@ -3744,6 +3747,7 @@ function isAbortError(error) {
 }
 
 function invalidateItemRequests({ preserveParticipantKey = null } = {}) {
+  clearItemOpeningStatus();
   state.itemLoadGeneration += 1;
   state.itemLoadController?.abort();
   const preservedRequest = preserveParticipantKey && participantReadRequests.get(preserveParticipantKey);
@@ -3755,6 +3759,39 @@ function invalidateItemRequests({ preserveParticipantKey = null } = {}) {
   if (!keepParticipantRequest) state.itemParticipantsController = null;
   state.itemParticipants = null;
   renderItemParticipants();
+}
+
+function clearItemOpeningStatus(intent = itemOpeningIntent) {
+  if (!intent || intent !== itemOpeningIntent) return;
+  clearTimeout(intent.openingTimer);
+  itemOpeningIntent = null;
+  itemOpeningStatusElement.hidden = true;
+  itemOpeningStatusElement.textContent = "";
+}
+
+function showItemOpeningStatus(intent, title) {
+  itemOpeningIntent = intent;
+  intent.openingTimer = setTimeout(() => {
+    if (itemOpeningIntent !== intent || !itemIntentIsCurrent(intent) || state.appMode !== "roadmap") return;
+    itemOpeningStatusElement.hidden = false;
+    itemOpeningStatusElement.textContent = `Opening ${title || intent.itemId}…`;
+  }, 50);
+}
+
+function restoreLoadedItemSource({ resumeDetails = true } = {}) {
+  if (state.currentItem) state.selectedSource = loadedItemSource;
+  renderEditorSourceSelect();
+  renderEditorChrome();
+  if (resumeDetails && state.currentItem && state.appMode === "roadmap") {
+    void refreshRelatedWork();
+    void loadItemParticipants(state.selectedItemId);
+  }
+}
+
+function cancelPendingItemLoad(options) {
+  if (!state.itemLoadController) return;
+  invalidateItemRequests();
+  restoreLoadedItemSource(options);
 }
 
 function beginItemLoad(itemId) {
@@ -4582,7 +4619,7 @@ function renderEditorSourceSelect() {
   const versions = feature ? [...new Map(feature.versions.map((version) => [version.sourceKey, version])).values()] : [];
   editorSourceLabelElement.hidden = state.worktreeMode !== "across" || versions.length === 0;
   const matchingSources = new Set(card?.matchingVersions?.map((version) => version.sourceKey) || []);
-  const selected = versions.find((version) => version.sourceKey === state.selectedSource?.sourceKey) || versions[0];
+  const selected = versions.find((version) => version.sourceKey === loadedItemSource?.sourceKey) || versions[0];
   const branchName = (version) => version?.sourceContext.git.branchRef?.replace(/^refs\/heads\//, "") || version?.sourceContext.git.headCommit.slice(0, 8) || "Unavailable worktree";
   editorSourceSummaryElement.textContent = `${versions.length === 1 ? "Worktree" : `${versions.length} versions`}${recordedStatusSummary(card).differs ? " · Statuses differ" : ""} · ${branchName(selected)}`;
   editorSourceSummaryElement.title = branchName(selected);
@@ -5228,6 +5265,7 @@ async function setSpecSuggestionStatus(suggestionId, action) {
 }
 
 async function switchAppMode(nextMode) {
+  if (nextMode === "spec") cancelPendingItemLoad({ resumeDetails: false });
   if (state.appMode !== nextMode) specLoadGeneration += 1;
   state.appMode = nextMode;
   applyAppMode();
@@ -5353,6 +5391,7 @@ async function applyRouteStateFromLocation() {
   }
   if (discardDraft) resetAncillaryEditModes();
   let route = readRouteState();
+  if (route.view === "spec") cancelPendingItemLoad({ resumeDetails: false });
   if ((route.view === "spec" ? "spec" : "roadmap") !== state.appMode) specLoadGeneration += 1;
   if (route.itemId && route.sourceKey && route.sources === "across") {
     state.preferredVersions.set(route.itemId, { sourceKey: route.sourceKey, gitRef: route.sourceRef });
@@ -5815,6 +5854,7 @@ async function loadWorkspace(preferredItemId = state.selectedItemId, options = {
 async function loadItem(itemId, rerenderBoard = true, options = {}) {
   const previousItem = state.currentItem;
   const previousItemId = state.selectedItemId;
+  const previousEditorMode = state.editorMode;
   if (options.mode) {
     state.editorMode = normalizeEditorMode(options.mode);
   }
@@ -5841,6 +5881,7 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
   }
   if (version) state.selectedSource = version.sourceContext;
   const intent = beginItemLoad(itemId);
+  if (options.userInitiated) showItemOpeningStatus(intent, card?.metadata?.title || getBoardItemById(itemId)?.metadata?.title);
   const keepAcrossRelated = state.worktreeMode === "across" && relatedWorkView.disclosureKey === currentRelatedDisclosureKey(itemId);
   if (relatedWorkRequest && (state.worktreeMode === "across" ? relatedWorkRequest.key !== currentRelatedReadKey(itemId)
     : relatedWorkRequest.displayItemId !== itemId || relatedWorkRequest.consumer?.scope !== currentReadScopeKey())) {
@@ -5871,9 +5912,16 @@ async function loadItem(itemId, rerenderBoard = true, options = {}) {
     }
     clearTransientBanner();
     void loadItemParticipants(itemId, intent.generation, { forceFresh: options.forceFreshParticipants === true });
+    return intent;
   } catch (error) {
-    if (!isAbortError(error) && itemIntentIsCurrent(intent)) setBanner(error.message, "error");
+    if (itemIntentIsCurrent(intent)) {
+      state.editorMode = previousEditorMode;
+      restoreLoadedItemSource();
+      applyEditorMode();
+      if (!isAbortError(error)) setBanner(error.message, "error");
+    }
   } finally {
+    clearItemOpeningStatus(intent);
     if (state.itemLoadController === intent.controller) state.itemLoadController = null;
   }
 }
@@ -5887,6 +5935,7 @@ async function openBoardItemPreview(itemId) {
     boardPageScrollBeforeEditor = { viewKey: currentBoardViewKey(), offset: boardPageOffset() };
   }
   if (itemId === state.selectedItemId && state.currentItem) {
+    cancelPendingItemLoad();
     state.editorOverlayOpen = useOverlay;
     void loadItemParticipants(itemId);
     switchEditorMode("preview", { replaceRoute: false });
@@ -5903,8 +5952,8 @@ async function openBoardItemPreview(itemId) {
     return;
   }
 
-  await loadItem(itemId, true, { mode: "preview", openOverlay: useOverlay });
-  if (!useOverlay && isStackedLayout()) {
+  const intent = await loadItem(itemId, true, { mode: "preview", openOverlay: useOverlay, userInitiated: true });
+  if (state.appMode === "roadmap" && itemIntentIsCurrent(intent, { requireSelected: true }) && !useOverlay && isStackedLayout()) {
     scrollPanelIntoView(editorPanelElement);
   }
 }
@@ -6013,12 +6062,14 @@ function switchEditorMode(nextMode, options = {}) {
   if (!canSwitchEditorMode(nextMode)) {
     return;
   }
+  const editSource = state.itemLoadController ? loadedItemSource : state.selectedSource;
   if (state.worktreeMode === "across" && nextMode !== "preview" && state.currentItem
     && (state.confirmedEditSource?.itemId !== state.selectedItemId
-      || state.confirmedEditSource?.sourceKey !== state.selectedSource?.sourceKey)) {
-    if (!state.selectedSource || !window.confirm(`Edit only ${state.selectedSource.repoRoot}? Other worktree versions will not change.`)) return;
-    state.confirmedEditSource = { itemId: state.selectedItemId, sourceKey: state.selectedSource.sourceKey };
+      || state.confirmedEditSource?.sourceKey !== editSource?.sourceKey)) {
+    if (!editSource || !window.confirm(`Edit only ${editSource.repoRoot}? Other worktree versions will not change.`)) return;
+    state.confirmedEditSource = { itemId: state.selectedItemId, sourceKey: editSource.sourceKey };
   }
+  if (nextMode !== "preview") cancelPendingItemLoad();
 
   if (currentModeFamily(state.editorMode) === "structured" && currentModeFamily(nextMode) === "raw") {
     setDirtyState("structured", false);
@@ -7127,17 +7178,24 @@ for (const button of modeButtons) {
 
 editorSourceSelectElement.addEventListener("click", (event) => {
   const button = event.target.closest("[data-editor-source]");
-  if (!button || button.getAttribute("aria-pressed") === "true") return;
+  if (!button) return;
   const itemId = state.selectedItemId;
   if (!itemId) return;
+  if (button.getAttribute("aria-pressed") === "true") {
+    if (state.itemLoadController) {
+      rememberPreferredVersion(itemId, loadedItemSource);
+      cancelPendingItemLoad();
+      editorSourceLabelElement.open = false;
+    }
+    return;
+  }
   if (hasUnsavedCurrentItemChanges() && !window.confirm("Discard unsaved changes before opening another worktree version?")) {
     return;
   }
   const selected = state.worktreeData?.sources.find((source) => source.sourceKey === button.dataset.editorSource);
   if (selected) rememberPreferredVersion(itemId, selected);
-  state.confirmedEditSource = null;
   editorSourceLabelElement.open = false;
-  void loadItem(itemId, true, { mode: "preview", openOverlay: state.editorOverlayOpen });
+  void loadItem(itemId, true, { mode: "preview", openOverlay: state.editorOverlayOpen, userInitiated: true });
 });
 
 window.addEventListener("hashchange", () => {
