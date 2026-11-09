@@ -7,7 +7,7 @@
 **Constraints:** Copy only the exact reviewed guidance from upstream 2ba0041978448f09099639eb590263c6f2ba8912. Preserve all unrelated installed bytes, manifest rows, customizations, dirty work and historical evidence. No runtime, hook, checker, configuration, service or global installation changes. The manager owns merge and local alignment.
 **Completion criteria:** Both guidance copies match the pinned upstream blob; complete manifests describe actual installed bytes; all non-target bytes and rows remain unchanged; relative links, exact scope, independent destination review and required repository checks pass.
 **Requirement baseline:** {"source":"Owner-assigned upstream PR64 consumer refresh, 2026-11-09","outcome":"Both repository-managed Agent Workflow mirrors instruct reviewers to use fixed inputs during concurrent owner edits.","scope":"templates/checkpoints/review-result.md and its existing manifest.txt byte-count row in both .agents/skills/agent-workflow and .claude/skills/agent-workflow, plus this Work Record.","constraints":"Copy only the exact reviewed guidance from upstream 2ba0041978448f09099639eb590263c6f2ba8912. Preserve all unrelated installed bytes, manifest rows, customizations, dirty work and historical evidence. No runtime, hook, checker, configuration, service or global installation changes. The manager owns merge and local alignment.","completion_criteria":"Both guidance copies match the pinned upstream blob; complete manifests describe actual installed bytes; all non-target bytes and rows remain unchanged; relative links, exact scope, independent destination review and required repository checks pass."}
-**Relationships:** {"schema_version":1,"sources":null,"pull_requests":[]}
+**Relationships:** {"schema_version":1,"sources":null,"pull_requests":["https://github.com/rore/minimap/pull/87"]}
 **Risk:** High
 **Complexity:** Simple
 **Reason:** Both installed governance trees are red agent-contract paths requiring architecture review. The four-file consumer refresh is mechanically bounded, but must preserve the existing mixed-version package.
@@ -54,6 +54,8 @@ Verification adequacy: exact pinned bytes, complete manifest sizes, unchanged fi
 ## Delivery and recovery
 
 The four-file application is technically reviewed at 8c3dc508742a0f54212624b5485532c3db89ff94. Subsequent changes record review and delivery references only. Next: fresh governance against the current committed head, publish the bounded PR and require successful PR CI; the manager owns the human result/architecture checkpoint, merge and compatible local alignment. Retain the isolated checkout and private originals/evidence until owner handoff and CI follow-up are complete. Other active checkouts remain unchanged and must not receive an in-place skill refresh during their existing work; alignment is deferred to their owners at safe boundaries.
+
+[Draft PR87](https://github.com/rore/minimap/pull/87) carries this contribution. Fresh local governance against bfe2220531ac50f74b392514184471d3224daf43 has no blocking findings; only the separate architecture-review shadow advisory remains. Required PR CI results belong to the PR evidence surface, not duplicated here. The human result/architecture checkpoint and final delivery remain manager-owned. No user environment changed; other active checkouts are deferred, and the isolated checkout/private originals remain retained for CI and handoff.
 
 ## Checkpoint: architecture-review
 
