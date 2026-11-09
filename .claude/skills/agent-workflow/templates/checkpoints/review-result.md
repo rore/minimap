@@ -20,9 +20,11 @@ The reviewer at every Risk level MUST assess:
 
 Assess the [approach](plan-and-review.md#approach), not only the patch.
 
-When the repository already uses a roadmap and this work affects a tracked item's progress or scope, reconcile the owning item under that roadmap's guidance: status, shipped scope, remaining scope, obsolete next steps, placement, and directly affected prerequisites. State the result briefly in existing prose; no roadmap edit is needed when already accurate. Skip when no roadmap/item applies. For PR linkage, delivered contribution and owner handoff, follow [Source-item lifecycle](../../operating-mode.md#source-item-lifecycle).
+When work affects an existing roadmap item, reconcile its status, shipped/remaining scope, obsolete next steps, placement and directly affected prerequisites under that roadmap's guidance. Briefly record the result in existing prose; skip edits when already accurate. For PR linkage, delivered contribution and owner handoff, follow [Source-item lifecycle](../../operating-mode.md#source-item-lifecycle).
 
 Review identity: Routine may use normal PR review. Elevated/High require a clean-context non-implementer agent technical review; High also requires separate human result review. In `## Result review`, record `Agent technical review: <source ref>`, `Reviewed revision: <rev>`, and `Verification adequacy: <assessment>`, with inspected evidence, findings, and limits. Human review/approval/labels add to, never replace, the agent review. Unchanged-application reuse follows [Clean-context delegation](../../operating-mode.md#clean-context-delegation).
+
+When the owner continues editing during review, review a fixed snapshot of the assigned revision or verified immutable build artifacts.
 
 If evidence is insufficient, run or request the smallest behavioral check that resolves it; prefer the relevant end-to-end transition to rerunning a passing suite. Record authoritative result references; if unavailable, leave the gate unsatisfied.
 
