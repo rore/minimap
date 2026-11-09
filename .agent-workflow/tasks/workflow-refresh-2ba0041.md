@@ -20,9 +20,9 @@
 - Compatibility and scope -> relative-link targets/anchors, unchanged adjacent obligations, exact five-path diff and whitespace/privacy checks.
 - Delivery gates -> reuse authoritative unchanged-source reviews; independent fixed-revision destination review, fresh Workflow/Redline evidence and required PR CI.
 **Plan review:** Agent technical review: independent clean-context destination plan review approved c7a7e84af30ea3ff5a5c37e64a6dda795c57896b with no blocking findings. Confirmed High/Simple, complete accurate manifests, both mirrors equal, exactly six preserved customizations, all five relative links and anchors in each mirror, unchanged roadmap obligations and no runtime dependency. The source/package guide is identical at reviewed upstream revision 49caee0c9adabb80902ea84da8684d5dbacbb6ff and pinned merge 2ba0041978448f09099639eb590263c6f2ba8912; unchanged-source technical review reuse is appropriate. Fixed-revision destination result review, fresh governance, required CI and separate human gates remain.
-**Approvals:** Pending authoritative human approval provenance for this exact High consumer refresh; the manager is the sole requester. No new approval request has been made to the human.
+**Approvals:** Approved by user 2026-11-09: "ok, coordinate this with the workflow manager, keep the change short and don't duplicate existing instructions. get it merged and sync the installed skills." The manager recovered this exact human instruction from the authoritative source immediately following the proposal of the exact fixed-input sentence. It authorizes this bounded plan, merge and compatible guidance/manifest sync with customizations preserved. It is not a claim that the human inspected a later consumer diff; separate exact-result acceptance remains a result checkpoint.
 **Exceptions:** —
-**State:** Blocked
+**State:** Ready to implement
 <!-- agent-workflow:end -->
 
 ## Implementation and recovery
@@ -32,6 +32,8 @@ Branch feat/workflow-refresh-2ba0041 starts from main c6ab10d2abd1747bd76a5f1697
 Read-only preflight and independent technical plan review are complete. Both installed mirrors contain 78 equal files; all 77 manifest entries are accurate. Current target matches the previous pin; the new pinned target is 4220 bytes. Exactly the six previously documented checker/privacy-template customizations remain; no new drift was found. The manager verified upstream plan review 3d4d372, result review daee9aca22505599fd43a7c093ed6ef6edeae99c and public-mirror review 49caee0c9adabb80902ea84da8684d5dbacbb6ff with no findings, successful required upstream CI, and merged pin identity. Upstream is Elevated and did not require human approval; this is not substituted for Minimap's High gate. The sole remaining implementation prerequisite is exact human-source approval provenance, which the manager is obtaining. No target edits, environment changes or publication have occurred.
 
 The owner-assigned source is [upstream PR64](https://github.com/rore/agent-workflow/pull/64); [consumer PR85](https://github.com/rore/minimap/pull/85) establishes the preservation procedure. No exact canonical roadmap source or work identity was supplied for this governance maintenance task; Relationships remains unverified, without a fabricated association.
+
+Resume: the manager recovered and forwarded the exact human authorization recorded above; the previous pending-approval notes are historical. Independent destination plan review is already complete. The four intended consumer paths are review-result.md and manifest.txt under each of .agents/skills/agent-workflow and .claude/skills/agent-workflow. Save recoverable originals privately, copy only the pinned guide and update only its existing manifest row; retain every other byte. Then run the focused package, link, privacy/scope and fresh governance checks and request independent result review of a fixed committed revision. No new implementation approval question is required.
 
 ## Checkpoint: architecture-review
 
